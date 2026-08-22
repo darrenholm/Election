@@ -119,7 +119,7 @@ type CandidateSpec = {
 };
 
 const CANDIDATES: CandidateSpec[] = [
-  { town: "Municipality of West Grey", name: "Rebecca Hergert", office: "HEAD_OF_COUNCIL", ward: "", electors: 10400, effort: 0.62 },
+  { town: "Municipality of West Grey", name: "Rebecca Hergert", office: "DEPUTY_HEAD_OF_COUNCIL", ward: "", electors: 10400, effort: 0.62 },
   { town: "Municipality of Brockton", name: "Dana Whitfield", office: "HEAD_OF_COUNCIL", electors: 7900, effort: 0.55 },
   { town: "Municipality of Brockton", name: "Owen Kilbride", office: "COUNCILLOR", electors: 7900, effort: 0.41 },
   { town: "Municipality of Brockton", name: "Priya Raman", office: "COUNCILLOR", electors: 7900, effort: 0.33 },

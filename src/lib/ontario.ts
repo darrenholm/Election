@@ -54,6 +54,9 @@ export const ITEMISATION_THRESHOLD_CENTS = 10_000; // over $100
 
 const SPENDING_BASE_CENTS: Record<Office, number> = {
   HEAD_OF_COUNCIL: 750_000, // $7,500
+  // A deputy mayor or deputy reeve is not the head of council, so the ordinary
+  // base applies — $2,500 less than the mayor's.
+  DEPUTY_HEAD_OF_COUNCIL: 500_000,
   COUNCILLOR: 500_000, // $5,000
   SCHOOL_TRUSTEE: 500_000,
   OTHER: 500_000,
@@ -61,6 +64,7 @@ const SPENDING_BASE_CENTS: Record<Office, number> = {
 
 const SELF_FUNDING_BASE_CENTS: Record<Office, number> = {
   HEAD_OF_COUNCIL: 750_000, // $7,500
+  DEPUTY_HEAD_OF_COUNCIL: 500_000,
   COUNCILLOR: 500_000, // $5,000
   SCHOOL_TRUSTEE: 500_000,
   OTHER: 500_000,

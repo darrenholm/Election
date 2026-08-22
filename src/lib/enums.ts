@@ -13,8 +13,18 @@ function options<T extends string>(map: Record<T, string>): Option<T>[] {
 
 /* ------------------------------------------------------------------ campaign */
 
+/**
+ * Offices, as they matter to the Act.
+ *
+ * Only "head of council" — the mayor or reeve — carries the higher base amount
+ * in the spending and self-funding formulas. A deputy mayor or deputy reeve is
+ * a separate office and takes the ordinary base, so it is listed explicitly
+ * rather than left to be filed under "other": the label appears on Form 4 Box A,
+ * and a filing should say what the candidate actually ran for.
+ */
 export const OFFICES = {
   HEAD_OF_COUNCIL: "Head of council (mayor / reeve)",
+  DEPUTY_HEAD_OF_COUNCIL: "Deputy mayor / deputy reeve",
   COUNCILLOR: "Councillor",
   SCHOOL_TRUSTEE: "School board trustee",
   OTHER: "Other local office",

@@ -406,6 +406,8 @@ function officeWord(office: string): string {
   switch (office) {
     case "HEAD_OF_COUNCIL":
       return "Mayor";
+    case "DEPUTY_HEAD_OF_COUNCIL":
+      return "Deputy Mayor";
     case "COUNCILLOR":
       return "Council";
     case "SCHOOL_TRUSTEE":
