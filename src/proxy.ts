@@ -1,26 +1,30 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { SESSION_COOKIE, authEnabled, isValidSession } from "@/lib/auth";
+import { SESSION_COOKIE, readSessionToken } from "@/lib/session";
 
+/**
+ * The front door.
+ *
+ * Everything except sign-in, the one-time setup page and Twilio's webhooks
+ * requires a valid session. The signature is verified here — cheap, no database
+ * — and whether the account is still active is re-checked by getCurrentUser()
+ * on the request itself, since a deactivated user keeps a technically valid
+ * cookie until it expires.
+ */
 export default async function proxy(request: NextRequest) {
-  if (!authEnabled()) return NextResponse.next();
-
-  const cookie = request.cookies.get(SESSION_COOKIE)?.value;
-  if (await isValidSession(cookie)) return NextResponse.next();
+  const claims = readSessionToken(request.cookies.get(SESSION_COOKIE)?.value);
+  if (claims) return NextResponse.next();
 
   const login = new URL("/login", request.url);
-  // Preserve where the user was headed so sign-in lands them back there.
   const target = request.nextUrl.pathname + request.nextUrl.search;
   if (target !== "/") login.searchParams.set("next", target);
   return NextResponse.redirect(login);
 }
 
 export const config = {
-  // Everything except the login route, Twilio's webhooks, Next's own assets
-  // and static files. The webhooks authenticate themselves with Twilio's
-  // request signature instead — see src/app/api/sms/webhook/route.ts — because
-  // a provider callback cannot sign in with a shared password, and an opt-out
-  // that gets bounced to a login page is an opt-out that never happened.
+  // Sign-in and setup have to be reachable signed out, and Twilio's webhooks
+  // authenticate themselves with a request signature instead — an opt-out
+  // bounced to a login page is an opt-out that never happened.
   matcher: [
-    "/((?!login|api/sms|manifest.webmanifest|sw.js|offline.html|icons|_next/static|_next/image|favicon.ico|.*\\.png$).*)",
+    "/((?!login|setup|api/sms|manifest.webmanifest|sw.js|offline.html|icons|_next/static|_next/image|favicon.ico|.*\\.png$).*)",
   ],
 };

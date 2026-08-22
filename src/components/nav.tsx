@@ -19,6 +19,7 @@ const ITEMS: Item[] = [
   { href: "/texting", label: "Texting", icon: "✉" },
   { href: "/events", label: "Events", icon: "★" },
   { href: "/campaigns", label: "Campaigns", icon: "◫" },
+  { href: "/team", label: "Team", icon: "☗" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
 
@@ -30,9 +31,11 @@ function isActive(pathname: string, href: string): boolean {
 export function SideNav({
   active,
   campaigns,
+  user,
 }: {
   active: SwitcherCampaign | null;
   campaigns: SwitcherCampaign[];
+  user: { name: string; email: string; isAdmin: boolean } | null;
 }) {
   const pathname = usePathname();
 
@@ -43,7 +46,7 @@ export function SideNav({
         <div className="sticky top-0 flex h-dvh flex-col">
           <CampaignSwitcher active={active} campaigns={campaigns} />
           <ul className="flex-1 space-y-0.5 overflow-y-auto p-2">
-            {ITEMS.map((item) => (
+            {ITEMS.filter((item) => item.href !== "/team" || user?.isAdmin).map((item) => (
               <li key={item.href}>
                 <Link
                   href={item.href}
@@ -61,6 +64,20 @@ export function SideNav({
               </li>
             ))}
           </ul>
+          {user ? (
+            <div className="border-t border-line px-4 py-3">
+              <p className="truncate text-xs font-medium">{user.name || user.email}</p>
+              <p className="truncate text-[0.7rem] text-muted">
+                {user.isAdmin ? "Administrator" : "Campaign account"}
+              </p>
+              <Link
+                href="/account/password"
+                className="mt-1 inline-block text-[0.7rem] text-muted underline hover:text-ink"
+              >
+                Change password
+              </Link>
+            </div>
+          ) : null}
         </div>
       </nav>
 

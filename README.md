@@ -190,6 +190,51 @@ levels and consent are not.
 | `npm run db:seed` | Load the demo campaigns |
 | `npm run db:studio` | Prisma Studio, for poking at the data directly |
 
+## Accounts and who sees what
+
+Each person signs in with their own account, and reaches only the campaigns
+granted to them. Five candidates in one town share the address file and the
+voters' list; they never see each other's support levels, contacts, donors or
+consent records.
+
+- The **first visit** to a fresh install opens a one-time setup page that creates
+  the administrator — you, the person running the campaigns. That page stops
+  working the moment an account exists.
+- **Team** (administrators only) creates accounts and grants campaign access.
+  New accounts get a temporary password, shown once, and must change it at first
+  sign-in. There is no email sending, so read it out or message it.
+- Roles: **candidate** (full control including finance), **manager** (everything
+  but deleting the campaign), **canvasser** (voters and canvassing only, no
+  finance or texting), **viewer** (read only).
+- The active-campaign cookie is a preference, not a permission. Whatever it
+  names, the campaign is only served if the account actually has access — so
+  editing it cannot reach a rival's data.
+
+Passwords are hashed with scrypt from Node's standard library. Sessions are
+signed cookies with no server-side store; rotating `SESSION_SECRET` invalidates
+every session at once, which is the lever to pull if something goes wrong.
+
+## Slates
+
+If a group of candidates decide to run together, an administrator can create a
+**slate** on the campaigns page and add them to it.
+
+Sharing is **reciprocal and off by default**: a campaign sees its slate-mates'
+canvass notes and support levels only while it is sharing its own. Nobody reads
+the slate without contributing to it.
+
+Two things are never shared, whatever the slate agrees, and the code enforces it
+rather than trusting the setting:
+
+- **Text-message consent**, because it is given to a named sender and cannot be
+  transferred to another candidate.
+- **Anything financial**, because each candidate has their own contribution
+  limits and files their own Form 4.
+
+Shared notes appear on the voter's page under "From the slate", attributed to
+the candidate who recorded them — a canvasser needs to know whose conversation
+they are reading.
+
 ## Running several candidates
 
 The app is built for a consultant running more than one campaign at once.

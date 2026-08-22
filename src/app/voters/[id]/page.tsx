@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
 import { getActiveCampaign } from "@/lib/campaign";
 import { stateOf } from "@/lib/voter-state";
+import { getSlateNotesForVoter } from "@/lib/slate";
 import { CONTACT_METHODS, CONTACT_RESULTS, SIGN_STATUSES, label, splitList } from "@/lib/enums";
 import { formatDateTime, formatDate } from "@/lib/dates";
 import { deleteVoter, updateVoter, toggleVoted } from "@/app/actions/voters";
@@ -48,6 +49,7 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
 
   if (!voter) notFound();
   const state = stateOf(voter.campaignStates[0]);
+  const slateNotes = await getSlateNotesForVoter(campaignId, voter.id);
   const turf = voter.household?.turfHouseholds[0]?.turf ?? null;
 
   const name = `${titleCase(voter.firstName)} ${titleCase(voter.lastName)}`.trim();
@@ -101,6 +103,35 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
               smsConsent={state.smsConsent}
             />
           </Card>
+
+          {slateNotes.length > 0 ? (
+            <Card
+              title="From the slate"
+              description="Recorded by other candidates you are sharing canvass notes with."
+            >
+              <ol className="space-y-3">
+                {slateNotes.map((note, i) => (
+                  <li key={`${note.campaignId}-${i}`} className="border-l-2 border-brand/40 pl-3">
+                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                      <Badge tone="brand">{note.candidateName}</Badge>
+                      <span className="font-medium">{label(CONTACT_RESULTS, note.result)}</span>
+                      {note.supportLevel !== null ? (
+                        <SupportBadge level={note.supportLevel} />
+                      ) : null}
+                    </div>
+                    <p className="text-xs text-muted">{formatDateTime(note.occurredAt)}</p>
+                    {note.notes ? (
+                      <p className="mt-1 whitespace-pre-wrap text-sm">{note.notes}</p>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+              <p className="mt-3 text-xs text-muted">
+                Support levels shown here are that candidate&apos;s reading, not
+                yours. Text-message consent is never shared between campaigns.
+              </p>
+            </Card>
+          ) : null}
 
           <Card
             title="Contact history"

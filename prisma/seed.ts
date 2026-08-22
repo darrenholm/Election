@@ -18,6 +18,7 @@
 import { PrismaClient } from "@prisma/client";
 import { DOOR_CONSENT_SCRIPT, normalisePhone } from "../src/lib/consent";
 import { canonicalStreet } from "../src/lib/address";
+import { hashPassword } from "../src/lib/password";
 
 const db = new PrismaClient();
 
@@ -129,6 +130,7 @@ const CANDIDATES: CandidateSpec[] = [
 async function main() {
   console.log("Clearing existing data…");
   // Municipality and Campaign cascade to everything else.
+  await db.user.deleteMany();
   await db.municipality.deleteMany();
   await db.campaign.deleteMany();
 
@@ -502,6 +504,35 @@ async function main() {
     console.log(`  ${identified} identified, ${consented} agreed to texts`);
   }
 
+  /* --- accounts: one administrator, one per candidate ------------------- */
+  console.log("Accounts…");
+  const demoPassword = await hashPassword("demo-password-1234");
+
+  await db.user.create({
+    data: {
+      email: "admin@example.com",
+      name: "Campaign consultant",
+      passwordHash: demoPassword,
+      isAdmin: true,
+    },
+  });
+
+  // Each candidate reaches their own campaign and nothing else — which is the
+  // point of the demo as much as anything else in it.
+  for (const campaign of await db.campaign.findMany()) {
+    const handle = campaign.candidateName.toLowerCase().replace(/[^a-z]+/g, ".");
+    const user = await db.user.create({
+      data: {
+        email: `${handle}@example.com`,
+        name: campaign.candidateName,
+        passwordHash: demoPassword,
+      },
+    });
+    await db.campaignAccess.create({
+      data: { userId: user.id, campaignId: campaign.id, role: "OWNER" },
+    });
+  }
+
   console.log("\nDone:", {
     municipalities: await db.municipality.count(),
     campaigns: await db.campaign.count(),
@@ -512,7 +543,11 @@ async function main() {
     volunteers: await db.volunteer.count(),
     signs: await db.signRequest.count(),
     contributions: await db.contribution.count(),
+    accounts: await db.user.count(),
   });
+  console.log(
+    "\nDemo sign-in: admin@example.com / demo-password-1234 (each candidate has their own account too)",
+  );
 }
 
 main()

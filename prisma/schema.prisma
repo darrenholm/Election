@@ -50,6 +50,7 @@ model Municipality {
   campaigns  Campaign[]
   households Household[]
   voters     Voter[]
+  slates     Slate[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -111,6 +112,9 @@ model Campaign {
   events        Event[]
   textCampaigns TextCampaign[]
   smsOptOuts    SmsOptOut[]
+
+  access           CampaignAccess[]
+  slateMemberships SlateMembership[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -677,4 +681,106 @@ model SmsOptOut {
 
   @@unique([campaignId, phone])
   @@index([phone])
+}
+
+/// Someone who signs in.
+///
+/// Each candidate gets their own account and can reach only the campaigns they
+/// have been granted. Nothing about a campaign — voters, support levels,
+/// donors, consent — is visible to anyone without an explicit CampaignAccess
+/// row, so five candidates in one town cannot read each other's canvass.
+model User {
+  id    String @id @default(cuid())
+  email String @unique
+  name  String @default("")
+
+  /// scrypt, stored as "salt:derivedKey" in hex. See src/lib/password.ts.
+  passwordHash String
+
+  /// Can see and manage every campaign, create accounts and form slates. The
+  /// consultant running the whole operation; not a candidate.
+  isAdmin  Boolean @default(false)
+  isActive Boolean @default(true)
+
+  /// Forces a password change at next sign-in — used for accounts created with
+  /// a temporary password.
+  mustChangePassword Boolean @default(false)
+
+  lastSignInAt DateTime?
+
+  access CampaignAccess[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+/// Which campaigns a user may reach, and what they may do there.
+model CampaignAccess {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  /// OWNER — the candidate; full control including finance.
+  /// MANAGER — full control except deleting the campaign.
+  /// CANVASSER — voters and canvassing only; no finance, no texting.
+  /// VIEWER — read only.
+  role String @default("CANVASSER")
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, campaignId])
+  @@index([campaignId])
+}
+
+/// A group of campaigns running together.
+///
+/// Exists so a set of candidates can agree to pool what they learn at the door
+/// without pooling anything else. Sharing is reciprocal and opt-in per campaign:
+/// you see a slate-mate's canvass notes only if you are sharing yours too.
+///
+/// Two things are never shared, whatever the slate says, and the code enforces
+/// it rather than trusting the setting: text-message consent, because it is
+/// given to a named sender and cannot be transferred; and anything financial,
+/// because each candidate has their own contribution limits and files their own
+/// Form 4.
+model Slate {
+  id   String @id @default(cuid())
+  name String
+
+  municipalityId String
+  municipality   Municipality @relation(fields: [municipalityId], references: [id], onDelete: Cascade)
+
+  members SlateMembership[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([municipalityId])
+}
+
+model SlateMembership {
+  id String @id @default(cuid())
+
+  slateId String
+  slate   Slate  @relation(fields: [slateId], references: [id], onDelete: Cascade)
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  /// Off by default. When on, this campaign's canvass notes and support levels
+  /// become visible to slate-mates who are also sharing — and only then does
+  /// this campaign see theirs. Reciprocity is the rule: you cannot read the
+  /// slate without contributing to it.
+  sharesCanvassData Boolean @default(false)
+
+  joinedAt DateTime @default(now())
+
+  @@unique([slateId, campaignId])
+  @@index([campaignId])
 }

@@ -1,9 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import { SideNav } from "@/components/nav";
 import { OutboxStatus } from "@/components/outbox-status";
-import { getActiveCampaign, listCampaigns } from "@/lib/campaign";
+import { getActiveCampaign } from "@/lib/campaign";
 import { OFFICES, label } from "@/lib/enums";
-import { authEnabled } from "@/lib/auth";
+import { getAccessibleCampaigns, getCurrentUser } from "@/lib/auth";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -26,29 +26,44 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const [active, campaigns] = await Promise.all([getActiveCampaign(), listCampaigns()]);
-
-  const toSwitcher = (c: NonNullable<typeof active>) => ({
-    id: c.id,
-    candidateName: c.candidateName || "Unnamed candidate",
-    officeLabel: label(OFFICES, c.office),
-    municipality: c.municipality.name,
-  });
+  const [user, active, accessible] = await Promise.all([
+    getCurrentUser(),
+    getActiveCampaign(),
+    getAccessibleCampaigns(),
+  ]);
 
   return (
     <html lang="en">
       <body>
         <div className="flex min-h-dvh flex-col md:flex-row">
           <SideNav
-            active={active ? toSwitcher(active) : null}
-            campaigns={campaigns.filter((c) => c.isActive).map(toSwitcher)}
+            active={
+              active
+                ? {
+                    id: active.id,
+                    candidateName: active.candidateName || "Unnamed candidate",
+                    officeLabel: label(OFFICES, active.office),
+                    municipality: active.municipality.name,
+                  }
+                : null
+            }
+            campaigns={accessible.map((c) => ({
+              id: c.id,
+              candidateName: c.candidateName || "Unnamed candidate",
+              officeLabel: label(OFFICES, c.office),
+              municipality: c.municipalityName,
+            }))}
+            user={user}
           />
           <div className="min-w-0 flex-1">
             <OutboxStatus />
-            {!authEnabled() ? (
+            {user?.mustChangePassword ? (
               <div className="no-print bg-amber-100 px-4 py-1.5 text-center text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200">
-                No password set — this app is open to anyone who can reach it. Set
-                APP_PASSWORD before putting voter data on a shared server.
+                You are using a temporary password.{" "}
+                <a href="/account/password" className="underline">
+                  Choose your own
+                </a>
+                .
               </div>
             ) : null}
             <main className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8 md:py-8">

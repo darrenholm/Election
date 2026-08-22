@@ -1,54 +1,138 @@
+import { cookies } from "next/headers";
+import { cache } from "react";
+import { db } from "./db";
+import { SESSION_COOKIE, readSessionToken } from "./session";
+
 /**
- * Single shared password for the whole campaign team.
+ * Who is signed in, and what they are allowed to reach.
  *
- * This database holds voter names, home addresses and phone numbers, so any
- * deployment reachable from the internet must set APP_PASSWORD. When the
- * variable is unset the gate is off, which is the right behaviour for running
- * on a laptop and the wrong behaviour anywhere else — the dashboard says so
- * loudly.
- *
- * The session cookie carries a SHA-256 digest of the password plus a fixed
- * salt rather than the password itself, so the plaintext never travels back to
- * the browser. Web Crypto is used throughout so the same helpers work in the
- * Node runtime (server actions) and the edge runtime (middleware).
+ * The rule this file exists to enforce: a candidate sees their own campaign and
+ * nothing else. Five people running in the same town share a voters' list but
+ * must not be able to read each other's support levels, donors or consent
+ * records — so every campaign-scoped query in the app resolves its campaign id
+ * through requireCampaignId(), which goes through here.
  */
 
-export const SESSION_COOKIE = "campaign_session";
-const SALT = "municipal-campaign-manager:v1";
+import { ROLE_RANK, type Role } from "./roles";
 
-export function authEnabled(): boolean {
-  return Boolean(process.env.APP_PASSWORD);
+export type { Role };
+
+export type SignedInUser = {
+  id: string;
+  email: string;
+  name: string;
+  isAdmin: boolean;
+  mustChangePassword: boolean;
+};
+
+/**
+ * The signed-in user, or null. Cached per request: the layout, the page and any
+ * action in one render would otherwise each hit the database for the same row.
+ */
+export const getCurrentUser = cache(async (): Promise<SignedInUser | null> => {
+  const jar = await cookies();
+  const claims = readSessionToken(jar.get(SESSION_COOKIE)?.value);
+  if (!claims) return null;
+
+  const user = await db.user.findUnique({
+    where: { id: claims.userId },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      isAdmin: true,
+      isActive: true,
+      mustChangePassword: true,
+    },
+  });
+
+  // A deactivated account keeps its valid cookie until it expires, so the
+  // check has to happen on every read rather than only at sign-in.
+  if (!user || !user.isActive) return null;
+
+  return {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    isAdmin: user.isAdmin,
+    mustChangePassword: user.mustChangePassword,
+  };
+});
+
+/** True when nobody has been set up yet, which unlocks the one-time setup page. */
+export async function needsSetup(): Promise<boolean> {
+  return (await db.user.count()) === 0;
 }
 
-async function digest(value: string): Promise<string> {
-  const bytes = new TextEncoder().encode(`${SALT}:${value}`);
-  const hash = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(hash))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+export type AccessibleCampaign = {
+  id: string;
+  candidateName: string;
+  office: string;
+  ward: string;
+  municipalityId: string;
+  municipalityName: string;
+  role: Role;
+};
+
+/**
+ * Every campaign this user may reach. An admin gets all of them; everyone else
+ * gets exactly what they have been granted.
+ */
+export const getAccessibleCampaigns = cache(
+  async (): Promise<AccessibleCampaign[]> => {
+    const user = await getCurrentUser();
+    if (!user) return [];
+
+    const campaigns = await db.campaign.findMany({
+      where: user.isAdmin ? { isActive: true } : { isActive: true, access: { some: { userId: user.id } } },
+      include: {
+        municipality: { select: { id: true, name: true } },
+        access: { where: { userId: user.id }, select: { role: true } },
+      },
+      orderBy: [{ municipality: { name: "asc" } }, { candidateName: "asc" }],
+    });
+
+    return campaigns.map((c) => ({
+      id: c.id,
+      candidateName: c.candidateName,
+      office: c.office,
+      ward: c.ward,
+      municipalityId: c.municipalityId,
+      municipalityName: c.municipality.name,
+      role: (c.access[0]?.role ?? (user.isAdmin ? "OWNER" : "VIEWER")) as Role,
+    }));
+  },
+);
+
+/** The user's role on one campaign, or null when they have no access at all. */
+export async function roleOn(campaignId: string): Promise<Role | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  if (user.isAdmin) return "OWNER";
+
+  const access = await db.campaignAccess.findUnique({
+    where: { userId_campaignId: { userId: user.id, campaignId } },
+    select: { role: true },
+  });
+  return (access?.role as Role) ?? null;
 }
 
-/** The value a valid session cookie should hold for the current password. */
-export async function sessionToken(): Promise<string> {
-  return digest(process.env.APP_PASSWORD ?? "");
+export async function canAccess(campaignId: string): Promise<boolean> {
+  return (await roleOn(campaignId)) !== null;
 }
 
-/** Length-independent comparison so a wrong guess leaks no timing signal. */
-function safeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diff === 0;
+/** Whether the user's role on a campaign is at least the one required. */
+export async function hasRole(campaignId: string, minimum: Role): Promise<boolean> {
+  const role = await roleOn(campaignId);
+  if (!role) return false;
+  return ROLE_RANK[role] >= ROLE_RANK[minimum];
 }
 
-export async function isValidPassword(candidate: string): Promise<boolean> {
-  const expected = process.env.APP_PASSWORD ?? "";
-  if (!expected) return true;
-  return safeEqual(await digest(candidate), await digest(expected));
-}
-
-export async function isValidSession(cookieValue: string | undefined): Promise<boolean> {
-  if (!authEnabled()) return true;
-  if (!cookieValue) return false;
-  return safeEqual(cookieValue, await sessionToken());
+/**
+ * Finance and texting are restricted to the candidate and their manager.
+ * Contribution limits and consent records are not a canvasser's business, and
+ * an accidental entry in either is a compliance problem.
+ */
+export async function canManageMoney(campaignId: string): Promise<boolean> {
+  return hasRole(campaignId, "MANAGER");
 }

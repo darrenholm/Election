@@ -10,11 +10,21 @@ export function LoginForm({ next }: { next: string }) {
     <form action={action} className="mt-6 space-y-3">
       <input type="hidden" name="next" value={next} />
       <label className="block">
+        <span className="field-label">Email</span>
+        <input
+          type="email"
+          name="email"
+          autoFocus
+          autoComplete="username"
+          required
+          className="field"
+        />
+      </label>
+      <label className="block">
         <span className="field-label">Password</span>
         <input
           type="password"
           name="password"
-          autoFocus
           autoComplete="current-password"
           required
           className="field"

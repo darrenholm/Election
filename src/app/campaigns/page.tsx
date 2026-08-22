@@ -5,6 +5,9 @@ import { OFFICES, OFFICE_OPTIONS, label } from "@/lib/enums";
 import { formatDate, toDateInput } from "@/lib/dates";
 import { nextOntarioVotingDay } from "@/lib/campaign";
 import { archiveCampaign, createCampaign, setActiveCampaign } from "@/app/actions/campaigns";
+import { addToSlate, createSlate, deleteSlate, removeFromSlate, setSlateSharing } from "@/app/actions/slate";
+import { getCurrentUser } from "@/lib/auth";
+import { getSlates } from "@/lib/slate";
 import { Badge, Card, Check, EmptyState, Field, Note, PageHeader, Select, StatTile } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -15,14 +18,21 @@ export const dynamic = "force-dynamic";
  * of the app follows.
  */
 export default async function CampaignsPage() {
-  const [campaigns, active, municipalities] = await Promise.all([
+  const [campaigns, active, municipalities, me] = await Promise.all([
     listCampaigns(),
     getActiveCampaign(),
     db.municipality.findMany({
       include: { _count: { select: { households: true, voters: true, campaigns: true } } },
       orderBy: { name: "asc" },
     }),
+    getCurrentUser(),
   ]);
+
+  // Slates are per municipality: candidates in different towns knock different
+  // doors, so there is nothing to pool.
+  const slatesByTown = await Promise.all(
+    municipalities.map(async (m) => ({ municipality: m, slates: await getSlates(m.id) })),
+  );
 
   const live = campaigns.filter((c) => c.isActive);
   const archived = campaigns.filter((c) => !c.isActive);
@@ -139,6 +149,140 @@ export default async function CampaignsPage() {
                   );
                 })}
               </ul>
+            </Card>
+          ) : null}
+
+          {me?.isAdmin ? (
+            <Card
+              title="Slates"
+              description="Candidates running together who agree to pool what they learn at the door."
+            >
+              <Note>
+                Sharing is <strong>reciprocal and off by default</strong>: a
+                campaign sees its slate-mates&apos; canvass notes only while it is
+                sharing its own. Text-message consent and anything financial are
+                never shared, whatever the slate agrees — consent is given to a
+                named sender, and each candidate has their own contribution
+                limits and their own Form 4.
+              </Note>
+
+              {slatesByTown.flatMap((t) => t.slates).length === 0 ? (
+                <p className="mt-3 text-sm text-muted">
+                  No slates yet. Create one below if your candidates decide to
+                  run together.
+                </p>
+              ) : (
+                <ul className="mt-3 space-y-4">
+                  {slatesByTown.flatMap((town) =>
+                    town.slates.map((slate) => {
+                      const remove = deleteSlate.bind(null, slate.id);
+                      const inSlate = new Set(slate.members.map((m) => m.campaignId));
+                      const candidates = campaigns.filter(
+                        (c) => c.municipalityId === town.municipality.id && !inSlate.has(c.id),
+                      );
+                      return (
+                        <li key={slate.id} className="rounded-lg border border-line p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="font-medium">
+                              {slate.name}{" "}
+                              <span className="text-xs font-normal text-muted">
+                                {town.municipality.name}
+                              </span>
+                            </p>
+                            <form action={remove}>
+                              <button type="submit" className="btn-ghost text-xs">
+                                Delete slate
+                              </button>
+                            </form>
+                          </div>
+
+                          {slate.members.length === 0 ? (
+                            <p className="mt-2 text-xs text-muted">No members yet.</p>
+                          ) : (
+                            <ul className="mt-2 space-y-1.5">
+                              {slate.members.map((member) => {
+                                const toggle = setSlateSharing.bind(
+                                  null,
+                                  member.id,
+                                  !member.sharesCanvassData,
+                                );
+                                const drop = removeFromSlate.bind(null, member.id);
+                                return (
+                                  <li
+                                    key={member.id}
+                                    className="flex flex-wrap items-center justify-between gap-2 rounded bg-raise px-2.5 py-1.5 text-sm"
+                                  >
+                                    <span>
+                                      {member.campaign.candidateName}{" "}
+                                      {member.sharesCanvassData ? (
+                                        <Badge tone="good">Sharing</Badge>
+                                      ) : (
+                                        <Badge>Not sharing</Badge>
+                                      )}
+                                    </span>
+                                    <span className="flex gap-2">
+                                      <form action={toggle}>
+                                        <button type="submit" className="text-xs underline">
+                                          {member.sharesCanvassData
+                                            ? "Stop sharing"
+                                            : "Start sharing"}
+                                        </button>
+                                      </form>
+                                      <form action={drop}>
+                                        <button type="submit" className="text-xs text-muted underline">
+                                          Remove
+                                        </button>
+                                      </form>
+                                    </span>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+
+                          {candidates.length > 0 ? (
+                            <form action={addToSlate} className="mt-2 flex flex-wrap gap-2">
+                              <input type="hidden" name="slateId" value={slate.id} />
+                              <select name="campaignId" className="field w-56 text-xs" required>
+                                <option value="">Add a candidate…</option>
+                                {candidates.map((c) => (
+                                  <option key={c.id} value={c.id}>
+                                    {c.candidateName}
+                                  </option>
+                                ))}
+                              </select>
+                              <button type="submit" className="btn-secondary text-xs">
+                                Add
+                              </button>
+                            </form>
+                          ) : null}
+                        </li>
+                      );
+                    }),
+                  )}
+                </ul>
+              )}
+
+              {municipalities.length > 0 ? (
+                <form action={createSlate} className="mt-4 flex flex-wrap gap-2 border-t border-line pt-3">
+                  <input
+                    name="name"
+                    placeholder="Slate name"
+                    className="field w-44 text-xs"
+                    required
+                  />
+                  <select name="municipalityId" className="field w-56 text-xs" required>
+                    {municipalities.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                  <button type="submit" className="btn-secondary text-xs">
+                    Create slate
+                  </button>
+                </form>
+              ) : null}
             </Card>
           ) : null}
 

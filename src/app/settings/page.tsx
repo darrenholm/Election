@@ -10,7 +10,7 @@ import {
 import { formatCents } from "@/lib/money";
 import { toDateInput } from "@/lib/dates";
 import { OFFICE_OPTIONS } from "@/lib/enums";
-import { authEnabled } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 import { smsConfig } from "@/lib/sms";
 import { updateCampaign } from "@/app/actions/campaigns";
 import { signOut } from "@/app/actions/auth";
@@ -20,7 +20,7 @@ import { WardSetting } from "./ward-setting";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const campaign = await getActiveCampaign();
+  const [campaign, user] = await Promise.all([getActiveCampaign(), getCurrentUser()]);
   if (!campaign) redirect("/campaigns");
 
   const limits = computeLimits(campaign);
@@ -37,13 +37,11 @@ export default async function SettingsPage() {
             <Link href="/campaigns" className="btn-secondary">
               All campaigns
             </Link>
-            {authEnabled() ? (
-              <form action={signOut}>
-                <button type="submit" className="btn-secondary">
-                  Sign out
-                </button>
-              </form>
-            ) : null}
+            <form action={signOut}>
+              <button type="submit" className="btn-secondary">
+                Sign out
+              </button>
+            </form>
           </>
         }
       />
@@ -270,14 +268,16 @@ export default async function SettingsPage() {
       <div className="mt-8">
         <Card title="Access">
           <p className="text-sm text-muted">
-            {authEnabled()
-              ? "A shared password is set. Everyone on the team signs in with it; changing APP_PASSWORD signs everyone out."
-              : "No password is set. Set the APP_PASSWORD environment variable before running this anywhere other than your own machine — the database holds electors' names, addresses and phone numbers."}
+            You are signed in as <strong>{user?.email}</strong>
+            {user?.isAdmin ? " (administrator)" : ""}.
           </p>
           <p className="mt-2 text-sm text-muted">
-            Note that the password is shared across <em>every</em> campaign in
-            this install. Anyone who can sign in can switch to any candidate and
-            see their data.
+            Each account reaches only the campaigns it has been given. Add people
+            and grant access on the{" "}
+            <Link href="/team" className="underline">
+              team page
+            </Link>
+            .
           </p>
         </Card>
       </div>

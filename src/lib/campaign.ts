@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { db } from "./db";
 import { computeLimits, type LimitSet } from "./ontario";
+import { getAccessibleCampaigns, getCurrentUser } from "./auth";
 
 /**
  * Which campaign the user is currently working on.
@@ -17,28 +18,27 @@ export const ACTIVE_CAMPAIGN_COOKIE = "active_campaign";
 export type ActiveCampaign = NonNullable<Awaited<ReturnType<typeof findActiveCampaign>>>;
 
 async function findActiveCampaign() {
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  // The cookie is a preference, not a permission. Whatever it names, the
+  // campaign is only returned if this user actually has access to it —
+  // otherwise anyone could switch to a rival's campaign by editing a cookie.
+  const allowed = await getAccessibleCampaigns();
+  if (allowed.length === 0) return null;
+
   const jar = await cookies();
   const requested = jar.get(ACTIVE_CAMPAIGN_COOKIE)?.value;
+  const chosenId = allowed.some((c) => c.id === requested) ? requested : allowed[0].id;
 
-  if (requested) {
-    const chosen = await db.campaign.findUnique({
-      where: { id: requested },
-      include: { municipality: true },
-    });
-    if (chosen) return chosen;
-    // The cookie points at a campaign that has since been deleted; fall through
-    // rather than leaving the user staring at an error.
-  }
-
-  return db.campaign.findFirst({
-    where: { isActive: true },
+  return db.campaign.findUnique({
+    where: { id: chosenId },
     include: { municipality: true },
-    orderBy: [{ createdAt: "asc" }],
   });
 }
 
 /**
- * The active campaign, or null when none exists yet. Pages that cannot do
+ * The active campaign, or null when the user has none. Pages that cannot do
  * anything useful without one should redirect to /campaigns.
  */
 export async function getActiveCampaign() {
@@ -47,17 +47,21 @@ export async function getActiveCampaign() {
 
 /**
  * The active campaign's id, for scoping a query. Throws when there is none —
- * callers that might run before setup should use getActiveCampaign() and handle
- * the null themselves.
+ * which is the safe failure: a query that cannot be scoped must not run.
  */
 export async function requireCampaignId(): Promise<string> {
   const campaign = await findActiveCampaign();
-  if (!campaign) throw new Error("No campaign has been set up yet");
+  if (!campaign) throw new Error("No campaign available to this account");
   return campaign.id;
 }
 
+/** Campaigns this user may see, for the management page. */
 export async function listCampaigns() {
+  const user = await getCurrentUser();
+  if (!user) return [];
+
   return db.campaign.findMany({
+    where: user.isAdmin ? undefined : { access: { some: { userId: user.id } } },
     include: {
       municipality: true,
       _count: { select: { contacts: true, volunteers: true, signRequests: true } },
