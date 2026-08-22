@@ -81,7 +81,9 @@ export default async function Form4Page() {
             <Line term="Candidate" value={campaign.candidateName || "—"} />
             <Line term="Office" value={label(OFFICES, campaign.office)} />
             <Line term="Municipality" value={campaign.municipality || "—"} />
-            <Line term="Ward or district" value={campaign.ward || "—"} />
+            {campaign.usesWards ? (
+              <Line term="Ward or district" value={campaign.ward || "—"} />
+            ) : null}
             <Line term="Campaign period start" value={formatDate(campaign.campaignPeriodStart)} />
             <Line
               term="Campaign period end"

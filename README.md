@@ -148,6 +148,23 @@ This is one shared password for the whole team, not per-user accounts. It is
 deliberately simple, and it is not an audit trail: it tells you that someone
 from the campaign made a change, not who.
 
+### Municipalities without wards
+
+Plenty of Ontario municipalities elect council at large. **Settings → "This
+municipality is divided into wards"** is off by default; leave it off and every
+ward field, filter, column and grouping disappears across the app — the voter
+form and filters, turf, sign requests, the CSV import mapping, and Box A of the
+Form 4 worksheet. Sign run sheets group by street instead of by ward, in civic
+number order.
+
+Turning it on brings all of it back. Switching it off clears the stored ward
+name so a stale value cannot reappear later; ward values already on households
+and sign requests are left untouched and simply stop being displayed.
+
+The demo seed sets it on, because the fictional municipality it models does use
+wards — so re-running `npm run db:seed` turns wards back on for that demo
+campaign.
+
 ### Voters' list handling
 
 The municipal voters' list may only be used for election purposes. Keep it

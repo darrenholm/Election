@@ -7,6 +7,7 @@ import { authEnabled } from "@/lib/auth";
 import { saveCampaign } from "@/app/actions/settings";
 import { signOut } from "@/app/actions/auth";
 import { Card, Field, Note, PageHeader, Select } from "@/components/ui";
+import { WardSetting } from "./ward-setting";
 
 export const dynamic = "force-dynamic";
 
@@ -52,14 +53,7 @@ export default async function SettingsPage() {
                 placeholder="City of Kawartha Lakes"
               />
             </Field>
-            <Field label="Ward or district">
-              <input
-                name="ward"
-                defaultValue={campaign.ward}
-                className="field"
-                placeholder="Ward 3"
-              />
-            </Field>
+            <WardSetting usesWards={campaign.usesWards} ward={campaign.ward} />
             <Field label="Campaign email">
               <input name="contactEmail" type="email" defaultValue={campaign.contactEmail} className="field" />
             </Field>

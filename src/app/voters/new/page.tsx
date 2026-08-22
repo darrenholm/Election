@@ -1,9 +1,16 @@
 import Link from "next/link";
 import { createVoter } from "@/app/actions/voters";
+import { getCampaign } from "@/lib/campaign";
 import { Card, PageHeader } from "@/components/ui";
 import { VoterFormFields } from "@/components/voter-form";
 
-export default function NewVoterPage() {
+// Reads the campaign's ward setting, so this page must render per request
+// rather than being baked in at build time.
+export const dynamic = "force-dynamic";
+
+export default async function NewVoterPage() {
+  const campaign = await getCampaign();
+
   return (
     <>
       <PageHeader
@@ -17,7 +24,7 @@ export default function NewVoterPage() {
       />
       <form action={createVoter}>
         <Card>
-          <VoterFormFields />
+          <VoterFormFields showWards={campaign.usesWards} />
         </Card>
         <div className="mt-4 flex justify-end">
           <button type="submit" className="btn-primary">

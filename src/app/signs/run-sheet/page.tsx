@@ -4,13 +4,16 @@ import { getCampaign } from "@/lib/campaign";
 import { SIGN_TYPES, label } from "@/lib/enums";
 import { formatDate } from "@/lib/dates";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
+import { titleCase } from "@/components/voter";
 
 export const dynamic = "force-dynamic";
 
 /**
  * A sheet for the sign crew to take in the truck: every address waiting on an
- * install, grouped by ward, with room to tick things off. Styled to print
- * cleanly — the app chrome is hidden by the no-print rules.
+ * install, with room to tick things off. Grouped by ward where the
+ * municipality has them and by street where it does not, so the crew always
+ * works one area at a time. Styled to print cleanly — the app chrome is hidden
+ * by the no-print rules.
  */
 export default async function RunSheetPage({
   searchParams,
@@ -30,14 +33,27 @@ export default async function RunSheetPage({
     }),
   ]);
 
-  const byWard = new Map<string, typeof signs>();
+  const groups = new Map<string, typeof signs>();
   for (const sign of signs) {
-    const key = sign.ward || "Unassigned ward";
-    const list = byWard.get(key);
+    // Addresses arrive from the voters' list in caps; a printed sheet reads
+    // better in title case.
+    const key = campaign.usesWards
+      ? sign.ward || "Unassigned ward"
+      : titleCase(streetOf(sign.addressLine));
+    const list = groups.get(key);
     if (list) list.push(sign);
-    else byWard.set(key, [sign]);
+    else groups.set(key, [sign]);
   }
-  const wards = Array.from(byWard.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+
+  const sections = Array.from(groups.entries())
+    .map(([name, items]) => ({
+      name,
+      // Within a street, drive it in civic-number order rather than the
+      // alphabetical order a text sort would give ("10" before "9").
+      items: campaign.usesWards ? items : [...items].sort(byCivicNumber),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   const total = signs.reduce((n, s) => n + s.quantity, 0);
 
   return (
@@ -80,10 +96,14 @@ export default async function RunSheetPage({
         </Card>
       ) : (
         <div className="space-y-6">
-          {wards.map(([ward, items]) => (
-            <Card key={ward} title={ward} description={`${items.length} stops`}>
+          {sections.map((section) => (
+            <Card
+              key={section.name}
+              title={section.name}
+              description={`${section.items.length} stops`}
+            >
               <ul className="divide-y divide-line">
-                {items.map((sign) => (
+                {section.items.map((sign) => (
                   <li key={sign.id} className="flex gap-3 py-3">
                     <span
                       aria-hidden
@@ -119,4 +139,28 @@ export default async function RunSheetPage({
       )}
     </>
   );
+}
+
+/** "12 Kent St W" → "Kent St W"; falls back to the whole line when there is no
+ *  leading civic number to strip. */
+function streetOf(addressLine: string): string {
+  const trimmed = addressLine.trim();
+  if (trimmed === "") return "No address";
+  const withoutNumber = trimmed.replace(/^\d+[A-Za-z]?\s+/, "");
+  return withoutNumber === "" ? trimmed : withoutNumber;
+}
+
+function civicNumber(addressLine: string): number {
+  const match = addressLine.trim().match(/^(\d+)/);
+  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+}
+
+function byCivicNumber(
+  a: { addressLine: string },
+  b: { addressLine: string },
+): number {
+  const diff = civicNumber(a.addressLine) - civicNumber(b.addressLine);
+  return diff !== 0 && Number.isFinite(diff)
+    ? diff
+    : a.addressLine.localeCompare(b.addressLine);
 }

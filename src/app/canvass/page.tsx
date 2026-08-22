@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
+import { getCampaign } from "@/lib/campaign";
 import { TURF_STATUSES, label } from "@/lib/enums";
 import { formatDateTime } from "@/lib/dates";
 import { createTurf } from "@/app/actions/voters";
@@ -12,7 +13,8 @@ export default async function CanvassPage() {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
 
-  const [turfs, volunteers, unassignedStreets, recentContacts, weekStats] = await Promise.all([
+  const [campaign, turfs, volunteers, unassignedStreets, recentContacts, weekStats] = await Promise.all([
+    getCampaign(),
     db.turf.findMany({
       include: {
         assignedTo: true,
@@ -171,9 +173,11 @@ export default async function CanvassPage() {
                   blankLabel="Unassigned for now"
                 />
               </Field>
-              <Field label="Ward">
-                <input name="ward" className="field" />
-              </Field>
+              {campaign.usesWards ? (
+                <Field label="Ward">
+                  <input name="ward" className="field" />
+                </Field>
+              ) : null}
               <Field
                 label="Streets"
                 hint="One per line, or comma-separated. Every household on these streets joins the turf."

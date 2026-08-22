@@ -27,7 +27,11 @@ type Mapping = Partial<Record<TargetKey, string>>;
 /** Rows per server action call — keeps each request comfortably small. */
 const CHUNK_SIZE = 250;
 
-export function ImportWizard() {
+export function ImportWizard({ showWards = false }: { showWards?: boolean }) {
+  // A municipality without wards has no ward column to map, so it is dropped
+  // from the target list entirely rather than shown and left blank.
+  const targets = showWards ? TARGETS : TARGETS.filter((t) => t.key !== "ward");
+
   const [headers, setHeaders] = useState<string[] | null>(null);
   const [rows, setRows] = useState<Record<string, string>[]>([]);
   const [mapping, setMapping] = useState<Mapping>({});
@@ -51,7 +55,7 @@ export function ImportWizard() {
         }
         setHeaders(fields);
         setRows(parsed.data);
-        setMapping(guessMapping(fields));
+        setMapping(guessMapping(fields, targets));
       },
       error: (error) => setParseError(error.message),
     });
@@ -60,7 +64,7 @@ export function ImportWizard() {
   function runImport() {
     const mapped: ImportRow[] = rows.map((row) => {
       const out: ImportRow = {};
-      for (const target of TARGETS) {
+      for (const target of targets) {
         const source = mapping[target.key];
         if (source) out[target.key] = (row[source] ?? "").trim();
       }
@@ -170,7 +174,7 @@ export function ImportWizard() {
               minimum.
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {TARGETS.map((target) => (
+              {targets.map((target) => (
                 <label key={target.key} className="block">
                   <span className="field-label">{target.label}</span>
                   <select
@@ -199,7 +203,7 @@ export function ImportWizard() {
                 <table className="w-full min-w-[36rem] text-sm">
                   <thead>
                     <tr className="bg-raise">
-                      {TARGETS.filter((t) => mapping[t.key]).map((t) => (
+                      {targets.filter((t) => mapping[t.key]).map((t) => (
                         <th
                           key={t.key}
                           className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted"
@@ -212,7 +216,7 @@ export function ImportWizard() {
                   <tbody>
                     {rows.slice(0, 5).map((row, i) => (
                       <tr key={i} className="border-t border-line">
-                        {TARGETS.filter((t) => mapping[t.key]).map((t) => (
+                        {targets.filter((t) => mapping[t.key]).map((t) => (
                           <td key={t.key} className="px-3 py-1.5">
                             {row[mapping[t.key] as string] ?? ""}
                           </td>
@@ -260,11 +264,14 @@ export function ImportWizard() {
 }
 
 /** Guess the mapping from header names so most lists need no manual work. */
-function guessMapping(headers: string[]): Mapping {
+function guessMapping(
+  headers: string[],
+  targets: readonly (typeof TARGETS)[number][],
+): Mapping {
   const mapping: Mapping = {};
   const taken = new Set<string>();
 
-  for (const target of TARGETS) {
+  for (const target of targets) {
     const match = headers.find((h) => {
       if (taken.has(h)) return false;
       const norm = h.toLowerCase().replace(/[^a-z]/g, "");

@@ -33,7 +33,13 @@ export type VoterFormValues = {
  * through to the household record, which is why they are flat here rather than
  * nested — the server action resolves them into a household on save.
  */
-export function VoterFormFields({ voter }: { voter?: VoterFormValues }) {
+export function VoterFormFields({
+  voter,
+  showWards = false,
+}: {
+  voter?: VoterFormValues;
+  showWards?: boolean;
+}) {
   const h = voter?.household;
 
   return (
@@ -84,9 +90,11 @@ export function VoterFormFields({ voter }: { voter?: VoterFormValues }) {
           <Field label="Postal code" className="sm:col-span-2">
             <input name="postalCode" defaultValue={h?.postalCode ?? ""} className="field" />
           </Field>
-          <Field label="Ward" className="sm:col-span-1">
-            <input name="ward" defaultValue={h?.ward ?? ""} className="field" />
-          </Field>
+          {showWards ? (
+            <Field label="Ward" className="sm:col-span-1">
+              <input name="ward" defaultValue={h?.ward ?? ""} className="field" />
+            </Field>
+          ) : null}
           <Field label="Poll" className="sm:col-span-1">
             <input name="pollNumber" defaultValue={h?.pollNumber ?? ""} className="field" />
           </Field>

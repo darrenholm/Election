@@ -6,6 +6,7 @@ import { formatDate } from "@/lib/dates";
 import { Badge, Card, EmptyState, PageHeader, Table, Td, Th } from "@/components/ui";
 import { SupportBadge, VoterLink, addressLine, titleCase } from "@/components/voter";
 import { normaliseStreet } from "@/lib/address";
+import { getCampaign } from "@/lib/campaign";
 
 export const dynamic = "force-dynamic";
 
@@ -68,7 +69,8 @@ export default async function VotersPage({
   if (supportValues.length > 0) and.push({ supportLevel: { in: supportValues } });
   if (flag && FLAGS[flag]) and.push(FLAGS[flag].where);
 
-  const [total, voters, wards] = await Promise.all([
+  const [campaign, total, voters, wards] = await Promise.all([
+    getCampaign(),
     db.voter.count({ where }),
     db.voter.findMany({
       where,
@@ -115,17 +117,19 @@ export default async function VotersPage({
               className="field"
             />
           </label>
-          <label>
-            <span className="field-label">Ward</span>
-            <select name="ward" defaultValue={ward} className="field">
-              <option value="">All wards</option>
-              {wards.map((w) => (
-                <option key={w.ward} value={w.ward}>
-                  {w.ward}
-                </option>
-              ))}
-            </select>
-          </label>
+          {campaign.usesWards ? (
+            <label>
+              <span className="field-label">Ward</span>
+              <select name="ward" defaultValue={ward} className="field">
+                <option value="">All wards</option>
+                {wards.map((w) => (
+                  <option key={w.ward} value={w.ward}>
+                    {w.ward}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ) : null}
           <label>
             <span className="field-label">List</span>
             <select name="flag" defaultValue={flag} className="field">
@@ -216,7 +220,7 @@ export default async function VotersPage({
                     </Td>
                     <Td className="text-muted">
                       {addressLine(voter.household)}
-                      {voter.household?.ward ? (
+                      {campaign.usesWards && voter.household?.ward ? (
                         <span className="block text-xs">{voter.household.ward}</span>
                       ) : null}
                     </Td>

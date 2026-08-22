@@ -21,11 +21,17 @@ datasource db {
 /// Singleton row holding campaign identity and the numbers that drive the
 /// Ontario Municipal Elections Act limit calculations.
 model Campaign {
-  id                  String    @id @default("campaign")
-  candidateName       String
-  office              String    @default("COUNCILLOR")
-  municipality        String    @default("")
-  ward                String    @default("")
+  id            String @id @default("campaign")
+  candidateName String
+  office        String @default("COUNCILLOR")
+  municipality  String @default("")
+  ward          String @default("")
+
+  /// Many Ontario municipalities elect council at large with no wards. When
+  /// false, every ward field, filter and grouping is hidden across the app,
+  /// and run sheets group by street instead of by ward.
+  usesWards Boolean @default(false)
+
   votingDay           DateTime
   campaignPeriodStart DateTime
   campaignPeriodEnd   DateTime?

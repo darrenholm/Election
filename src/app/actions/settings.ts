@@ -4,15 +4,19 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { CAMPAIGN_ID } from "@/lib/campaign";
 import { OFFICES } from "@/lib/enums";
-import { centsOrNull, date, int, oneOf, str } from "@/lib/form";
+import { bool, centsOrNull, date, int, oneOf, str } from "@/lib/form";
 
 export async function saveCampaign(formData: FormData) {
   const votingDay = date(formData, "votingDay") ?? new Date();
+  const usesWards = bool(formData, "usesWards");
   const data = {
     candidateName: str(formData, "candidateName"),
     office: oneOf(formData, "office", OFFICES, "COUNCILLOR"),
     municipality: str(formData, "municipality"),
-    ward: str(formData, "ward"),
+    usesWards,
+    // Clear any stored ward when wards are switched off, so a value entered
+    // earlier cannot resurface if they are switched back on later.
+    ward: usesWards ? str(formData, "ward") : "",
     votingDay,
     campaignPeriodStart:
       date(formData, "campaignPeriodStart") ?? new Date(votingDay.getFullYear(), 0, 2),

@@ -97,6 +97,9 @@ async function main() {
       candidateName: "Jordan Reyes",
       office: "COUNCILLOR",
       municipality: "City of Kawartha Lakes",
+      // The demo municipality has wards; many do not, and the app hides every
+      // ward field when this is false. See Settings.
+      usesWards: true,
       ward: "Ward 3",
       votingDay: VOTING_DAY,
       campaignPeriodStart: daysBefore(150),

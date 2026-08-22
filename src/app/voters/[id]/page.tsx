@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import { getCampaign } from "@/lib/campaign";
 import { CONTACT_METHODS, CONTACT_RESULTS, SIGN_STATUSES, label, splitList } from "@/lib/enums";
 import { formatDateTime, formatDate } from "@/lib/dates";
 import { deleteVoter, updateVoter, toggleVoted } from "@/app/actions/voters";
@@ -14,7 +15,8 @@ export const dynamic = "force-dynamic";
 export default async function VoterPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [voter, volunteers] = await Promise.all([
+  const [campaign, voter, volunteers] = await Promise.all([
+    getCampaign(),
     db.voter.findUnique({
       where: { id },
       include: {
@@ -120,7 +122,7 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
 
           <Card title="Edit details">
             <form action={saveVoter} className="space-y-4">
-              <VoterFormFields voter={voter} />
+              <VoterFormFields voter={voter} showWards={campaign.usesWards} />
               <div className="flex justify-end">
                 <button type="submit" className="btn-primary">
                   Save changes
@@ -136,7 +138,9 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
               <Row label="Phone" value={voter.phone || "—"} />
               <Row label="Email" value={voter.email || "—"} />
               <Row label="Language" value={voter.language || "—"} />
-              <Row label="Ward" value={voter.household?.ward || "—"} />
+              {campaign.usesWards ? (
+                <Row label="Ward" value={voter.household?.ward || "—"} />
+              ) : null}
               <Row label="Poll" value={voter.household?.pollNumber || "—"} />
               <Row
                 label="Turf"

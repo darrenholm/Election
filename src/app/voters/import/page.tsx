@@ -1,8 +1,15 @@
 import Link from "next/link";
+import { getCampaign } from "@/lib/campaign";
 import { Card, Note, PageHeader } from "@/components/ui";
 import { ImportWizard } from "./import-wizard";
 
-export default function ImportPage() {
+// Reads the campaign's ward setting, so this page must render per request
+// rather than being baked in at build time.
+export const dynamic = "force-dynamic";
+
+export default async function ImportPage() {
+  const campaign = await getCampaign();
+
   return (
     <>
       <PageHeader
@@ -28,7 +35,7 @@ export default function ImportPage() {
       </div>
 
       <Card title="Choose a file">
-        <ImportWizard />
+        <ImportWizard showWards={campaign.usesWards} />
       </Card>
 
       <Card title="What the columns mean" className="mt-6">
@@ -46,10 +53,17 @@ export default function ImportPage() {
             Apartment or suite. Two voters at the same street address with
             different units are treated as different doors.
           </Definition>
-          <Definition term="Ward and poll">
-            Optional, but they let you filter the voter file and build turf by
-            poll.
-          </Definition>
+          {campaign.usesWards ? (
+            <Definition term="Ward and poll">
+              Optional, but they let you filter the voter file and build turf by
+              poll.
+            </Definition>
+          ) : (
+            <Definition term="Poll">
+              Optional, but it lets you build turf by poll and cross-check
+              against the poll book on voting day.
+            </Definition>
+          )}
         </dl>
       </Card>
     </>

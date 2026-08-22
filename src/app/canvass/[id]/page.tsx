@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
+import { getCampaign } from "@/lib/campaign";
 import { TURF_STATUS_OPTIONS } from "@/lib/enums";
 import { formatDate } from "@/lib/dates";
 import {
@@ -18,7 +19,8 @@ export const dynamic = "force-dynamic";
 export default async function TurfPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [turf, volunteers] = await Promise.all([
+  const [campaign, turf, volunteers] = await Promise.all([
+    getCampaign(),
     db.turf.findUnique({
       where: { id },
       include: {
@@ -216,9 +218,11 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                 />
               </Field>
             </div>
-            <Field label="Ward">
-              <input name="ward" defaultValue={turf.ward} className="field" />
-            </Field>
+            {campaign.usesWards ? (
+              <Field label="Ward">
+                <input name="ward" defaultValue={turf.ward} className="field" />
+              </Field>
+            ) : null}
             <Field label="Notes for the canvasser">
               <textarea name="description" rows={3} defaultValue={turf.description} className="field" />
             </Field>

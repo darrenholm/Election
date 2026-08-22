@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
+import { getCampaign } from "@/lib/campaign";
 import {
   DEPLOYED_SIGN_STATUSES,
   PENDING_SIGN_STATUSES,
@@ -31,7 +32,8 @@ const COLUMNS: { status: string; tone: "neutral" | "brand" | "good" | "warn" }[]
 ];
 
 export default async function SignsPage() {
-  const [signs, inventory, volunteers, wantsSign] = await Promise.all([
+  const [campaign, signs, inventory, volunteers, wantsSign] = await Promise.all([
+    getCampaign(),
     db.signRequest.findMany({
       include: { installedBy: true, voter: true },
       orderBy: [{ status: "asc" }, { requestedAt: "asc" }],
@@ -128,7 +130,7 @@ export default async function SignsPage() {
                               <p className="text-xs text-muted">
                                 {[sign.addressLine, sign.city].filter(Boolean).join(", ") ||
                                   "No address"}
-                                {sign.ward ? ` · ${sign.ward}` : ""}
+                                {campaign.usesWards && sign.ward ? ` · ${sign.ward}` : ""}
                               </p>
                               <p className="text-xs text-muted">
                                 {[sign.phone, sign.email].filter(Boolean).join(" · ")}
@@ -241,12 +243,14 @@ export default async function SignsPage() {
                                     placeholder="Phone"
                                     className="field text-xs"
                                   />
-                                  <input
-                                    name="ward"
-                                    defaultValue={sign.ward}
-                                    placeholder="Ward"
-                                    className="field text-xs"
-                                  />
+                                  {campaign.usesWards ? (
+                                    <input
+                                      name="ward"
+                                      defaultValue={sign.ward}
+                                      placeholder="Ward"
+                                      className="field text-xs"
+                                    />
+                                  ) : null}
                                 </div>
                                 <input
                                   name="email"
@@ -342,9 +346,11 @@ export default async function SignsPage() {
                 <Field label="Phone">
                   <input name="phone" type="tel" className="field" />
                 </Field>
-                <Field label="Ward">
-                  <input name="ward" className="field" />
-                </Field>
+                {campaign.usesWards ? (
+                  <Field label="Ward">
+                    <input name="ward" className="field" />
+                  </Field>
+                ) : null}
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <Field label="Sign type">
