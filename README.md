@@ -85,14 +85,26 @@ trade unions have been prohibited since 2018.
 
 ## Getting started
 
+Needs Node 20.9 or newer. Run these one at a time, in order:
+
 ```bash
 npm install          # also generates the Prisma client
+cp .env.example .env # on Windows PowerShell: copy .env.example .env
 npm run db:push      # create the SQLite database from the schema
 npm run db:seed      # optional: load a fictional demo campaign
 npm run dev
 ```
 
 Then open http://localhost:3000.
+
+> **Windows PowerShell 5.1** — the version that ships with Windows — does not
+> accept `&&` between commands. Run each line on its own rather than chaining
+> them. PowerShell 7 and Git Bash both handle `&&` fine.
+>
+> `npm install` prints a deprecation warning for ESLint and reports high
+> severity advisories. Both come from build-time dev dependencies (the Prisma
+> CLI's config loader), not from anything the running app serves. Do not run
+> `npm audit fix --force` — it downgrades Prisma and breaks the schema.
 
 The demo campaign includes deliberate compliance problems — an over-limit
 contributor, a cash gift above $25, a contributor with no address on file — so
