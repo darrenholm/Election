@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+/*
+  One palette, defined once. Tailwind v4 reads these tokens directly, so
+  `bg-surface` / `text-muted` / `border-line` work anywhere in the app and both
+  themes stay in step.
+*/
+@theme {
+  --color-ink: oklch(0.21 0.02 260);
+  --color-muted: oklch(0.53 0.02 260);
+  --color-line: oklch(0.91 0.01 260);
+  --color-surface: oklch(1 0 0);
+  --color-canvas: oklch(0.98 0.005 260);
+  --color-raise: oklch(0.96 0.008 260);
+
+  --color-brand: oklch(0.45 0.16 258);
+  --color-brand-soft: oklch(0.95 0.03 258);
+  --color-brand-ink: oklch(0.35 0.15 258);
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+}
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --color-ink: oklch(0.96 0.005 260);
+      --color-muted: oklch(0.68 0.015 260);
+      --color-line: oklch(0.32 0.015 260);
+      --color-surface: oklch(0.21 0.015 260);
+      --color-canvas: oklch(0.17 0.015 260);
+      --color-raise: oklch(0.26 0.015 260);
+
+      --color-brand: oklch(0.68 0.14 258);
+      --color-brand-soft: oklch(0.28 0.06 258);
+      --color-brand-ink: oklch(0.82 0.1 258);
+    }
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Inputs inherit the theme instead of the browser's default white. */
+  input,
+  select,
+  textarea,
+  button {
+    font: inherit;
+    color: inherit;
+  }
+
+  /* A visible focus ring everywhere — volunteers do a lot of tab-through
+     data entry on this app. */
+  :focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .field {
+    @apply w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm
+           shadow-sm placeholder:text-muted focus:border-brand focus:outline-none
+           focus:ring-2 focus:ring-brand/30;
+  }
+
+  .field-label {
+    @apply mb-1.5 block text-xs font-semibold uppercase tracking-wide text-muted;
+  }
+
+  /* Tailwind v4 cannot @apply a class defined in @layer components, so the
+     shared button base is matched with :is() and each variant only carries the
+     colours that make it that variant. */
+  :is(.btn, .btn-primary, .btn-secondary, .btn-danger, .btn-ghost) {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3.5 py-2
+           text-sm font-semibold transition-colors disabled:cursor-not-allowed
+           disabled:opacity-50;
+  }
+
+  .btn-primary {
+    @apply bg-brand text-white hover:bg-brand-ink;
+  }
+
+  .btn-secondary {
+    @apply border border-line bg-surface text-ink hover:bg-raise;
+  }
+
+  .btn-danger {
+    @apply border border-rose-300 bg-surface text-rose-700 hover:bg-rose-50
+           dark:border-rose-900 dark:text-rose-300 dark:hover:bg-rose-950;
+  }
+
+  .btn-ghost {
+    @apply text-muted hover:bg-raise hover:text-ink;
+  }
+}
+
+/* Keep wide tables scrolling inside their own box rather than the page. */
+.table-scroll {
+  overflow-x: auto;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+  body {
+    background: white;
+    color: black;
+  }
+}

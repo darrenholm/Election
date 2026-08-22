@@ -1,0 +1,393 @@
+// Municipal Election Campaign Manager — data model
+//
+// Provider is SQLite for zero-setup local use. To move to Postgres, change
+// `provider` to "postgresql" and point DATABASE_URL at your server; every
+// field below is portable (no SQLite-only types are used). Enum-like columns
+// are stored as String because the SQLite connector does not support native
+// enums — the allowed values live in src/lib/enums.ts and are validated with
+// zod before any write.
+//
+// All money is stored as integer cents to avoid floating-point drift.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// Singleton row holding campaign identity and the numbers that drive the
+/// Ontario Municipal Elections Act limit calculations.
+model Campaign {
+  id                  String    @id @default("campaign")
+  candidateName       String
+  office              String    @default("COUNCILLOR")
+  municipality        String    @default("")
+  ward                String    @default("")
+  votingDay           DateTime
+  campaignPeriodStart DateTime
+  campaignPeriodEnd   DateTime?
+
+  /// Number of eligible electors for the office, from the clerk. Drives the
+  /// computed spending limit when no certified limit has been entered.
+  electorCount Int @default(0)
+
+  /// Values from the clerk's certificate. When present these override the
+  /// computed estimates everywhere in the app.
+  certifiedSpendingLimitCents     Int?
+  certifiedPartyExpenseLimitCents Int?
+
+  /// Candidate + spouse self-funding limit, if the clerk has certified one.
+  certifiedSelfFundingLimitCents Int?
+
+  contactEmail String   @default("")
+  contactPhone String   @default("")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+/// A physical address. Voters are grouped into households so canvassers can
+/// work a door rather than a person, and so walk lists sort geographically.
+model Household {
+  id           String @id @default(cuid())
+  streetNumber String @default("")
+  streetName   String @default("")
+  unit         String @default("")
+  city         String @default("")
+  postalCode   String @default("")
+  ward         String @default("")
+  pollNumber   String @default("")
+  latitude     Float?
+  longitude    Float?
+  notes        String @default("")
+
+  turfId String?
+  turf   Turf?   @relation(fields: [turfId], references: [id], onDelete: SetNull)
+
+  voters    Voter[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([streetName, streetNumber])
+  @@index([ward])
+  @@index([turfId])
+  @@index([postalCode])
+}
+
+/// A person on the voters' list (or added by the campaign).
+model Voter {
+  id         String  @id @default(cuid())
+  /// Identifier from the imported voters' list, used to de-duplicate re-imports.
+  externalId String? @unique
+  firstName  String  @default("")
+  lastName   String  @default("")
+  email      String  @default("")
+  phone      String  @default("")
+  language   String  @default("")
+  birthYear  Int?
+
+  householdId String?
+  household   Household? @relation(fields: [householdId], references: [id], onDelete: SetNull)
+
+  /// 1 = strong support … 5 = strong oppose. Null = never identified.
+  supportLevel     Int?
+  /// Set when the voter has agreed to take a sign; the SignRequest tracks the sign itself.
+  wantsSign        Boolean   @default(false)
+  wantsToVolunteer Boolean   @default(false)
+  isDonorProspect  Boolean   @default(false)
+  /// Suppresses the voter from every walk list, call list and mailing.
+  doNotContact     Boolean   @default(false)
+  movedAway        Boolean   @default(false)
+  deceased         Boolean   @default(false)
+  /// Recorded as voted (from the poll book / scrutineer reports) on voting day.
+  votedAt          DateTime?
+
+  tags  String @default("")
+  notes String @default("")
+
+  contacts     ContactAttempt[]
+  signRequests SignRequest[]
+  volunteer    Volunteer?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lastName, firstName])
+  @@index([supportLevel])
+  @@index([householdId])
+  @@index([doNotContact])
+}
+
+/// A canvass area: a bundle of households handed to one canvasser as a walk list.
+model Turf {
+  id           String      @id @default(cuid())
+  name         String
+  description  String      @default("")
+  ward         String      @default("")
+  status       String      @default("UNASSIGNED")
+  assignedToId String?
+  assignedTo   Volunteer?  @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+  households   Household[]
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+
+  @@index([status])
+}
+
+/// One attempt to reach one voter, at the door, on the phone or anywhere else.
+model ContactAttempt {
+  id          String     @id @default(cuid())
+  voterId     String
+  voter       Voter      @relation(fields: [voterId], references: [id], onDelete: Cascade)
+  volunteerId String?
+  volunteer   Volunteer? @relation(fields: [volunteerId], references: [id], onDelete: SetNull)
+
+  method       String   @default("DOOR")
+  result       String   @default("SPOKE")
+  /// Support level captured at this contact; the voter's current level is the
+  /// most recent non-null value.
+  supportLevel Int?
+  issues       String   @default("")
+  notes        String   @default("")
+  occurredAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([voterId])
+  @@index([occurredAt])
+  @@index([volunteerId])
+}
+
+model Volunteer {
+  id           String  @id @default(cuid())
+  firstName    String
+  lastName     String  @default("")
+  email        String  @default("")
+  phone        String  @default("")
+  status       String  @default("ACTIVE")
+  /// Comma-separated role keys, e.g. "CANVASSER,DRIVER".
+  roles        String  @default("")
+  availability String  @default("")
+  hasVehicle   Boolean @default(false)
+  notes        String  @default("")
+
+  voterId String? @unique
+  voter   Voter?  @relation(fields: [voterId], references: [id], onDelete: SetNull)
+
+  assignments    ShiftAssignment[]
+  contacts       ContactAttempt[]
+  turfs          Turf[]
+  signsInstalled SignRequest[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([lastName])
+}
+
+model Shift {
+  id       String   @id @default(cuid())
+  title    String
+  type     String   @default("CANVASS")
+  startsAt DateTime
+  endsAt   DateTime
+  location String   @default("")
+  capacity Int      @default(0)
+  notes    String   @default("")
+
+  eventId String?
+  event   Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  assignments ShiftAssignment[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([startsAt])
+  @@index([type])
+}
+
+model ShiftAssignment {
+  id          String    @id @default(cuid())
+  shiftId     String
+  shift       Shift     @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  volunteerId String
+  volunteer   Volunteer @relation(fields: [volunteerId], references: [id], onDelete: Cascade)
+  status      String    @default("SIGNED_UP")
+  checkedInAt DateTime?
+  hoursLogged Float?
+  notes       String    @default("")
+  createdAt   DateTime  @default(now())
+
+  @@unique([shiftId, volunteerId])
+  @@index([volunteerId])
+}
+
+/// A person who has given, or may give, to the campaign. Under the Municipal
+/// Elections Act only individuals normally resident in Ontario may contribute.
+model Contributor {
+  id          String @id @default(cuid())
+  firstName   String
+  lastName    String @default("")
+  addressLine String @default("")
+  city        String @default("")
+  province    String @default("ON")
+  postalCode  String @default("")
+  email       String @default("")
+  phone       String @default("")
+
+  /// Eligibility flags checked at entry time; see src/lib/ontario.ts.
+  ontarioResident   Boolean @default(true)
+  isCandidate       Boolean @default(false)
+  isCandidateSpouse Boolean @default(false)
+
+  notes         String         @default("")
+  contributions Contribution[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([lastName, firstName])
+}
+
+model Contribution {
+  id            String       @id @default(cuid())
+  contributorId String?
+  contributor   Contributor? @relation(fields: [contributorId], references: [id], onDelete: SetNull)
+
+  amountCents       Int
+  receivedAt        DateTime @default(now())
+  method            String   @default("CHEQUE")
+  /// Goods or services rather than money; recorded at fair market value and
+  /// counted as both a contribution and an expense on Form 4.
+  isInKind          Boolean  @default(false)
+  inKindDescription String   @default("")
+
+  /// Contributions of $25 or less collected at a fundraising function may be
+  /// anonymous; anything larger must be attributed to a named contributor.
+  isAnonymous Boolean @default(false)
+
+  receiptNumber   String    @default("")
+  receiptIssuedAt DateTime?
+
+  eventId String?
+  event   Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  /// Set when a contribution had to be returned (over-limit, ineligible donor).
+  returnedAt   DateTime?
+  returnReason String    @default("")
+
+  notes     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([contributorId])
+  @@index([receivedAt])
+  @@index([eventId])
+}
+
+model Expense {
+  id            String    @id @default(cuid())
+  description   String
+  vendor        String    @default("")
+  category      String    @default("OTHER")
+  amountCents   Int
+  incurredAt    DateTime  @default(now())
+  paidAt        DateTime?
+  paymentMethod String    @default("")
+  invoiceRef    String    @default("")
+
+  /// Whether this expense counts against the general spending limit. Defaults
+  /// from the category (see src/lib/ontario.ts) and can be overridden per row.
+  subjectToLimit Boolean @default(true)
+  /// Expenses for a party or other expression of appreciation held after
+  /// voting day, which carry their own separate limit.
+  isPartyExpense Boolean @default(false)
+  /// Matches an in-kind contribution, so the pair nets to zero in cash terms.
+  isInKind       Boolean @default(false)
+
+  eventId String?
+  event   Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  notes     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([incurredAt])
+  @@index([category])
+}
+
+model SignRequest {
+  id      String  @id @default(cuid())
+  voterId String?
+  voter   Voter?  @relation(fields: [voterId], references: [id], onDelete: SetNull)
+
+  requesterName String @default("")
+  phone         String @default("")
+  email         String @default("")
+  addressLine   String @default("")
+  city          String @default("")
+  postalCode    String @default("")
+  ward          String @default("")
+  latitude      Float?
+  longitude     Float?
+
+  signType            String  @default("SMALL_LAWN")
+  quantity            Int     @default(1)
+  status              String  @default("REQUESTED")
+  /// Property owner has confirmed permission to place the sign.
+  permissionConfirmed Boolean @default(false)
+
+  requestedAt  DateTime  @default(now())
+  scheduledFor DateTime?
+  installedAt  DateTime?
+  removedAt    DateTime?
+
+  installedById String?
+  installedBy   Volunteer? @relation(fields: [installedById], references: [id], onDelete: SetNull)
+
+  notes     String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([signType])
+  @@index([ward])
+}
+
+/// How many signs of each type the campaign physically owns, so the signs
+/// board can show what is left in the garage.
+model SignInventory {
+  id            String   @id @default(cuid())
+  signType      String   @unique
+  quantityOwned Int      @default(0)
+  notes         String   @default("")
+  updatedAt     DateTime @updatedAt
+}
+
+model Event {
+  id                 String    @id @default(cuid())
+  name               String
+  type               String    @default("MEET_GREET")
+  startsAt           DateTime
+  endsAt             DateTime?
+  location           String    @default("")
+  addressLine        String    @default("")
+  description        String    @default("")
+  /// Fundraising functions have their own treatment on Form 4: ticket revenue
+  /// is split between a contribution portion and a cost-recovery portion.
+  isFundraiser       Boolean   @default(false)
+  ticketPriceCents   Int?
+  expectedAttendance Int?
+  actualAttendance   Int?
+
+  shifts        Shift[]
+  contributions Contribution[]
+  expenses      Expense[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([startsAt])
+}
