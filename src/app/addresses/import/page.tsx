@@ -1,22 +1,32 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getActiveCampaign } from "@/lib/campaign";
 import { Card, Note, PageHeader, StatTile } from "@/components/ui";
 import { AddressWizard } from "./address-wizard";
 
 export const dynamic = "force-dynamic";
 
 export default async function AddressImportPage() {
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+  const municipalityId = campaign.municipalityId;
+
   const [doors, placed, streets] = await Promise.all([
-    db.household.count(),
-    db.household.count({ where: { latitude: { not: null } } }),
-    db.household.findMany({ distinct: ["streetKey"], select: { id: true } }),
+    db.household.count({ where: { municipalityId } }),
+    db.household.count({ where: { municipalityId, latitude: { not: null } } }),
+    db.household.findMany({
+      where: { municipalityId },
+      distinct: ["streetKey"],
+      select: { id: true },
+    }),
   ]);
 
   return (
     <>
       <PageHeader
         title="Import addresses"
-        subtitle="Load the municipality's civic address file — every door, with coordinates."
+        subtitle={`Loading into ${campaign.municipality.name} — every door, with coordinates.`}
         actions={
           <Link href="/streets" className="btn-secondary">
             Street coverage
@@ -39,7 +49,7 @@ export default async function AddressImportPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <Card title="Choose a file">
-            <AddressWizard />
+            <AddressWizard targetMunicipality={campaign.municipality.name} />
           </Card>
         </div>
 
@@ -81,11 +91,17 @@ export default async function AddressImportPage() {
             </p>
           </Card>
 
-          <Card title="Excel files">
+          <Card title="Big files are fine">
             <p className="text-sm text-muted">
-              Save as <strong>CSV</strong> first — in Excel, File → Save As → CSV
-              UTF-8. The importer reads the file in your browser and only stores
-              the columns you map.
+              Statistics Canada publishes Ontario as one CSV of several hundred
+              megabytes covering every municipality in the province. Load it
+              directly — the file is streamed in pieces and never held in memory,
+              and you pick which municipality to keep. No need to split it up
+              first.
+            </p>
+            <p className="mt-2 text-sm text-muted">
+              Excel files must be saved as <strong>CSV</strong> first: File → Save
+              As → CSV UTF-8.
             </p>
           </Card>
         </div>

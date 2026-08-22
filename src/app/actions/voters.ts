@@ -527,7 +527,25 @@ export async function importAddresses(rows: AddressRow[]): Promise<AddressImport
     errors: [],
   };
 
-  for (const [index, row] of rows.entries()) {
+  // Normalise the whole batch first, dropping anything unusable and collapsing
+  // duplicates within the batch — a provincial address file repeats the odd
+  // address, and two rows for one door should not race each other.
+  type Prepared = {
+    key: string;
+    streetNumber: string;
+    streetName: string;
+    streetKey: string;
+    unit: string;
+    city: string;
+    postalCode: string;
+    ward: string;
+    pollNumber: string;
+    latitude: number | null;
+    longitude: number | null;
+  };
+
+  const prepared = new Map<string, Prepared>();
+  for (const row of rows) {
     const streetName = normaliseStreet(row.streetName ?? "");
     const streetNumber = (row.streetNumber ?? "").trim();
     if (streetName === "" || streetNumber === "") {
@@ -535,46 +553,119 @@ export async function importAddresses(rows: AddressRow[]): Promise<AddressImport
       continue;
     }
 
-    const latitude = toCoordinate(row.latitude, -90, 90);
-    const longitude = toCoordinate(row.longitude, -180, 180);
-
-    try {
-      const existing = await db.household.findFirst({
-        where: {
-          municipalityId,
-          streetKey: canonicalStreet(row.streetName ?? ""),
-          streetNumber,
-          unit: (row.unit ?? "").trim(),
-          city: (row.city ?? "").trim(),
-        },
-        select: { id: true },
-      });
-
-      await upsertHousehold({
-        municipalityId,
-        streetNumber,
-        streetName,
-        unit: row.unit ?? "",
-        city: row.city ?? "",
-        postalCode: row.postalCode ?? "",
-        ward: row.ward ?? "",
-        pollNumber: row.pollNumber ?? "",
-        latitude,
-        longitude,
-        // Address-point data is surveyed to the property, not interpolated.
-        geocodePrecision: "ROOFTOP",
-      });
-
-      if (existing) result.updated++;
-      else result.created++;
-      if (latitude !== null && longitude !== null) result.withCoordinates++;
-    } catch (error) {
+    const streetKey = canonicalStreet(row.streetName ?? "");
+    const unit = (row.unit ?? "").trim();
+    const city = (row.city ?? "").trim();
+    const key = `${streetKey}|${streetNumber}|${unit}|${city}`;
+    if (prepared.has(key)) {
       result.skipped++;
-      if (result.errors.length < 20) {
-        result.errors.push(
-          `Row ${index + 2}: ${error instanceof Error ? error.message : "could not import"}`,
-        );
-      }
+      continue;
+    }
+
+    prepared.set(key, {
+      key,
+      streetNumber,
+      streetName,
+      streetKey,
+      unit,
+      city,
+      postalCode: normalisePostal(row.postalCode ?? ""),
+      ward: (row.ward ?? "").trim(),
+      pollNumber: (row.pollNumber ?? "").trim(),
+      latitude: toCoordinate(row.latitude, -90, 90),
+      longitude: toCoordinate(row.longitude, -180, 180),
+    });
+  }
+
+  if (prepared.size === 0) return result;
+
+  // One lookup for the whole batch rather than one per row. A province-sized
+  // file is imported a few hundred rows at a time, and per-row queries turn a
+  // ten-thousand-door municipality into twenty thousand round trips.
+  const candidates = await db.household.findMany({
+    where: {
+      municipalityId,
+      streetKey: { in: Array.from(new Set([...prepared.values()].map((p) => p.streetKey))) },
+    },
+    select: {
+      id: true,
+      streetKey: true,
+      streetNumber: true,
+      unit: true,
+      city: true,
+      postalCode: true,
+      ward: true,
+      pollNumber: true,
+      latitude: true,
+      geocodeStatus: true,
+    },
+  });
+
+  const existing = new Map(
+    candidates.map((h) => [`${h.streetKey}|${h.streetNumber}|${h.unit}|${h.city}`, h]),
+  );
+
+  const fresh: Prepared[] = [];
+  for (const item of prepared.values()) {
+    const match = existing.get(item.key);
+    if (!match) {
+      fresh.push(item);
+      continue;
+    }
+
+    // Fill gaps, never overwrite; and never move a pin someone placed by hand.
+    const fill: Record<string, unknown> = {};
+    if (item.postalCode && !match.postalCode) fill.postalCode = item.postalCode;
+    if (item.ward && !match.ward) fill.ward = item.ward;
+    if (item.pollNumber && !match.pollNumber) fill.pollNumber = item.pollNumber;
+    if (
+      item.latitude !== null &&
+      item.longitude !== null &&
+      match.latitude === null &&
+      match.geocodeStatus !== "MANUAL"
+    ) {
+      fill.latitude = item.latitude;
+      fill.longitude = item.longitude;
+      fill.geocodeStatus = "OK";
+      fill.geocodePrecision = "ROOFTOP";
+      fill.geocodedAt = new Date();
+    }
+
+    if (Object.keys(fill).length > 0) {
+      await db.household.update({ where: { id: match.id }, data: fill });
+    }
+    result.updated++;
+    if (item.latitude !== null && item.longitude !== null) result.withCoordinates++;
+  }
+
+  if (fresh.length > 0) {
+    try {
+      await db.household.createMany({
+        data: fresh.map((item) => ({
+          municipalityId,
+          streetNumber: item.streetNumber,
+          streetName: item.streetName,
+          streetKey: item.streetKey,
+          unit: item.unit,
+          city: item.city,
+          postalCode: item.postalCode,
+          ward: item.ward,
+          pollNumber: item.pollNumber,
+          latitude: item.latitude,
+          longitude: item.longitude,
+          // Address-point files are surveyed to the property, not interpolated.
+          geocodeStatus: item.latitude !== null ? "OK" : "PENDING",
+          geocodePrecision: item.latitude !== null ? "ROOFTOP" : "",
+          geocodedAt: item.latitude !== null ? new Date() : null,
+        })),
+      });
+      result.created += fresh.length;
+      result.withCoordinates += fresh.filter((f) => f.latitude !== null).length;
+    } catch (error) {
+      result.skipped += fresh.length;
+      result.errors.push(
+        error instanceof Error ? error.message : "A batch of addresses could not be saved",
+      );
     }
   }
 

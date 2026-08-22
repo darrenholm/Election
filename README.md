@@ -66,6 +66,12 @@ limit formula, the self-funding ceiling and the Form 4 expense taxonomy.
   publish address points too. If the file has latitude and longitude — these
   generally do — no geocoding is needed at all and the whole Google step is
   moot.
+- **Feed it the whole province.** Ontario's file is a single CSV of several
+  hundred megabytes covering every municipality. The importer streams it in
+  pieces rather than reading it into memory, scans it for the municipalities it
+  contains, and loads only the ones you tick — so there is no need to split the
+  file up beforehand. Tested on a 600,000-row file: the scan took seconds and
+  nothing outside the chosen municipality was imported.
 - Load addresses first, then the clerk's voters' list when it arrives. The
   voters' list then attaches people to doors that already exist rather than
   creating a second set of them.

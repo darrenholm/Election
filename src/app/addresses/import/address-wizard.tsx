@@ -1,77 +1,159 @@
 "use client";
 
-import Papa from "papaparse";
+import Papa, { type ParseResult, type Parser } from "papaparse";
 import Link from "next/link";
-import { useState, useTransition } from "react";
-import {
-  importAddresses,
-  type AddressImportResult,
-  type AddressRow,
-} from "@/app/actions/voters";
+import { useRef, useState } from "react";
+import { importAddresses, type AddressImportResult, type AddressRow } from "@/app/actions/voters";
 
 /** The household fields a civic address file can populate. */
 const TARGETS = [
   { key: "streetNumber", label: "Street number", hints: ["streetno", "streetnumber", "civicnumber", "housenumber", "number", "stno", "civic"] },
-  { key: "streetName", label: "Street name", hints: ["street", "streetname", "strname", "road", "fulladdr"] },
+  { key: "streetName", label: "Street name", hints: ["street", "streetname", "strname", "road"] },
   { key: "unit", label: "Unit / apt", hints: ["unit", "apt", "apartment", "suite"] },
-  { key: "city", label: "City / settlement", hints: ["city", "citypcs", "municipality", "csdname", "town"] },
+  { key: "city", label: "City / settlement", hints: ["city", "citypcs", "town"] },
   { key: "postalCode", label: "Postal code", hints: ["postalcode", "postal", "postcode", "zip"] },
-  { key: "ward", label: "Ward", hints: ["ward", "district"] },
+  { key: "ward", label: "Ward", hints: ["ward"] },
   { key: "pollNumber", label: "Poll", hints: ["poll", "pollnumber", "subdivision"] },
-  { key: "latitude", label: "Latitude", hints: ["latitude", "lat", "y"] },
-  { key: "longitude", label: "Longitude", hints: ["longitude", "long", "lng", "lon", "x"] },
+  { key: "latitude", label: "Latitude", hints: ["latitude", "lat"] },
+  { key: "longitude", label: "Longitude", hints: ["longitude", "long", "lng", "lon"] },
 ] as const;
 
 type TargetKey = (typeof TARGETS)[number]["key"];
 type Mapping = Partial<Record<TargetKey, string>>;
 
-const CHUNK_SIZE = 250;
+/** Columns that usually name the municipality in an address-point file. */
+const MUNICIPALITY_HINTS = ["csdname", "csd", "municipality", "municipalname", "city", "town"];
+
+/** Rows sent to the server per call. */
+const BATCH = 400;
+/** Bytes of file handed to the parser at a time. */
+const CHUNK_BYTES = 4 * 1024 * 1024;
+
+type Phase = "choose" | "map" | "scanning" | "ready" | "importing" | "done";
 
 /**
- * Loads a municipal civic address file: every door in the municipality, with
- * coordinates. Doing this before the voters' list arrives means the map and the
- * street door-counts are complete from day one, and the voters' list then
- * attaches people to doors that already exist.
+ * Loads a civic address file, up to and including a whole province.
+ *
+ * Statistics Canada publishes Ontario as one CSV of several hundred megabytes,
+ * and a campaign only wants one municipality out of it. So the file is never
+ * read into memory: PapaParse streams it in chunks, the parser is paused while
+ * each batch is sent, and only rows matching the chosen municipality are kept.
+ * That keeps a 650 MB file to a few megabytes of browser memory and means
+ * nobody has to pre-filter anything on the command line.
  */
-export function AddressWizard() {
-  const [headers, setHeaders] = useState<string[] | null>(null);
-  const [rows, setRows] = useState<Record<string, string>[]>([]);
+export function AddressWizard({
+  targetMunicipality,
+}: {
+  targetMunicipality: string;
+}) {
+  const [phase, setPhase] = useState<Phase>("choose");
+  const [file, setFile] = useState<File | null>(null);
+  const [headers, setHeaders] = useState<string[]>([]);
   const [mapping, setMapping] = useState<Mapping>({});
-  const [parseError, setParseError] = useState<string | null>(null);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [municipalityColumn, setMunicipalityColumn] = useState<string>("");
+  const [places, setPlaces] = useState<{ name: string; rows: number }[]>([]);
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [progress, setProgress] = useState({ bytes: 0, rows: 0, matched: 0 });
   const [result, setResult] = useState<AddressImportResult | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const cancelled = useRef(false);
 
-  function handleFile(file: File) {
-    setParseError(null);
+  function reset() {
+    cancelled.current = false;
+    setPhase("choose");
+    setFile(null);
+    setHeaders([]);
+    setMapping({});
+    setMunicipalityColumn("");
+    setPlaces([]);
+    setChosen(new Set());
+    setProgress({ bytes: 0, rows: 0, matched: 0 });
     setResult(null);
-    Papa.parse<Record<string, string>>(file, {
+    setError(null);
+  }
+
+  /** Read only the first rows, to learn the column names without a full pass. */
+  function handleFile(picked: File) {
+    setError(null);
+    setFile(picked);
+    Papa.parse<Record<string, string>>(picked, {
       header: true,
+      preview: 20,
       skipEmptyLines: "greedy",
       transformHeader: (h) => h.trim(),
       complete: (parsed) => {
         const fields = parsed.meta.fields ?? [];
         if (fields.length === 0) {
-          setParseError("No column headers found. The first row must name the columns.");
+          setError("No column headers found. The first row must name the columns.");
           return;
         }
         setHeaders(fields);
-        setRows(parsed.data);
         setMapping(guessMapping(fields));
+        setMunicipalityColumn(guessMunicipalityColumn(fields));
+        setPhase("map");
       },
-      error: (error) => setParseError(error.message),
+      error: (e) => setError(e.message),
     });
   }
 
-  function runImport() {
-    const mapped: AddressRow[] = rows.map((row) => {
-      const out: AddressRow = {};
-      for (const target of TARGETS) {
-        const source = mapping[target.key];
-        if (source) out[target.key] = (row[source] ?? "").trim();
-      }
-      return out;
+  /** Full pass counting rows per municipality, so the user can pick from a list. */
+  function scan() {
+    if (!file || !municipalityColumn) return;
+    cancelled.current = false;
+    setPhase("scanning");
+    setProgress({ bytes: 0, rows: 0, matched: 0 });
+
+    const counts = new Map<string, number>();
+
+    Papa.parse<Record<string, string>>(file, {
+      header: true,
+      skipEmptyLines: "greedy",
+      transformHeader: (h) => h.trim(),
+      chunkSize: CHUNK_BYTES,
+      chunk: (results: ParseResult<Record<string, string>>, parser: Parser) => {
+        if (cancelled.current) {
+          parser.abort();
+          return;
+        }
+        for (const row of results.data) {
+          const place = (row[municipalityColumn] ?? "").trim();
+          if (place === "") continue;
+          counts.set(place, (counts.get(place) ?? 0) + 1);
+        }
+        setProgress((p) => ({
+          bytes: results.meta.cursor,
+          rows: p.rows + results.data.length,
+          matched: 0,
+        }));
+      },
+      complete: () => {
+        const list = Array.from(counts.entries())
+          .map(([name, rows]) => ({ name, rows }))
+          .sort((a, b) => a.name.localeCompare(b.name));
+        setPlaces(list);
+
+        // Pre-select anything whose name looks like the campaign's municipality,
+        // which is nearly always what they are here to load.
+        const target = simplify(targetMunicipality);
+        const guess = list.filter(
+          (p) => simplify(p.name) === target || target.includes(simplify(p.name)),
+        );
+        setChosen(new Set(guess.map((g) => g.name)));
+        setPhase("ready");
+      },
+      error: (e) => {
+        setError(e.message);
+        setPhase("map");
+      },
     });
+  }
+
+  /** Second pass: keep matching rows, map them, and send in batches. */
+  function run() {
+    if (!file) return;
+    cancelled.current = false;
+    setPhase("importing");
+    setProgress({ bytes: 0, rows: 0, matched: 0 });
 
     const totals: AddressImportResult = {
       created: 0,
@@ -81,30 +163,98 @@ export function AddressWizard() {
       errors: [],
     };
 
-    startTransition(async () => {
-      setProgress({ done: 0, total: mapped.length });
-      for (let i = 0; i < mapped.length; i += CHUNK_SIZE) {
-        const partial = await importAddresses(mapped.slice(i, i + CHUNK_SIZE));
-        totals.created += partial.created;
-        totals.updated += partial.updated;
-        totals.skipped += partial.skipped;
-        totals.withCoordinates += partial.withCoordinates;
+    // Filtering is optional: a file already narrowed to one municipality can be
+    // loaded whole, without scanning it first.
+    const filtering = chosen.size > 0 && municipalityColumn !== "";
+    let buffer: AddressRow[] = [];
+
+    const send = async (rows: AddressRow[]) => {
+      const partial = await importAddresses(rows);
+      totals.created += partial.created;
+      totals.updated += partial.updated;
+      totals.skipped += partial.skipped;
+      totals.withCoordinates += partial.withCoordinates;
+      if (partial.errors.length > 0 && totals.errors.length < 20) {
         totals.errors.push(...partial.errors);
-        setProgress({ done: Math.min(i + CHUNK_SIZE, mapped.length), total: mapped.length });
       }
-      setResult(totals);
-      setProgress(null);
+    };
+
+    Papa.parse<Record<string, string>>(file, {
+      header: true,
+      skipEmptyLines: "greedy",
+      transformHeader: (h) => h.trim(),
+      chunkSize: CHUNK_BYTES,
+      chunk: (results: ParseResult<Record<string, string>>, parser: Parser) => {
+        if (cancelled.current) {
+          parser.abort();
+          return;
+        }
+
+        for (const row of results.data) {
+          if (filtering && !chosen.has((row[municipalityColumn] ?? "").trim())) continue;
+          const out: AddressRow = {};
+          for (const target of TARGETS) {
+            const source = mapping[target.key];
+            if (source) out[target.key] = (row[source] ?? "").trim();
+          }
+          buffer.push(out);
+        }
+
+        setProgress((p) => ({
+          bytes: results.meta.cursor,
+          rows: p.rows + results.data.length,
+          matched: p.matched + buffer.length,
+        }));
+
+        if (buffer.length === 0) return;
+
+        // Pause while uploading, so a fast disk cannot outrun the database.
+        parser.pause();
+        const pending = buffer;
+        buffer = [];
+        void (async () => {
+          try {
+            for (let i = 0; i < pending.length; i += BATCH) {
+              await send(pending.slice(i, i + BATCH));
+            }
+          } catch (e) {
+            totals.errors.push(e instanceof Error ? e.message : "Upload failed");
+          } finally {
+            parser.resume();
+          }
+        })();
+      },
+      complete: () => {
+        void (async () => {
+          if (buffer.length > 0 && !cancelled.current) {
+            for (let i = 0; i < buffer.length; i += BATCH) {
+              await send(buffer.slice(i, i + BATCH));
+            }
+          }
+          setResult(totals);
+          setPhase("done");
+        })();
+      },
+      error: (e) => {
+        setError(e.message);
+        setPhase("ready");
+      },
     });
   }
 
-  const ready = Boolean(mapping.streetNumber && mapping.streetName);
+  const readyToImport = Boolean(mapping.streetNumber && mapping.streetName);
   const hasCoords = Boolean(mapping.latitude && mapping.longitude);
+  const pct = file && file.size > 0 ? Math.min(100, (progress.bytes / file.size) * 100) : 0;
 
-  if (result) {
+  /* ------------------------------------------------------------- finished */
+
+  if (phase === "done" && result) {
     return (
       <div className="space-y-4">
         <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950">
-          <p className="font-semibold text-emerald-900 dark:text-emerald-200">Addresses loaded</p>
+          <p className="font-semibold text-emerald-900 dark:text-emerald-200">
+            Loaded into {targetMunicipality}
+          </p>
           <ul className="mt-2 space-y-0.5 text-sm text-emerald-900 dark:text-emerald-200">
             <li>{result.created.toLocaleString("en-CA")} new doors added</li>
             <li>{result.updated.toLocaleString("en-CA")} existing doors updated</li>
@@ -113,7 +263,10 @@ export function AddressWizard() {
               geocoding needed
             </li>
             {result.skipped > 0 ? (
-              <li>{result.skipped.toLocaleString("en-CA")} rows skipped</li>
+              <li>
+                {result.skipped.toLocaleString("en-CA")} rows skipped (no street, or a
+                duplicate of another row)
+              </li>
             ) : null}
           </ul>
         </div>
@@ -121,11 +274,11 @@ export function AddressWizard() {
         {result.errors.length > 0 ? (
           <details className="rounded-lg border border-line p-3 text-sm">
             <summary className="cursor-pointer font-medium">
-              {result.errors.length} row problem{result.errors.length === 1 ? "" : "s"}
+              {result.errors.length} problem{result.errors.length === 1 ? "" : "s"}
             </summary>
             <ul className="mt-2 space-y-1 text-muted">
-              {result.errors.map((e) => (
-                <li key={e}>{e}</li>
+              {result.errors.map((e, i) => (
+                <li key={i}>{e}</li>
               ))}
             </ul>
           </details>
@@ -138,21 +291,51 @@ export function AddressWizard() {
           <Link href="/streets" className="btn-secondary">
             Door counts by street
           </Link>
-          <button
-            type="button"
-            className="btn-secondary"
-            onClick={() => {
-              setResult(null);
-              setHeaders(null);
-              setRows([]);
-            }}
-          >
+          <button type="button" className="btn-secondary" onClick={reset}>
             Load another file
           </button>
         </div>
       </div>
     );
   }
+
+  /* ------------------------------------------------------------ in flight */
+
+  if (phase === "scanning" || phase === "importing") {
+    const scanning = phase === "scanning";
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="text-sm font-medium">
+            {scanning ? "Reading the file…" : `Loading into ${targetMunicipality}…`}
+          </p>
+          <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-raise">
+            <div className="h-full bg-brand transition-[width]" style={{ width: `${pct}%` }} />
+          </div>
+          <p className="mt-1 text-xs text-muted">
+            {pct.toFixed(1)}% · {progress.rows.toLocaleString("en-CA")} rows read
+            {!scanning ? ` · ${progress.matched.toLocaleString("en-CA")} matched` : ""}
+          </p>
+          <p className="mt-2 text-xs text-muted">
+            The file is read in pieces and never held in memory, so a
+            province-sized one is fine — it just takes a few minutes. Leave this
+            tab open.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="btn-secondary"
+          onClick={() => {
+            cancelled.current = true;
+          }}
+        >
+          Stop
+        </button>
+      </div>
+    );
+  }
+
+  /* -------------------------------------------------------------- choose */
 
   return (
     <div className="space-y-6">
@@ -162,21 +345,24 @@ export function AddressWizard() {
           accept=".csv,text/csv"
           className="field"
           onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (file) handleFile(file);
+            const picked = e.target.files?.[0];
+            if (picked) handleFile(picked);
           }}
         />
-        {parseError ? (
-          <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{parseError}</p>
+        {file ? (
+          <p className="mt-1 text-xs text-muted">
+            {file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB
+          </p>
+        ) : null}
+        {error ? (
+          <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{error}</p>
         ) : null}
       </div>
 
-      {headers ? (
+      {phase !== "choose" && headers.length > 0 ? (
         <>
           <div>
-            <h3 className="text-sm font-semibold">
-              Match your columns ({rows.length.toLocaleString("en-CA")} addresses found)
-            </h3>
+            <h3 className="text-sm font-semibold">Match your columns</h3>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {TARGETS.map((target) => (
                 <label key={target.key} className="block">
@@ -203,7 +389,7 @@ export function AddressWizard() {
           {hasCoords ? (
             <p className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
               This file has coordinates, so these doors go straight onto the map.
-              No Google geocoding, and no cost.
+              No geocoding, and no cost.
             </p>
           ) : (
             <p className="rounded-lg border border-line bg-raise px-3 py-2 text-xs text-muted">
@@ -212,75 +398,118 @@ export function AddressWizard() {
             </p>
           )}
 
-          {rows.length > 0 ? (
-            <div>
-              <h3 className="text-sm font-semibold">Preview</h3>
-              <div className="table-scroll mt-2 rounded-lg border border-line">
-                <table className="w-full min-w-[36rem] text-sm">
-                  <thead>
-                    <tr className="bg-raise">
-                      {TARGETS.filter((t) => mapping[t.key]).map((t) => (
-                        <th
-                          key={t.key}
-                          className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted"
-                        >
-                          {t.label}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rows.slice(0, 5).map((row, i) => (
-                      <tr key={i} className="border-t border-line">
-                        {TARGETS.filter((t) => mapping[t.key]).map((t) => (
-                          <td key={t.key} className="px-3 py-1.5">
-                            {row[mapping[t.key] as string] ?? ""}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          ) : null}
+          <div className="rounded-lg border border-line p-3">
+            <h3 className="text-sm font-semibold">Which municipality?</h3>
+            <p className="mt-0.5 text-xs text-muted">
+              A provincial file covers hundreds. Everything you load here is
+              attached to <strong>{targetMunicipality}</strong>, so pick the rows
+              that belong to it.
+            </p>
 
-          {progress ? (
-            <div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-raise">
-                <div
-                  className="h-full bg-brand transition-[width]"
-                  style={{ width: `${(progress.done / Math.max(1, progress.total)) * 100}%` }}
-                />
-              </div>
-              <p className="mt-1 text-xs text-muted">
-                Loading {progress.done.toLocaleString("en-CA")} of{" "}
-                {progress.total.toLocaleString("en-CA")}…
-              </p>
-            </div>
-          ) : null}
+            <label className="mt-3 block">
+              <span className="field-label">Column naming the municipality</span>
+              <select
+                className="field"
+                value={municipalityColumn}
+                onChange={(e) => {
+                  setMunicipalityColumn(e.target.value);
+                  setPlaces([]);
+                  setChosen(new Set());
+                }}
+              >
+                <option value="">— the file is already one municipality —</option>
+                {headers.map((h) => (
+                  <option key={h} value={h}>
+                    {h}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={pending || !ready || rows.length === 0}
-              onClick={runImport}
-            >
-              {pending
-                ? "Loading…"
-                : `Import ${rows.length.toLocaleString("en-CA")} addresses`}
-            </button>
-            {!ready ? (
-              <span className="text-sm text-muted">
-                Map a street number and street name first.
-              </span>
+            {municipalityColumn && places.length === 0 ? (
+              <button type="button" className="btn-secondary mt-3 w-full" onClick={scan}>
+                Scan the file for municipalities
+              </button>
+            ) : null}
+
+            {places.length > 0 ? (
+              <div className="mt-3">
+                <p className="text-xs text-muted">
+                  {places.length.toLocaleString("en-CA")} found. Tick the ones to load.
+                </p>
+                <div className="mt-2 max-h-56 space-y-1 overflow-y-auto rounded border border-line p-2">
+                  {places.map((place) => (
+                    <label key={place.name} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        checked={chosen.has(place.name)}
+                        onChange={(e) =>
+                          setChosen((prev) => {
+                            const next = new Set(prev);
+                            if (e.target.checked) next.add(place.name);
+                            else next.delete(place.name);
+                            return next;
+                          })
+                        }
+                        className="size-4 accent-[var(--color-brand)]"
+                      />
+                      <span className="flex-1">{place.name}</span>
+                      <span className="tabular-nums text-xs text-muted">
+                        {place.rows.toLocaleString("en-CA")}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+                {chosen.size > 0 ? (
+                  <p className="mt-2 text-xs text-muted">
+                    {Array.from(chosen)
+                      .map(
+                        (name) =>
+                          `${name} (${(places.find((p) => p.name === name)?.rows ?? 0).toLocaleString("en-CA")})`,
+                      )
+                      .join(", ")}
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                    Nothing ticked — the whole file would be loaded.
+                  </p>
+                )}
+              </div>
             ) : null}
           </div>
+
+          <button
+            type="button"
+            className="btn-primary w-full"
+            disabled={!readyToImport}
+            onClick={run}
+          >
+            {chosen.size > 0
+              ? `Import ${Array.from(chosen)
+                  .reduce((n, name) => n + (places.find((p) => p.name === name)?.rows ?? 0), 0)
+                  .toLocaleString("en-CA")} addresses`
+              : "Import the whole file"}
+          </button>
+          {!readyToImport ? (
+            <p className="text-sm text-muted">
+              Map a street number and street name before importing.
+            </p>
+          ) : null}
         </>
       ) : null}
     </div>
   );
+}
+
+function simplify(value: string): string {
+  // "Municipality of West Grey" and "West Grey" should be recognised as the
+  // same place; the prefixes are how the province writes them, not part of the
+  // name anyone uses.
+  return value
+    .toLowerCase()
+    .replace(/\b(municipality|township|town|city|village|county|corporation)\b/g, "")
+    .replace(/\bof\b/g, "")
+    .replace(/[^a-z]/g, "");
 }
 
 function guessMapping(headers: string[]): Mapping {
@@ -288,22 +517,31 @@ function guessMapping(headers: string[]): Mapping {
   const taken = new Set<string>();
 
   for (const target of TARGETS) {
-    const match = headers.find((h) => {
+    const exact = headers.find((h) => {
       if (taken.has(h)) return false;
       const norm = h.toLowerCase().replace(/[^a-z]/g, "");
-      // Exact hits first so "street" does not steal the "street_no" column.
       return target.hints.some((hint) => norm === hint);
-    }) ??
-    headers.find((h) => {
-      if (taken.has(h)) return false;
-      const norm = h.toLowerCase().replace(/[^a-z]/g, "");
-      return target.hints.some((hint) => norm.includes(hint));
     });
+    const loose =
+      exact ??
+      headers.find((h) => {
+        if (taken.has(h)) return false;
+        const norm = h.toLowerCase().replace(/[^a-z]/g, "");
+        return target.hints.some((hint) => norm.includes(hint));
+      });
 
-    if (match) {
-      mapping[target.key] = match;
-      taken.add(match);
+    if (loose) {
+      mapping[target.key] = loose;
+      taken.add(loose);
     }
   }
   return mapping;
+}
+
+function guessMunicipalityColumn(headers: string[]): string {
+  for (const hint of MUNICIPALITY_HINTS) {
+    const match = headers.find((h) => h.toLowerCase().replace(/[^a-z]/g, "") === hint);
+    if (match) return match;
+  }
+  return "";
 }
