@@ -4,7 +4,8 @@ import { getActiveCampaign, listCampaigns } from "@/lib/campaign";
 import { OFFICES, OFFICE_OPTIONS, label } from "@/lib/enums";
 import { formatDate, toDateInput } from "@/lib/dates";
 import { nextOntarioVotingDay } from "@/lib/campaign";
-import { archiveCampaign, createCampaign, setActiveCampaign } from "@/app/actions/campaigns";
+import { archiveCampaign, setActiveCampaign } from "@/app/actions/campaigns";
+import { NewCampaignForm } from "./new-campaign-form";
 import { addToSlate, createSlate, deleteSlate, removeFromSlate, setSlateSharing } from "@/app/actions/slate";
 import { getCurrentUser } from "@/lib/auth";
 import { getSlates } from "@/lib/slate";
@@ -317,7 +318,7 @@ export default async function CampaignsPage() {
 
         <div className="space-y-6">
           <Card title="Add a campaign">
-            <form action={createCampaign} className="space-y-3">
+            <NewCampaignForm>
               <Field label="Candidate name">
                 <input name="candidateName" className="field" placeholder="Rebecca Hergert" required />
               </Field>
@@ -343,7 +344,7 @@ export default async function CampaignsPage() {
 
               <Field
                 label="New municipality name"
-                hint="Only used when no existing municipality is selected."
+                hint="Required unless you picked an existing municipality above."
               >
                 <input name="municipalityName" className="field" placeholder="Municipality of West Grey" />
               </Field>
@@ -370,10 +371,7 @@ export default async function CampaignsPage() {
                 <input name="electorCount" type="number" min={0} className="field" />
               </Field>
 
-              <button type="submit" className="btn-primary w-full">
-                Create campaign
-              </button>
-            </form>
+            </NewCampaignForm>
           </Card>
 
           <Card title="What is shared">

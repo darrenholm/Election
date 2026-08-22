@@ -8,6 +8,8 @@ import { ACTIVE_CAMPAIGN_COOKIE, nextOntarioVotingDay, slugify } from "@/lib/cam
 import { OFFICES } from "@/lib/enums";
 import { bool, centsOrNull, date, int, oneOf, str, strOrNull } from "@/lib/form";
 
+export type CampaignSaveResult = { error: string } | null;
+
 /** Switch which campaign the app is working on. */
 export async function setActiveCampaign(campaignId: string) {
   const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
@@ -39,9 +41,17 @@ async function resolveMunicipality(name: string, usesWards: boolean): Promise<st
   return created.id;
 }
 
-export async function createCampaign(formData: FormData) {
+export async function createCampaign(_prev: CampaignSaveResult, formData: FormData): Promise<CampaignSaveResult> {
   const candidateName = str(formData, "candidateName");
-  if (candidateName === "") return;
+  if (candidateName === "") return { error: "Enter the candidate's name." };
+
+  // A blank name used to become "Unnamed municipality", which is not something
+  // anyone meant to create and is confusing to find later.
+  if (!strOrNull(formData, "municipalityId") && str(formData, "municipalityName") === "") {
+    return {
+      error: "Name the municipality, or pick an existing one to share its doors and electors.",
+    };
+  }
 
   const office = oneOf(formData, "office", OFFICES, "COUNCILLOR");
   const municipalityId =
@@ -85,7 +95,11 @@ export async function createCampaign(formData: FormData) {
   redirect("/settings");
 }
 
-export async function updateCampaign(campaignId: string, formData: FormData) {
+export async function updateCampaign(
+  campaignId: string,
+  _prev: CampaignSaveResult,
+  formData: FormData,
+): Promise<CampaignSaveResult> {
   const votingDay = date(formData, "votingDay") ?? new Date();
   const usesWards = bool(formData, "usesWards");
 
@@ -112,13 +126,35 @@ export async function updateCampaign(campaignId: string, formData: FormData) {
     },
   });
 
-  // Wards are a fact about the municipality, shared by every campaign there.
-  await db.municipality.update({
-    where: { id: campaign.municipalityId },
-    data: { usesWards },
-  });
+  // Wards and the municipality's name are facts about the town, shared by every
+  // campaign running there — so renaming it here renames it for all of them.
+  // That is the correct behaviour, and the form says so.
+  const municipalityName = str(formData, "municipalityName");
+  try {
+    await db.municipality.update({
+      where: { id: campaign.municipalityId },
+      data: {
+        usesWards,
+        ...(municipalityName ? { name: municipalityName } : {}),
+      },
+    });
+  } catch {
+    // The name is unique. Colliding with another municipality almost always
+    // means two towns were created that should have been one, and silently
+    // merging them would move doors and electors between campaigns — so say so
+    // and let a human decide.
+    await db.municipality.update({
+      where: { id: campaign.municipalityId },
+      data: { usesWards },
+    });
+    revalidatePath("/", "layout");
+    return {
+      error: `A municipality named "${municipalityName}" already exists. Other settings were saved. To put this campaign in that municipality, change it from the campaigns page.`,
+    };
+  }
 
   revalidatePath("/", "layout");
+  return null;
 }
 
 export async function archiveCampaign(campaignId: string, archived: boolean) {

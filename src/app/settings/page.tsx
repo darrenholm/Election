@@ -12,7 +12,7 @@ import { toDateInput } from "@/lib/dates";
 import { OFFICE_OPTIONS } from "@/lib/enums";
 import { getCurrentUser } from "@/lib/auth";
 import { smsConfig } from "@/lib/sms";
-import { updateCampaign } from "@/app/actions/campaigns";
+import { SettingsForm } from "./settings-form";
 import { signOut } from "@/app/actions/auth";
 import { Card, Field, Note, PageHeader, Select } from "@/components/ui";
 import { WardSetting } from "./ward-setting";
@@ -24,7 +24,6 @@ export default async function SettingsPage() {
   if (!campaign) redirect("/campaigns");
 
   const limits = computeLimits(campaign);
-  const save = updateCampaign.bind(null, campaign.id);
   const twilio = smsConfig();
 
   return (
@@ -54,7 +53,7 @@ export default async function SettingsPage() {
         </Note>
       </div>
 
-      <form action={save} className="space-y-6">
+      <SettingsForm campaignId={campaign.id}>
         <Card title="Candidate">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Candidate name">
@@ -63,8 +62,16 @@ export default async function SettingsPage() {
             <Field label="Office sought" hint="Head of council has a higher base limit.">
               <Select name="office" options={OFFICE_OPTIONS} defaultValue={campaign.office} />
             </Field>
-            <Field label="Municipality" hint="Change this from the campaigns page — doors and electors are attached to it.">
-              <input value={campaign.municipality.name} className="field" disabled />
+            <Field
+              label="Municipality"
+              hint="Shared by every campaign in this town — renaming it here renames it for all of them. To move this candidate to a different municipality, create the campaign again from the campaigns page."
+            >
+              <input
+                name="municipalityName"
+                defaultValue={campaign.municipality.name}
+                className="field"
+                placeholder="Municipality of West Grey"
+              />
             </Field>
             <div />
             <WardSetting usesWards={campaign.municipality.usesWards} ward={campaign.ward} />
@@ -258,12 +265,7 @@ export default async function SettingsPage() {
           </div>
         </Card>
 
-        <div className="flex justify-end">
-          <button type="submit" className="btn-primary">
-            Save settings
-          </button>
-        </div>
-      </form>
+      </SettingsForm>
 
       <div className="mt-8">
         <Card title="Access">
