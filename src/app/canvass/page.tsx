@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign } from "@/lib/campaign";
+import { redirect } from "next/navigation";
 import { TURF_STATUSES, label } from "@/lib/enums";
 import { formatDateTime } from "@/lib/dates";
 import { createTurf } from "@/app/actions/voters";
@@ -13,35 +14,55 @@ export default async function CanvassPage() {
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
 
-  const [campaign, turfs, volunteers, unassignedStreets, recentContacts, weekStats] = await Promise.all([
-    getCampaign(),
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+  const campaignId = campaign.id;
+
+  const [turfs, volunteers, unassignedStreets, recentContacts, weekStats] = await Promise.all([
     db.turf.findMany({
+      where: { campaignId },
       include: {
         assignedTo: true,
-        households: { include: { voters: { select: { id: true, supportLevel: true } } } },
+        households: {
+          include: {
+            household: {
+              include: {
+                voters: {
+                  select: { campaignStates: { where: { campaignId }, select: { supportLevel: true } } },
+                },
+              },
+            },
+          },
+        },
       },
       orderBy: { name: "asc" },
     }),
     db.volunteer.findMany({
-      where: { status: "ACTIVE" },
+      where: { campaignId, status: "ACTIVE" },
       orderBy: [{ firstName: "asc" }],
       select: { id: true, firstName: true, lastName: true },
     }),
+    // Streets with no door in any of THIS campaign's turf.
     db.household.findMany({
-      where: { turfId: null, NOT: { streetName: "" } },
+      where: {
+        municipalityId: campaign.municipalityId,
+        NOT: { streetName: "" },
+        turfHouseholds: { none: { turf: { campaignId } } },
+      },
       distinct: ["streetName"],
       select: { streetName: true },
       orderBy: { streetName: "asc" },
       take: 60,
     }),
     db.contactAttempt.findMany({
+      where: { campaignId },
       include: { voter: true, volunteer: true },
       orderBy: { occurredAt: "desc" },
       take: 12,
     }),
     db.contactAttempt.groupBy({
       by: ["result"],
-      where: { occurredAt: { gte: weekAgo } },
+      where: { campaignId, occurredAt: { gte: weekAgo } },
       _count: true,
     }),
   ]);
@@ -83,8 +104,10 @@ export default async function CanvassPage() {
               <ul className="divide-y divide-line">
                 {turfs.map((turf) => {
                   const doors = turf.households.length;
-                  const voters = turf.households.flatMap((h) => h.voters);
-                  const identified = voters.filter((v) => v.supportLevel !== null).length;
+                  const voters = turf.households.flatMap((th) => th.household.voters);
+                  const identified = voters.filter(
+                    (v) => (v.campaignStates[0]?.supportLevel ?? null) !== null,
+                  ).length;
                   const pct = voters.length > 0 ? (identified / voters.length) * 100 : 0;
                   return (
                     <li key={turf.id} className="py-3">
@@ -173,7 +196,7 @@ export default async function CanvassPage() {
                   blankLabel="Unassigned for now"
                 />
               </Field>
-              {campaign.usesWards ? (
+              {campaign.municipality.usesWards ? (
                 <Field label="Ward">
                   <input name="ward" className="field" />
                 </Field>

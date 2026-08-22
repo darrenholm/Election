@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign } from "@/lib/campaign";
+import { stateOf } from "@/lib/voter-state";
 import { CONTACT_METHODS, CONTACT_RESULTS, SIGN_STATUSES, label, splitList } from "@/lib/enums";
 import { formatDateTime, formatDate } from "@/lib/dates";
 import { deleteVoter, updateVoter, toggleVoted } from "@/app/actions/voters";
@@ -15,32 +16,44 @@ export const dynamic = "force-dynamic";
 export default async function VoterPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [campaign, voter, volunteers] = await Promise.all([
-    getCampaign(),
+  const campaign = await getActiveCampaign();
+  if (!campaign) notFound();
+  const campaignId = campaign.id;
+
+  const [voter, volunteers] = await Promise.all([
     db.voter.findUnique({
       where: { id },
       include: {
-        household: { include: { voters: true, turf: true } },
+        campaignStates: { where: { campaignId } },
+        household: {
+          include: {
+            voters: { include: { campaignStates: { where: { campaignId } } } },
+            turfHouseholds: { where: { turf: { campaignId } }, include: { turf: true } },
+          },
+        },
         contacts: {
+          where: { campaignId },
           include: { volunteer: true },
           orderBy: { occurredAt: "desc" },
         },
-        signRequests: { orderBy: { requestedAt: "desc" } },
+        signRequests: { where: { campaignId }, orderBy: { requestedAt: "desc" } },
       },
     }),
     db.volunteer.findMany({
-      where: { status: "ACTIVE" },
+      where: { campaignId, status: "ACTIVE" },
       orderBy: [{ firstName: "asc" }],
       select: { id: true, firstName: true, lastName: true },
     }),
   ]);
 
   if (!voter) notFound();
+  const state = stateOf(voter.campaignStates[0]);
+  const turf = voter.household?.turfHouseholds[0]?.turf ?? null;
 
   const name = `${titleCase(voter.firstName)} ${titleCase(voter.lastName)}`.trim();
   const housemates = (voter.household?.voters ?? []).filter((v) => v.id !== voter.id);
 
-  const markVoted = toggleVoted.bind(null, voter.id, voter.votedAt === null);
+  const markVoted = toggleVoted.bind(null, voter.id, state.votedAt === null);
   const removeVoter = deleteVoter.bind(null, voter.id);
   const saveVoter = updateVoter.bind(null, voter.id);
 
@@ -55,8 +68,8 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
               Voter file
             </Link>
             <form action={markVoted}>
-              <button type="submit" className={voter.votedAt ? "btn-secondary" : "btn-primary"}>
-                {voter.votedAt ? "Undo voted" : "Mark voted"}
+              <button type="submit" className={state.votedAt ? "btn-secondary" : "btn-primary"}>
+                {state.votedAt ? "Undo voted" : "Mark voted"}
               </button>
             </form>
           </>
@@ -64,15 +77,15 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
       />
 
       <div className="mb-6 flex flex-wrap items-center gap-2">
-        <SupportBadge level={voter.supportLevel} />
-        {voter.votedAt ? <Badge tone="good">Voted {formatDate(voter.votedAt)}</Badge> : null}
-        {voter.doNotContact ? <Badge tone="bad">Do not contact</Badge> : null}
+        <SupportBadge level={state.supportLevel} />
+        {state.votedAt ? <Badge tone="good">Voted {formatDate(state.votedAt)}</Badge> : null}
+        {state.doNotContact ? <Badge tone="bad">Do not contact</Badge> : null}
         {voter.movedAway ? <Badge tone="warn">Moved away</Badge> : null}
         {voter.deceased ? <Badge tone="neutral">Deceased</Badge> : null}
-        {voter.wantsSign ? <Badge tone="brand">Wants a sign</Badge> : null}
-        {voter.wantsToVolunteer ? <Badge tone="good">Will volunteer</Badge> : null}
-        {voter.isDonorProspect ? <Badge tone="brand">Donor prospect</Badge> : null}
-        {splitList(voter.tags).map((tag) => (
+        {state.wantsSign ? <Badge tone="brand">Wants a sign</Badge> : null}
+        {state.wantsToVolunteer ? <Badge tone="good">Will volunteer</Badge> : null}
+        {state.isDonorProspect ? <Badge tone="brand">Donor prospect</Badge> : null}
+        {splitList(state.tags).map((tag) => (
           <Badge key={tag}>{tag}</Badge>
         ))}
       </div>
@@ -85,7 +98,7 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
               volunteers={volunteers}
               knownPhone={voter.phone}
               knownEmail={voter.email}
-              smsConsent={voter.smsConsent}
+              smsConsent={state.smsConsent}
             />
           </Card>
 
@@ -128,7 +141,7 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
 
           <Card title="Edit details">
             <form action={saveVoter} className="space-y-4">
-              <VoterFormFields voter={voter} showWards={campaign.usesWards} />
+              <VoterFormFields voter={{ ...voter, ...state }} showWards={campaign.municipality.usesWards} />
               <div className="flex justify-end">
                 <button type="submit" className="btn-primary">
                   Save changes
@@ -144,16 +157,16 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
               <Row label="Phone" value={voter.phone || "—"} />
               <Row label="Email" value={voter.email || "—"} />
               <Row label="Language" value={voter.language || "—"} />
-              {campaign.usesWards ? (
+              {campaign.municipality.usesWards ? (
                 <Row label="Ward" value={voter.household?.ward || "—"} />
               ) : null}
               <Row label="Poll" value={voter.household?.pollNumber || "—"} />
               <Row
                 label="Turf"
                 value={
-                  voter.household?.turf ? (
-                    <Link href={`/canvass/${voter.household.turf.id}`} className="underline">
-                      {voter.household.turf.name}
+                  turf ? (
+                    <Link href={`/canvass/${turf.id}`} className="underline">
+                      {turf.name}
                     </Link>
                   ) : (
                     "Not in a turf"
@@ -162,9 +175,9 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
               />
               {voter.externalId ? <Row label="List ID" value={voter.externalId} /> : null}
             </dl>
-            {voter.notes ? (
+            {state.notes ? (
               <p className="mt-3 whitespace-pre-wrap border-t border-line pt-3 text-sm">
-                {voter.notes}
+                {state.notes}
               </p>
             ) : null}
           </Card>
@@ -177,7 +190,7 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
                     <Link href={`/voters/${mate.id}`} className="hover:underline">
                       {titleCase(mate.firstName)} {titleCase(mate.lastName)}
                     </Link>
-                    <SupportBadge level={mate.supportLevel} />
+                    <SupportBadge level={stateOf(mate.campaignStates[0]).supportLevel} />
                   </li>
                 ))}
               </ul>
@@ -210,9 +223,11 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
 
           <Card title="Danger zone">
             <p className="mb-3 text-sm text-muted">
-              Deleting removes the voter and their contact history. Prefer
-              &ldquo;do not contact&rdquo; for people who ask to be left alone —
-              it keeps them off every list without losing the record that they
+              Deleting removes this elector from the municipal file — for
+              <strong> every campaign in {campaign.municipality.name}</strong>, not
+              just this one. Prefer &ldquo;do not contact&rdquo; for people who ask to
+              be left alone: it keeps them off this campaign&apos;s lists without
+              touching anyone else&apos;s, and without losing the record that they
               asked.
             </p>
             <form action={removeVoter}>

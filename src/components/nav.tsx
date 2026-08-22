@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { CampaignSwitcher, type SwitcherCampaign } from "./campaign-switcher";
 
 type Item = { href: string; label: string; icon: string };
 
@@ -17,6 +18,7 @@ const ITEMS: Item[] = [
   { href: "/signs", label: "Lawn signs", icon: "▤" },
   { href: "/texting", label: "Texting", icon: "✉" },
   { href: "/events", label: "Events", icon: "★" },
+  { href: "/campaigns", label: "Campaigns", icon: "◫" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
 
@@ -25,7 +27,13 @@ function isActive(pathname: string, href: string): boolean {
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
-export function SideNav({ campaignName }: { campaignName: string }) {
+export function SideNav({
+  active,
+  campaigns,
+}: {
+  active: SwitcherCampaign | null;
+  campaigns: SwitcherCampaign[];
+}) {
   const pathname = usePathname();
 
   return (
@@ -33,14 +41,7 @@ export function SideNav({ campaignName }: { campaignName: string }) {
       {/* Desktop rail */}
       <nav className="no-print hidden w-56 shrink-0 border-r border-line bg-surface md:block">
         <div className="sticky top-0 flex h-dvh flex-col">
-          <div className="border-b border-line px-4 py-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted">
-              Campaign
-            </p>
-            <p className="mt-0.5 truncate text-sm font-bold">
-              {campaignName || "Unnamed campaign"}
-            </p>
-          </div>
+          <CampaignSwitcher active={active} campaigns={campaigns} />
           <ul className="flex-1 space-y-0.5 overflow-y-auto p-2">
             {ITEMS.map((item) => (
               <li key={item.href}>
@@ -66,6 +67,7 @@ export function SideNav({ campaignName }: { campaignName: string }) {
       {/* Mobile bar — horizontally scrollable so canvassers can reach every
           section one-handed without a hamburger menu. */}
       <nav className="no-print sticky top-0 z-20 border-b border-line bg-surface md:hidden">
+        <CampaignSwitcher active={active} campaigns={campaigns} />
         <div className="flex items-center gap-2 overflow-x-auto px-3 py-2">
           {ITEMS.map((item) => (
             <Link

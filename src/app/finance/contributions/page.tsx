@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { getContributorTotals } from "@/lib/finance";
-import { getLimits } from "@/lib/campaign";
+import { getActiveCampaign, getLimits } from "@/lib/campaign";
+import { redirect } from "next/navigation";
 import { CONTRIBUTION_METHODS, label } from "@/lib/enums";
 import { formatCents } from "@/lib/money";
 import { formatDate } from "@/lib/dates";
@@ -12,16 +13,21 @@ import { ContributionForm, type ContributorOption } from "./contribution-form";
 export const dynamic = "force-dynamic";
 
 export default async function ContributionsPage() {
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+  const campaignId = campaign.id;
+
   const [limits, contributors, contributions, events, totals] = await Promise.all([
     getLimits(),
-    db.contributor.findMany({ orderBy: [{ lastName: "asc" }, { firstName: "asc" }] }),
+    db.contributor.findMany({ where: { campaignId }, orderBy: [{ lastName: "asc" }, { firstName: "asc" }] }),
     db.contribution.findMany({
+      where: { campaignId },
       include: { contributor: true, event: true },
       orderBy: { receivedAt: "desc" },
       take: 300,
     }),
     db.event.findMany({
-      where: { isFundraiser: true },
+      where: { campaignId, isFundraiser: true },
       orderBy: { startsAt: "desc" },
       select: { id: true, name: true },
     }),
@@ -169,7 +175,7 @@ export default async function ContributionsPage() {
             <ContributionForm
               contributors={options}
               events={events}
-              selfFundingLimitCents={limits.selfFundingLimitCents}
+              selfFundingLimitCents={limits?.selfFundingLimitCents ?? 0}
             />
           </Card>
 

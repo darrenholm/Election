@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { getLimits } from "./campaign";
+import { requireCampaignId } from "./campaign";
 import {
   ITEMISATION_THRESHOLD_CENTS,
   checkContribution,
@@ -15,14 +16,18 @@ import {
 export type FinanceSummary = Awaited<ReturnType<typeof getFinanceSummary>>;
 
 export async function getFinanceSummary() {
-  const [limits, contributions, expenses] = await Promise.all([
+  const campaignId = await requireCampaignId();
+  const [limitSet, contributions, expenses] = await Promise.all([
     getLimits(),
     db.contribution.findMany({
+      where: { campaignId },
       include: { contributor: true, event: true },
       orderBy: { receivedAt: "desc" },
     }),
-    db.expense.findMany({ orderBy: { incurredAt: "desc" } }),
+    db.expense.findMany({ where: { campaignId }, orderBy: { incurredAt: "desc" } }),
   ]);
+  if (!limitSet) throw new Error("No campaign selected");
+  const limits = limitSet;
 
   // Returned contributions are kept for the audit trail but must not count
   // toward totals or a contributor's running limit.
@@ -77,9 +82,10 @@ export async function getFinanceSummary() {
 
 /** Running total per contributor, excluding returned contributions. */
 export async function getContributorTotals(): Promise<Map<string, number>> {
+  const campaignId = await requireCampaignId();
   const rows = await db.contribution.groupBy({
     by: ["contributorId"],
-    where: { returnedAt: null, contributorId: { not: null } },
+    where: { campaignId, returnedAt: null, contributorId: { not: null } },
     _sum: { amountCents: true },
   });
   const totals = new Map<string, number>();
@@ -105,14 +111,17 @@ export type FlaggedContribution = {
  * at the moment of entry.
  */
 export async function auditContributions(): Promise<FlaggedContribution[]> {
-  const [limits, contributions] = await Promise.all([
+  const campaignId = await requireCampaignId();
+  const [limitSet, contributions] = await Promise.all([
     getLimits(),
     db.contribution.findMany({
-      where: { returnedAt: null },
+      where: { campaignId, returnedAt: null },
       include: { contributor: true },
       orderBy: { receivedAt: "asc" },
     }),
   ]);
+  if (!limitSet) return [];
+  const limits = limitSet;
 
   // Walk chronologically so "prior total" means what it meant on the day.
   const running = new Map<string, number>();
@@ -166,8 +175,10 @@ export async function auditContributions(): Promise<FlaggedContribution[]> {
 
 /** Form 4, Box C — expense totals grouped by the ministry's own line items. */
 export async function getExpensesByCategory() {
+  const campaignId = await requireCampaignId();
   const rows = await db.expense.groupBy({
     by: ["category"],
+    where: { campaignId },
     _sum: { amountCents: true },
     _count: true,
   });
@@ -186,7 +197,9 @@ export async function getExpensesByCategory() {
  * must be itemised by name and address in the filed statement.
  */
 export async function getItemisedContributors() {
+  const campaignId = await requireCampaignId();
   const contributors = await db.contributor.findMany({
+    where: { campaignId },
     include: { contributions: { where: { returnedAt: null } } },
     orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
   });

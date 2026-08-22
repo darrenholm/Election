@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign } from "@/lib/campaign";
+import { redirect } from "next/navigation";
 import { SUPPORT_COLORS, type SupportLevel } from "@/lib/enums";
 import { Card, EmptyState, PageHeader, StatTile, Table, Td, Th } from "@/components/ui";
 import { titleCase } from "@/components/voter";
@@ -23,22 +24,31 @@ export default async function StreetsPage({
   const sort = (params.sort ?? "doors") as Sort;
   const q = (params.q ?? "").trim();
 
-  const [campaign, households] = await Promise.all([
-    getCampaign(),
-    db.household.findMany({
-      where: q ? { streetName: { contains: q.toUpperCase() } } : undefined,
-      include: {
-        turf: { select: { id: true, name: true } },
-        voters: {
-          select: {
-            supportLevel: true,
-            doNotContact: true,
-            _count: { select: { contacts: true } },
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+  const campaignId = campaign.id;
+
+  const households = await db.household.findMany({
+    where: {
+      municipalityId: campaign.municipalityId,
+      ...(q ? { streetName: { contains: q.toUpperCase() } } : {}),
+    },
+    include: {
+      turfHouseholds: {
+        where: { turf: { campaignId } },
+        select: { turf: { select: { id: true, name: true } } },
+      },
+      voters: {
+        select: {
+          campaignStates: {
+            where: { campaignId },
+            select: { supportLevel: true, doNotContact: true },
           },
+          _count: { select: { contacts: { where: { campaignId } } } },
         },
       },
-    }),
-  ]);
+    },
+  });
 
   type Row = {
     street: string;
@@ -76,14 +86,15 @@ export default async function StreetsPage({
     row.doors++;
     row.voters += household.voters.length;
     if (household.voters.some((v) => v._count.contacts > 0)) row.knockedDoors++;
-    if (household.turf) row.turfs.add(household.turf.name);
+    for (const th of household.turfHouseholds) row.turfs.add(th.turf.name);
     if (household.ward) row.wards.add(household.ward);
 
     for (const voter of household.voters) {
-      if (voter.doNotContact) row.doNotContact++;
-      if (voter.supportLevel !== null) {
+      const state = voter.campaignStates[0];
+      if (state?.doNotContact) row.doNotContact++;
+      if (state?.supportLevel != null) {
         row.identified++;
-        row.supportSum += voter.supportLevel;
+        row.supportSum += state.supportLevel;
         row.supportCount++;
       }
     }
@@ -203,7 +214,7 @@ export default async function StreetsPage({
                       >
                         {titleCase(row.street)}
                       </Link>
-                      {campaign.usesWards && row.wards.size > 0 ? (
+                      {campaign.municipality.usesWards && row.wards.size > 0 ? (
                         <span className="block text-xs text-muted">
                           {Array.from(row.wards).join(", ")}
                         </span>

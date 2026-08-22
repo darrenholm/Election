@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { db } from "@/lib/db";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign } from "@/lib/campaign";
 import { getFinanceSummary, getItemisedContributors } from "@/lib/finance";
 import { csvAmount, csvDate, csvResponse, toCsv } from "@/lib/csv";
 import { CONTRIBUTION_METHODS, label } from "@/lib/enums";
@@ -15,7 +15,8 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   const type = request.nextUrl.searchParams.get("type") ?? "contributions";
-  const campaign = await getCampaign();
+  const campaign = await getActiveCampaign();
+  if (!campaign) return new Response("No campaign selected", { status: 409 });
   const slug = (campaign.candidateName || "campaign").toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
   switch (type) {

@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { CONTRIBUTION_METHODS } from "@/lib/enums";
 import { expenseCategory } from "@/lib/ontario";
 import { bool, cents, date, str, strOrNull } from "@/lib/form";
+import { requireCampaignId } from "@/lib/campaign";
 
 function refreshFinance(extra?: string) {
   revalidatePath("/finance");
@@ -39,7 +40,10 @@ function contributorFields(formData: FormData) {
 }
 
 export async function createContributor(formData: FormData) {
-  const contributor = await db.contributor.create({ data: contributorFields(formData) });
+  const campaignId = await requireCampaignId();
+  const contributor = await db.contributor.create({
+    data: { ...contributorFields(formData), campaignId },
+  });
   refreshFinance();
   redirect(`/finance/contributors/${contributor.id}`);
 }
@@ -66,12 +70,15 @@ export async function deleteContributor(contributorId: string) {
  * Receipts must be issued for every contribution, and the Act expects them to
  * be traceable. Numbers are sequential per campaign: R-0001, R-0002, …
  */
-async function nextReceiptNumber(): Promise<string> {
-  const count = await db.contribution.count();
+async function nextReceiptNumber(campaignId: string): Promise<string> {
+  // Numbered per campaign: each candidate files their own Form 4 and needs its
+  // receipts to run from one.
+  const count = await db.contribution.count({ where: { campaignId } });
   return `R-${String(count + 1).padStart(4, "0")}`;
 }
 
 export async function createContribution(formData: FormData) {
+  const campaignId = await requireCampaignId();
   const method = str(formData, "method") in CONTRIBUTION_METHODS
     ? str(formData, "method")
     : "CHEQUE";
@@ -79,6 +86,7 @@ export async function createContribution(formData: FormData) {
 
   const contribution = await db.contribution.create({
     data: {
+      campaignId,
       contributorId: strOrNull(formData, "contributorId"),
       amountCents: cents(formData, "amount"),
       receivedAt: date(formData, "receivedAt") ?? new Date(),
@@ -86,7 +94,7 @@ export async function createContribution(formData: FormData) {
       isInKind,
       inKindDescription: str(formData, "inKindDescription"),
       isAnonymous: bool(formData, "isAnonymous"),
-      receiptNumber: bool(formData, "issueReceipt") ? await nextReceiptNumber() : "",
+      receiptNumber: bool(formData, "issueReceipt") ? await nextReceiptNumber(campaignId) : "",
       receiptIssuedAt: bool(formData, "issueReceipt") ? new Date() : null,
       eventId: strOrNull(formData, "eventId"),
       notes: str(formData, "notes"),
@@ -99,6 +107,7 @@ export async function createContribution(formData: FormData) {
   if (isInKind && contribution.amountCents > 0) {
     await db.expense.create({
       data: {
+        campaignId,
         description:
           str(formData, "inKindDescription") || "In-kind contribution (goods or services)",
         vendor: "",
@@ -123,7 +132,10 @@ export async function issueReceipt(contributionId: string) {
 
   await db.contribution.update({
     where: { id: contributionId },
-    data: { receiptNumber: await nextReceiptNumber(), receiptIssuedAt: new Date() },
+    data: {
+      receiptNumber: await nextReceiptNumber(existing.campaignId),
+      receiptIssuedAt: new Date(),
+    },
   });
   refreshFinance();
 }
@@ -161,11 +173,13 @@ export async function deleteContribution(contributionId: string) {
 /* ---------------------------------------------------------------- expenses */
 
 export async function createExpense(formData: FormData) {
+  const campaignId = await requireCampaignId();
   const categoryKey = str(formData, "category") || "OTHER_SUBJECT";
   const category = expenseCategory(categoryKey);
 
   await db.expense.create({
     data: {
+      campaignId,
       description: str(formData, "description") || "Untitled expense",
       vendor: str(formData, "vendor"),
       category: categoryKey,

@@ -10,6 +10,7 @@ import {
   joinList,
 } from "@/lib/enums";
 import { bool, date, int, list, oneOf, str, strOrNull } from "@/lib/form";
+import { requireCampaignId } from "@/lib/campaign";
 
 /* -------------------------------------------------------------- volunteers */
 
@@ -28,8 +29,13 @@ function volunteerFields(formData: FormData) {
 }
 
 export async function createVolunteer(formData: FormData) {
+  const campaignId = await requireCampaignId();
   const volunteer = await db.volunteer.create({
-    data: { ...volunteerFields(formData), voterId: strOrNull(formData, "voterId") },
+    data: {
+      ...volunteerFields(formData),
+      campaignId,
+      voterId: strOrNull(formData, "voterId"),
+    },
   });
   revalidatePath("/volunteers");
   redirect(`/volunteers/${volunteer.id}`);
@@ -55,17 +61,20 @@ export async function deleteVolunteer(volunteerId: string) {
  * their contact details across and linking the two records.
  */
 export async function recruitVoter(voterId: string) {
+  const campaignId = await requireCampaignId();
   const voter = await db.voter.findUnique({
     where: { id: voterId },
-    include: { volunteer: true },
+    include: { volunteers: { where: { campaignId } } },
   });
   if (!voter) return;
-  if (voter.volunteer) {
-    redirect(`/volunteers/${voter.volunteer.id}`);
+  // Someone can volunteer for two candidates; only this campaign's roster matters.
+  if (voter.volunteers.length > 0) {
+    redirect(`/volunteers/${voter.volunteers[0].id}`);
   }
 
   const volunteer = await db.volunteer.create({
     data: {
+      campaignId,
       firstName: voter.firstName,
       lastName: voter.lastName,
       email: voter.email,
@@ -101,7 +110,10 @@ function shiftFields(formData: FormData) {
 }
 
 export async function createShift(formData: FormData) {
-  const shift = await db.shift.create({ data: shiftFields(formData) });
+  const campaignId = await requireCampaignId();
+  const shift = await db.shift.create({
+    data: { ...shiftFields(formData), campaignId },
+  });
   revalidatePath("/shifts");
   revalidatePath("/");
   redirect(`/shifts/${shift.id}`);

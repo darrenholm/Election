@@ -1,6 +1,8 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getActiveCampaign } from "@/lib/campaign";
 import {
   OCCUPYING_STATUSES,
   VOLUNTEER_ROLES,
@@ -37,6 +39,11 @@ export default async function VolunteersPage({
 
   const now = new Date();
 
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+  const campaignId = campaign.id;
+  where.campaignId = campaignId;
+
   const [volunteers, counts, recruits] = await Promise.all([
     db.volunteer.findMany({
       where,
@@ -46,10 +53,13 @@ export default async function VolunteersPage({
       },
       orderBy: [{ status: "asc" }, { lastName: "asc" }, { firstName: "asc" }],
     }),
-    db.volunteer.groupBy({ by: ["status"], _count: true }),
-    // Voters who said yes at the door but are not on the roster yet.
+    db.volunteer.groupBy({ by: ["status"], where: { campaignId }, _count: true }),
+    // Voters who said yes at the door but are not on this campaign's roster yet.
     db.voter.findMany({
-      where: { wantsToVolunteer: true, volunteer: { is: null } },
+      where: {
+        campaignStates: { some: { campaignId, wantsToVolunteer: true } },
+        volunteers: { none: { campaignId } },
+      },
       orderBy: { updatedAt: "desc" },
       take: 10,
     }),

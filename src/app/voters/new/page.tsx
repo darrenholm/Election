@@ -1,6 +1,7 @@
+import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createVoter } from "@/app/actions/voters";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign } from "@/lib/campaign";
 import { Card, PageHeader } from "@/components/ui";
 import { VoterFormFields } from "@/components/voter-form";
 
@@ -9,7 +10,8 @@ import { VoterFormFields } from "@/components/voter-form";
 export const dynamic = "force-dynamic";
 
 export default async function NewVoterPage() {
-  const campaign = await getCampaign();
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
 
   return (
     <>
@@ -24,7 +26,7 @@ export default async function NewVoterPage() {
       />
       <form action={createVoter}>
         <Card>
-          <VoterFormFields showWards={campaign.usesWards} />
+          <VoterFormFields showWards={campaign.municipality.usesWards} />
         </Card>
         <div className="mt-4 flex justify-end">
           <button type="submit" className="btn-primary">

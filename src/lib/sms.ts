@@ -1,6 +1,7 @@
 import twilio from "twilio";
 import { db } from "./db";
 import { OPT_OUT_SUFFIX, countSegments, normalisePhone, renderMessage } from "./consent";
+import { requireCampaignId } from "./campaign";
 
 /**
  * Sending text messages through Twilio.
@@ -85,35 +86,53 @@ export type AudienceMember = {
  * Everyone lawfully textable right now. Deliberately narrow: express consent,
  * a usable number, not opted out, not deceased or moved, not do-not-contact.
  */
-export async function buildAudience(filter: {
-  supportLevels?: number[];
-  streets?: string[];
-  turfIds?: string[];
-  tag?: string;
-}): Promise<AudienceMember[]> {
-  const voters = await db.voter.findMany({
+export async function buildAudience(
+  filter: {
+    supportLevels?: number[];
+    streets?: string[];
+    turfIds?: string[];
+    tag?: string;
+  },
+  campaignIdOverride?: string,
+): Promise<AudienceMember[]> {
+  const campaignId = campaignIdOverride ?? (await requireCampaignId());
+
+  // Consent, support and do-not-contact are all this campaign's own record, so
+  // the audience is driven from VoterCampaignState rather than from the shared
+  // voter row. A voter who agreed to hear from one candidate has said nothing
+  // about the others.
+  const states = await db.voterCampaignState.findMany({
     where: {
+      campaignId,
       smsConsent: "GRANTED",
       doNotContact: false,
-      deceased: false,
-      movedAway: false,
-      NOT: { phone: "" },
+      voter: {
+        deceased: false,
+        movedAway: false,
+        NOT: { phone: "" },
+        ...(filter.streets && filter.streets.length > 0
+          ? { household: { is: { streetKey: { in: filter.streets } } } }
+          : {}),
+        ...(filter.turfIds && filter.turfIds.length > 0
+          ? { household: { is: { turfHouseholds: { some: { turfId: { in: filter.turfIds } } } } } }
+          : {}),
+      },
       ...(filter.supportLevels && filter.supportLevels.length > 0
         ? { supportLevel: { in: filter.supportLevels } }
         : {}),
       ...(filter.tag ? { tags: { contains: filter.tag } } : {}),
-      ...(filter.streets && filter.streets.length > 0
-        ? { household: { is: { streetName: { in: filter.streets } } } }
-        : {}),
-      ...(filter.turfIds && filter.turfIds.length > 0
-        ? { household: { is: { turfId: { in: filter.turfIds } } } }
-        : {}),
     },
-    select: { id: true, firstName: true, lastName: true, phone: true },
+    select: {
+      voter: { select: { id: true, firstName: true, lastName: true, phone: true } },
+    },
   });
 
+  const voters = states.map((s) => s.voter);
+
   const optOuts = new Set(
-    (await db.smsOptOut.findMany({ select: { phone: true } })).map((o) => o.phone),
+    (await db.smsOptOut.findMany({ where: { campaignId }, select: { phone: true } })).map(
+      (o) => o.phone,
+    ),
   );
 
   const seen = new Set<string>();
@@ -153,16 +172,29 @@ export type SendBatchResult = {
  * and a partial send must be resumable without texting anyone twice.
  */
 export async function sendCampaignBatch(
-  campaignId: string,
+  textCampaignId: string,
   limit = 25,
 ): Promise<SendBatchResult> {
   const config = smsConfig();
   const api = client();
 
+  const send = await db.textCampaign.findUnique({
+    where: { id: textCampaignId },
+    include: { campaign: true },
+  });
+  if (!send) {
+    return { attempted: 0, sent: 0, failed: 0, skipped: 0, remaining: 0, dryRun: true, errors: ["Send not found"] };
+  }
+  const campaignId = send.campaignId;
+
   const queued = await db.textMessage.findMany({
-    where: { campaignId, status: "QUEUED" },
+    where: { textCampaignId, status: "QUEUED" },
     take: limit,
-    include: { voter: { select: { smsConsent: true } } },
+    include: {
+      voter: {
+        select: { campaignStates: { where: { campaignId }, select: { smsConsent: true } } },
+      },
+    },
   });
 
   const result: SendBatchResult = {
@@ -180,8 +212,12 @@ export async function sendCampaignBatch(
 
     // Re-check consent and opt-out at the moment of sending. Someone may have
     // texted STOP, or had their consent revoked, between queueing and now.
-    const optedOut = await db.smsOptOut.findUnique({ where: { phone: message.toPhone } });
-    const consentGone = message.voter !== null && message.voter.smsConsent !== "GRANTED";
+    const optedOut = await db.smsOptOut.findUnique({
+      where: { campaignId_phone: { campaignId, phone: message.toPhone } },
+    });
+    const consentGone =
+      message.voter !== null &&
+      (message.voter.campaignStates[0]?.smsConsent ?? "UNKNOWN") !== "GRANTED";
 
     if (optedOut || consentGone) {
       await db.textMessage.update({
@@ -208,9 +244,15 @@ export async function sendCampaignBatch(
       const sent = await api.messages.create({
         to: message.toPhone,
         body: message.body,
-        ...(config.messagingServiceSid
-          ? { messagingServiceSid: config.messagingServiceSid }
-          : { from: config.fromNumber }),
+        // Each candidate sends from their own identity: consent runs to a named
+        // sender, and a shared number would make every opt-out ambiguous.
+        ...(send.campaign.twilioMessagingServiceSid
+          ? { messagingServiceSid: send.campaign.twilioMessagingServiceSid }
+          : send.campaign.twilioFromNumber
+            ? { from: send.campaign.twilioFromNumber }
+            : config.messagingServiceSid
+              ? { messagingServiceSid: config.messagingServiceSid }
+              : { from: config.fromNumber }),
         ...(process.env.APP_URL
           ? { statusCallback: `${process.env.APP_URL}/api/sms/status` }
           : {}),
@@ -232,11 +274,13 @@ export async function sendCampaignBatch(
     }
   }
 
-  result.remaining = await db.textMessage.count({ where: { campaignId, status: "QUEUED" } });
+  result.remaining = await db.textMessage.count({
+    where: { textCampaignId, status: "QUEUED" },
+  });
 
   if (result.remaining === 0) {
     await db.textCampaign.update({
-      where: { id: campaignId },
+      where: { id: textCampaignId },
       data: { status: "SENT", sentAt: new Date() },
     });
   }

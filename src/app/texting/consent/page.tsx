@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getActiveCampaign } from "@/lib/campaign";
 import { SMS_CONSENT_SOURCES, SMS_CONSENT_STATES, label } from "@/lib/enums";
 import { formatPhone } from "@/lib/consent";
 import { formatDate } from "@/lib/dates";
@@ -21,25 +23,36 @@ export default async function ConsentPage({
 }) {
   const { state = "GRANTED" } = await searchParams;
 
-  const [voters, counts, optOuts] = await Promise.all([
-    db.voter.findMany({
-      where: state === "ALL" ? { NOT: { smsConsent: "UNKNOWN" } } : { smsConsent: state },
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+  const campaignId = campaign.id;
+
+  const [records, counts, optOuts] = await Promise.all([
+    db.voterCampaignState.findMany({
+      where: {
+        campaignId,
+        ...(state === "ALL" ? { NOT: { smsConsent: "UNKNOWN" } } : { smsConsent: state }),
+      },
       orderBy: { smsConsentAt: "desc" },
       take: 300,
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        phone: true,
-        smsConsent: true,
-        smsConsentAt: true,
-        smsConsentSource: true,
-        smsConsentWording: true,
+      include: {
+        voter: { select: { id: true, firstName: true, lastName: true, phone: true } },
       },
     }),
-    db.voter.groupBy({ by: ["smsConsent"], _count: true }),
-    db.smsOptOut.findMany({ orderBy: { createdAt: "desc" }, take: 200 }),
+    db.voterCampaignState.groupBy({ by: ["smsConsent"], where: { campaignId }, _count: true }),
+    db.smsOptOut.findMany({ where: { campaignId }, orderBy: { createdAt: "desc" }, take: 200 }),
   ]);
+
+  const voters = records.map((r) => ({
+    id: r.voter.id,
+    firstName: r.voter.firstName,
+    lastName: r.voter.lastName,
+    phone: r.voter.phone,
+    smsConsent: r.smsConsent,
+    smsConsentAt: r.smsConsentAt,
+    smsConsentSource: r.smsConsentSource,
+    smsConsentWording: r.smsConsentWording,
+  }));
 
   const byState = new Map(counts.map((c) => [c.smsConsent, c._count]));
 
@@ -47,7 +60,7 @@ export default async function ConsentPage({
     <>
       <PageHeader
         title="Consent register"
-        subtitle="Who agreed to texts, when, and in what words."
+        subtitle={`Who agreed to hear from ${campaign.candidateName}, when, and in what words.`}
         actions={
           <Link href="/texting" className="btn-secondary">
             Back to sends
@@ -58,9 +71,10 @@ export default async function ConsentPage({
       <div className="mb-6">
         <Note>
           Consent is recorded with the exact wording read to the voter and the
-          moment they gave it. Keep this for the life of the campaign — a
-          consent record you cannot produce the script for is not much of a
-          record.
+          moment they gave it, and belongs to this campaign alone — agreeing to
+          hear from one candidate says nothing about the others. Keep it for the
+          life of the campaign: a consent record you cannot produce the script
+          for is not much of a record.
         </Note>
       </div>
 

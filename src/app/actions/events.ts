@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { EVENT_TYPES } from "@/lib/enums";
 import { bool, centsOrNull, date, intOrNull, oneOf, str } from "@/lib/form";
+import { requireCampaignId } from "@/lib/campaign";
 
 function eventFields(formData: FormData) {
   const startsAt = date(formData, "startsAt") ?? new Date();
@@ -28,7 +29,10 @@ function eventFields(formData: FormData) {
 }
 
 export async function createEvent(formData: FormData) {
-  const event = await db.event.create({ data: eventFields(formData) });
+  const campaignId = await requireCampaignId();
+  const event = await db.event.create({
+    data: { ...eventFields(formData), campaignId },
+  });
   revalidatePath("/events");
   revalidatePath("/");
   redirect(`/events/${event.id}`);

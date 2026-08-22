@@ -1,8 +1,9 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getMapPayload } from "@/lib/map-data";
 import { geocodingConfigured } from "@/lib/geocode";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign } from "@/lib/campaign";
 import { formatDate, toDateInput } from "@/lib/dates";
 import { setTurfPlannedDate } from "@/app/actions/geocode";
 import { Card, EmptyState, Note, PageHeader, StatTile } from "@/components/ui";
@@ -16,7 +17,7 @@ export default async function MapPage() {
   const [payload, campaign, pendingHouseholds, pendingSigns, failedHouseholds, failedSigns, turfs] =
     await Promise.all([
       getMapPayload(),
-      getCampaign(),
+      getActiveCampaign(),
       db.household.count({ where: { geocodeStatus: "PENDING", NOT: { streetName: "" } } }),
       db.signRequest.count({ where: { geocodeStatus: "PENDING", NOT: { addressLine: "" } } }),
       db.household.count({ where: { geocodeStatus: "FAILED" } }),
@@ -28,6 +29,8 @@ export default async function MapPage() {
       }),
     ]);
 
+  if (!campaign) redirect("/campaigns");
+
   const knocked = payload.doors.filter((d) => d.visited).length;
   const imprecise = payload.doors.filter((d) => d.imprecise).length;
   const signsUp = payload.signs.filter(
@@ -38,7 +41,7 @@ export default async function MapPage() {
     <>
       <PageHeader
         title="Map"
-        subtitle={`${campaign.municipality || "Your municipality"} — where you have been, where you are going, and where the signs are.`}
+        subtitle={`${campaign.municipality.name} — where you have been, where you are going, and where the signs are.`}
         actions={
           <>
             <Link href="/addresses/import" className="btn-secondary">

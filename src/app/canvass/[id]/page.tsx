@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign } from "@/lib/campaign";
+import { stateOf } from "@/lib/voter-state";
 import { TURF_STATUS_OPTIONS } from "@/lib/enums";
 import { formatDate } from "@/lib/dates";
 import {
@@ -19,30 +20,46 @@ export const dynamic = "force-dynamic";
 export default async function TurfPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const [campaign, turf, volunteers] = await Promise.all([
-    getCampaign(),
-    db.turf.findUnique({
-      where: { id },
+  const campaign = await getActiveCampaign();
+  if (!campaign) notFound();
+  const campaignId = campaign.id;
+
+  const [turfRow, volunteers] = await Promise.all([
+    db.turf.findFirst({
+      where: { id, campaignId },
       include: {
         assignedTo: true,
         households: {
           include: {
-            voters: {
-              include: { contacts: { orderBy: { occurredAt: "desc" }, take: 1 } },
-              orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+            household: {
+              include: {
+                voters: {
+                  include: {
+                    campaignStates: { where: { campaignId } },
+                    contacts: {
+                      where: { campaignId },
+                      orderBy: { occurredAt: "desc" },
+                      take: 1,
+                    },
+                  },
+                  orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+                },
+              },
             },
           },
         },
       },
     }),
     db.volunteer.findMany({
-      where: { status: "ACTIVE" },
+      where: { campaignId, status: "ACTIVE" },
       orderBy: [{ firstName: "asc" }],
       select: { id: true, firstName: true, lastName: true },
     }),
   ]);
 
-  if (!turf) notFound();
+  if (!turfRow) notFound();
+  // Flatten the join rows so the rest of the page works with households.
+  const turf = { ...turfRow, households: turfRow.households.map((th) => th.household) };
 
   // Walk order: down one street at a time, in civic-number order. Sorting in
   // the app rather than SQL because street numbers are text ("12", "12A", "104")
@@ -50,7 +67,9 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
   const streets = groupByStreet(turf.households);
 
   const allVoters = turf.households.flatMap((h) => h.voters);
-  const identified = allVoters.filter((v) => v.supportLevel !== null).length;
+  const identified = allVoters.filter(
+    (v) => stateOf(v.campaignStates[0]).supportLevel !== null,
+  ).length;
   const knocked = turf.households.filter((h) =>
     h.voters.some((v) => v.contacts.length > 0),
   ).length;
@@ -141,6 +160,7 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                         <ul className="mt-2 space-y-2">
                           {household.voters.map((voter) => {
                             const last = voter.contacts[0];
+                            const state = stateOf(voter.campaignStates[0]);
                             return (
                               <li key={voter.id}>
                                 <div className="flex flex-wrap items-center gap-2 text-sm">
@@ -150,11 +170,11 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                                   >
                                     {titleCase(voter.firstName)} {titleCase(voter.lastName)}
                                   </Link>
-                                  <SupportBadge level={voter.supportLevel} />
-                                  {voter.doNotContact ? (
+                                  <SupportBadge level={state.supportLevel} />
+                                  {state.doNotContact ? (
                                     <Badge tone="bad">Do not knock</Badge>
                                   ) : null}
-                                  {voter.wantsSign ? <Badge tone="brand">Sign</Badge> : null}
+                                  {state.wantsSign ? <Badge tone="brand">Sign</Badge> : null}
                                   {last ? (
                                     <span className="text-xs text-muted">
                                       last contacted {formatDate(last.occurredAt)}
@@ -162,7 +182,7 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                                   ) : null}
                                 </div>
 
-                                {!voter.doNotContact ? (
+                                {!state.doNotContact ? (
                                   <details className="no-print mt-1.5">
                                     <summary className="cursor-pointer text-xs font-medium text-brand">
                                       Log a contact
@@ -174,7 +194,7 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                                         defaultVolunteerId={turf.assignedToId}
                                         knownPhone={voter.phone}
                                         knownEmail={voter.email}
-                                        smsConsent={voter.smsConsent}
+                                        smsConsent={state.smsConsent}
                                         compact
                                       />
                                     </div>
@@ -221,7 +241,7 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                 />
               </Field>
             </div>
-            {campaign.usesWards ? (
+            {campaign.municipality.usesWards ? (
               <Field label="Ward">
                 <input name="ward" defaultValue={turf.ward} className="field" />
               </Field>

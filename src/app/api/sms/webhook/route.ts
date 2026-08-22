@@ -2,6 +2,7 @@ import twilio from "twilio";
 import { db } from "@/lib/db";
 import { isStartKeyword, isStopKeyword, normalisePhone } from "@/lib/consent";
 import { smsConfig } from "@/lib/sms";
+import { upsertVoterState } from "@/lib/voter-state";
 
 export const dynamic = "force-dynamic";
 
@@ -11,8 +12,13 @@ export const dynamic = "force-dynamic";
  * This is how someone gets out, so it is written to be hard to break: a STOP
  * is recorded against the *number*, permanently, in its own table — not as a
  * flag on a voter row that a later import could overwrite. Any voter holding
- * that number is marked REVOKED as a convenience, but the block list is what
- * the sender actually checks.
+ * that number is marked REVOKED for that campaign as a convenience, but the
+ * block list is what the sender actually checks.
+ *
+ * Opt-outs are per campaign, because consent runs to a named sender: telling
+ * one candidate to stop is not instruction to the other five. The receiving
+ * number tells us which candidate is being replied to, which is why each
+ * campaign needs its own.
  *
  * Twilio also stops delivery on STOP at its end for a plain from-number. We do
  * not rely on that: a messaging service, a number change, or a switch of
@@ -38,17 +44,51 @@ export async function POST(request: Request) {
   }
 
   const from = normalisePhone(String(params.From ?? ""));
+  const to = normalisePhone(String(params.To ?? ""));
   const body = String(params.Body ?? "");
 
   if (!from) return twiml("");
 
+  // Which candidate was this sent to? Each campaign texts from its own number,
+  // so the receiving number identifies the sender the voter is replying to.
+  // Without that we cannot tell whose list to remove them from, and guessing
+  // would either under-honour the opt-out or wrongly cut them from campaigns
+  // they never contacted.
+  const campaign = to
+    ? await db.campaign.findFirst({
+        where: {
+          OR: [
+            { twilioFromNumber: to },
+            { twilioFromNumber: String(params.To ?? "") },
+            { twilioMessagingServiceSid: String(params.MessagingServiceSid ?? "___none___") },
+          ],
+        },
+      })
+    : null;
+
+  // Fall back to the only campaign when there is exactly one — the common case
+  // for a single-candidate install, where a number has not been configured.
+  const resolved =
+    campaign ??
+    ((await db.campaign.count({ where: { isActive: true } })) === 1
+      ? await db.campaign.findFirst({ where: { isActive: true } })
+      : null);
+
+  if (!resolved) {
+    // Better to record nothing than to opt someone out of the wrong campaign,
+    // or out of all six. 200 so Twilio does not retry a request we will never
+    // be able to attribute.
+    return twiml("");
+  }
+
   if (isStopKeyword(body)) {
+    const reason = `Texted "${body.trim().slice(0, 40)}"`;
     await db.smsOptOut.upsert({
-      where: { phone: from },
-      create: { phone: from, reason: `Texted "${body.trim().slice(0, 40)}"` },
-      update: { reason: `Texted "${body.trim().slice(0, 40)}"` },
+      where: { campaignId_phone: { campaignId: resolved.id, phone: from } },
+      create: { campaignId: resolved.id, phone: from, reason },
+      update: { reason },
     });
-    await revokeVotersWithPhone(from, "REVOKED");
+    await setConsentForPhone(resolved.id, resolved.municipalityId, from, "REVOKED");
 
     // Twilio sends its own confirmation for standard STOP keywords on a
     // from-number, so replying here would double up.
@@ -56,19 +96,20 @@ export async function POST(request: Request) {
   }
 
   if (isStartKeyword(body)) {
-    await db.smsOptOut.deleteMany({ where: { phone: from } });
-    // Deliberately not re-granting consent: opting back in to the carrier is
+    await db.smsOptOut.deleteMany({ where: { campaignId: resolved.id, phone: from } });
+    // Deliberately not re-granting consent: opting back in with the carrier is
     // not the same as giving the campaign permission again, and re-consent
     // should be recorded properly with its wording.
     return twiml("");
   }
 
-  // Anything else is a reply worth a human reading. Store it as a contact note
+  // Anything else is a reply worth a human reading. Store it as a contact
   // against the voter so it does not vanish into the provider's console.
-  const voter = await findVoterByPhone(from);
+  const voter = await findVoterByPhone(resolved.municipalityId, from);
   if (voter) {
     await db.contactAttempt.create({
       data: {
+        campaignId: resolved.id,
         voterId: voter.id,
         method: "TEXT",
         result: "SPOKE",
@@ -80,22 +121,28 @@ export async function POST(request: Request) {
   return twiml("");
 }
 
-async function findVoterByPhone(e164: string) {
+async function findVoterByPhone(municipalityId: string, e164: string) {
   const voters = await db.voter.findMany({
-    where: { NOT: { phone: "" } },
+    where: { municipalityId, NOT: { phone: "" } },
     select: { id: true, phone: true },
   });
   return voters.find((v) => normalisePhone(v.phone) === e164) ?? null;
 }
 
-async function revokeVotersWithPhone(e164: string, state: string) {
+async function setConsentForPhone(
+  campaignId: string,
+  municipalityId: string,
+  e164: string,
+  state: string,
+) {
   const voters = await db.voter.findMany({
-    where: { NOT: { phone: "" } },
+    where: { municipalityId, NOT: { phone: "" } },
     select: { id: true, phone: true },
   });
-  const ids = voters.filter((v) => normalisePhone(v.phone) === e164).map((v) => v.id);
-  if (ids.length > 0) {
-    await db.voter.updateMany({ where: { id: { in: ids } }, data: { smsConsent: state } });
+  for (const voter of voters) {
+    if (normalisePhone(voter.phone) === e164) {
+      await upsertVoterState(campaignId, voter.id, { smsConsent: state });
+    }
   }
 }
 

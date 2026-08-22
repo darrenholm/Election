@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { SideNav } from "@/components/nav";
 import { OutboxStatus } from "@/components/outbox-status";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign, listCampaigns } from "@/lib/campaign";
+import { OFFICES, label } from "@/lib/enums";
 import { authEnabled } from "@/lib/auth";
 import "./globals.css";
 
@@ -25,13 +26,23 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const campaign = await getCampaign();
+  const [active, campaigns] = await Promise.all([getActiveCampaign(), listCampaigns()]);
+
+  const toSwitcher = (c: NonNullable<typeof active>) => ({
+    id: c.id,
+    candidateName: c.candidateName || "Unnamed candidate",
+    officeLabel: label(OFFICES, c.office),
+    municipality: c.municipality.name,
+  });
 
   return (
     <html lang="en">
       <body>
         <div className="flex min-h-dvh flex-col md:flex-row">
-          <SideNav campaignName={campaign.candidateName} />
+          <SideNav
+            active={active ? toSwitcher(active) : null}
+            campaigns={campaigns.filter((c) => c.isActive).map(toSwitcher)}
+          />
           <div className="min-w-0 flex-1">
             <OutboxStatus />
             {!authEnabled() ? (

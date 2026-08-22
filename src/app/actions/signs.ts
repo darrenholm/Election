@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { SIGN_STATUSES, SIGN_TYPES } from "@/lib/enums";
 import { bool, date, int, oneOf, str, strOrNull } from "@/lib/form";
+import { requireCampaignId } from "@/lib/campaign";
 
 function refreshSigns() {
   revalidatePath("/signs");
@@ -12,8 +13,10 @@ function refreshSigns() {
 }
 
 export async function createSignRequest(formData: FormData) {
+  const campaignId = await requireCampaignId();
   await db.signRequest.create({
     data: {
+      campaignId,
       voterId: strOrNull(formData, "voterId"),
       requesterName: str(formData, "requesterName"),
       phone: str(formData, "phone"),
@@ -83,14 +86,15 @@ export async function deleteSignRequest(signId: string) {
 
 /** How many of each sign type the campaign owns, for the "left in the garage" figure. */
 export async function setInventory(formData: FormData) {
+  const campaignId = await requireCampaignId();
   for (const signType of Object.keys(SIGN_TYPES)) {
     const raw = formData.get(`quantity_${signType}`);
     if (typeof raw !== "string" || raw.trim() === "") continue;
     const quantityOwned = Math.max(0, Math.round(Number(raw)) || 0);
 
     await db.signInventory.upsert({
-      where: { signType },
-      create: { signType, quantityOwned },
+      where: { campaignId_signType: { campaignId, signType } },
+      create: { campaignId, signType, quantityOwned },
       update: { quantityOwned },
     });
   }

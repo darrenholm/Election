@@ -146,30 +146,35 @@ trade unions have been prohibited since 2018.
 
 ## Getting started
 
-Needs Node 20.9 or newer. Run these one at a time, in order:
+Needs Node 20.9 or newer and a PostgreSQL database. The quickest route is to
+create the Railway Postgres first (see Deploying) and point local development at
+its public connection string — one database, no divergence between what you test
+and what you ship.
 
 ```bash
-npm install          # also generates the Prisma client
-cp .env.example .env # on Windows PowerShell: copy .env.example .env
-npm run db:push      # create the SQLite database from the schema
-npm run db:seed      # optional: load a fictional demo campaign
+npm install                 # also generates the Prisma client
+cp .env.example .env        # on Windows PowerShell: copy .env.example .env
+# put your DATABASE_URL in .env, then:
+npm run db:deploy           # create the tables
+npm run db:seed             # optional: load a six-candidate demo
 npm run dev
 ```
 
 Then open http://localhost:3000.
 
 > **Windows PowerShell 5.1** — the version that ships with Windows — does not
-> accept `&&` between commands. Run each line on its own rather than chaining
-> them. PowerShell 7 and Git Bash both handle `&&` fine.
+> accept `&&` between commands. Run each line on its own. PowerShell 7 and Git
+> Bash both handle `&&` fine.
 >
 > `npm install` prints a deprecation warning for ESLint and reports high
 > severity advisories. Both come from build-time dev dependencies (the Prisma
 > CLI's config loader), not from anything the running app serves. Do not run
 > `npm audit fix --force` — it downgrades Prisma and breaks the schema.
 
-The demo campaign includes deliberate compliance problems — an over-limit
-contributor, a cash gift above $25, a contributor with no address on file — so
-you can see what the finance page does when things are not green.
+The demo loads two municipalities and six candidates — one running for head of
+council in a ward-based municipality, five in a municipality that elects at
+large. It is worth clicking between them: the doors are shared, the support
+levels and consent are not.
 
 ### Scripts
 
@@ -177,76 +182,58 @@ you can see what the finance page does when things are not green.
 | --- | --- |
 | `npm run dev` | Development server |
 | `npm run build` | Generate the Prisma client and build for production |
-| `npm run start` | Run the production build |
+| `npm run start` | Apply migrations, then run the production build |
 | `npm run typecheck` | TypeScript, no emit |
 | `npm run lint` | ESLint |
-| `npm run db:push` | Sync the schema to the database |
-| `npm run db:seed` | Load the demo campaign |
-| `npm run db:reset` | Wipe and reload |
+| `npm run db:deploy` | Apply migrations to the database |
+| `npm run db:migrate` | Create a new migration after a schema change |
+| `npm run db:seed` | Load the demo campaigns |
 | `npm run db:studio` | Prisma Studio, for poking at the data directly |
 
-## Configuration
+## Running several candidates
 
-Copy `.env.example` to `.env`:
+The app is built for a consultant running more than one campaign at once.
 
-```
-DATABASE_URL="file:./dev.db"
-APP_PASSWORD=""
-```
+- **Municipalities own the doors and the electors.** Every candidate running in
+  the same town works from one address file and one voters' list, loaded once.
+- **Campaigns own everything they learn.** Support levels, text consent,
+  contacts, volunteers, money, signs and messages are all scoped to one
+  candidate. A voter friendly to one is not thereby friendly to another, and
+  consent to be texted is given to a named sender rather than to whoever holds
+  the list — so each campaign needs its own sending number, set in Settings.
+- The switcher at the top of the sidebar changes which campaign you are working
+  on. It is deliberately prominent: entering a contribution against the wrong
+  candidate is a compliance problem, not a cosmetic one.
+- Deleting an elector removes them from the municipal file for *every* campaign
+  in that town. "Do not contact" is per campaign and is almost always what you
+  want instead.
 
-### Access control — read this before deploying
+## Deploying to Railway
 
-The database holds electors' names, home addresses and phone numbers. Setting
-`APP_PASSWORD` puts a shared password in front of the whole application; leaving
-it blank runs the app **unauthenticated**, which is reasonable on your own
-laptop and unsafe anywhere else. The dashboard shows a banner whenever no
-password is set.
+The batch work in this app — geocoding runs, SMS sends — happens inside request
+handlers, which suits a persistent server better than serverless functions with
+execution caps. Railway gives you that plus Postgres in one place.
 
-The session cookie carries a SHA-256 digest rather than the password itself, and
-changing `APP_PASSWORD` signs everyone out.
+1. **New Project → Deploy from GitHub repo**, and pick this repository and
+   branch.
+2. **Add a Postgres service**: *New → Database → Add PostgreSQL*.
+3. On the app service, open **Variables** and set:
 
-This is one shared password for the whole team, not per-user accounts. It is
-deliberately simple, and it is not an audit trail: it tells you that someone
-from the campaign made a change, not who.
+   | Variable | Value |
+   | --- | --- |
+   | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` — reference it, do not paste it |
+   | `APP_PASSWORD` | a strong shared password. **Set this before any real data goes in.** |
+   | `APP_URL` | your Railway URL, e.g. `https://campaign.up.railway.app` |
+   | `GOOGLE_GEOCODING_API_KEY` | only if your address file has no coordinates |
+   | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | only when you are ready to send texts |
 
-### Municipalities without wards
+4. **Generate a domain** under Settings → Networking, and put it in `APP_URL`.
+5. Deploy. `npm run start` runs `prisma migrate deploy` first, so the schema is
+   created and kept current on every release — no manual migration step.
 
-Plenty of Ontario municipalities elect council at large. **Settings → "This
-municipality is divided into wards"** is off by default; leave it off and every
-ward field, filter, column and grouping disappears across the app — the voter
-form and filters, turf, sign requests, the CSV import mapping, and Box A of the
-Form 4 worksheet. Sign run sheets group by street instead of by ward, in civic
-number order.
-
-Turning it on brings all of it back. Switching it off clears the stored ward
-name so a stale value cannot reappear later; ward values already on households
-and sign requests are left untouched and simply stop being displayed.
-
-The demo seed sets it on, because the fictional municipality it models does use
-wards — so re-running `npm run db:seed` turns wards back on for that demo
-campaign.
-
-### Voters' list handling
-
-The municipal voters' list may only be used for election purposes. Keep it
-inside the campaign, and delete the data when the campaign period ends. The
-`.gitignore` excludes `*.db` so a database full of voter data cannot be
-committed by accident.
-
-## Deploying
-
-SQLite is the default because it needs no setup. For a shared deployment, move
-to Postgres:
-
-1. Change `provider` to `"postgresql"` in `prisma/schema.prisma`.
-2. Point `DATABASE_URL` at your server.
-3. `npx prisma migrate dev --name init`.
-
-Nothing in the schema is SQLite-specific. Enum-like columns are stored as
-strings because the SQLite connector has no native enums; the allowed values
-live in `src/lib/enums.ts` and are validated before every write.
-
-Set `APP_PASSWORD` in the deployment environment.
+Point Twilio's webhooks at `https://your-app/api/sms/webhook` (inbound) and
+`https://your-app/api/sms/status` (delivery). Both sit outside the password gate
+and verify Twilio's request signature instead.
 
 ## How the code is laid out
 

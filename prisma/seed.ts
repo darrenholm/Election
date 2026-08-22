@@ -1,18 +1,23 @@
 /**
- * Demo data for a fictional Ontario municipal campaign.
+ * Demo data for a consultant running several candidates at once.
  *
- * Everything here is invented. It exists so the app is worth looking at before
- * a real voters' list is imported, and so the compliance checks have something
- * to flag: the contributions below deliberately include an over-limit donor, a
- * cash gift above $25 and a contributor with no address, because a finance
- * page that is always green teaches you nothing about what it will do when it
- * is not.
+ * Modelled on the real shape of the problem: one municipality that elects at
+ * large and one divided into wards, six candidates between them, and a shared
+ * address file per municipality that every campaign in that town works from.
  *
- * Run `npm run db:reset` to wipe and reload it.
+ * Everything here is invented — the names are made up and any resemblance to
+ * real candidates is coincidental. It exists so the app is worth looking at
+ * before real data arrives, and so the compliance checks have something to
+ * flag: the contributions below deliberately include an over-limit donor, a
+ * cash gift above $25 and a contributor with no address, because a finance page
+ * that is always green teaches you nothing.
+ *
+ * Run `npm run db:seed` to reload it.
  */
 
 import { PrismaClient } from "@prisma/client";
 import { DOOR_CONSENT_SCRIPT, normalisePhone } from "../src/lib/consent";
+import { canonicalStreet } from "../src/lib/address";
 
 const db = new PrismaClient();
 
@@ -38,52 +43,53 @@ function daysBefore(days: number): Date {
   return new Date(VOTING_DAY.getTime() - days * DAY);
 }
 
-const STREETS = [
-  "KENT ST W",
-  "WILLIAM ST N",
-  "LINDSAY ST S",
-  "COLBORNE ST E",
-  "ANGELINE ST N",
-  "RUSSELL ST W",
-  "DURHAM ST E",
-  "GLENELG ST W",
-  "SUSSEX ST N",
-  "CAMBRIDGE ST S",
-  "ORCHARD PARK RD",
-  "MARY ST W",
-  "ADELAIDE ST N",
-  "PEEL ST",
-  "BOND ST W",
+type TownSpec = {
+  name: string;
+  usesWards: boolean;
+  centre: { lat: number; lng: number };
+  streets: string[];
+  postalPrefix: string;
+  city: string;
+};
+
+const TOWNS: TownSpec[] = [
+  {
+    name: "Municipality of Brockton",
+    usesWards: false,
+    centre: { lat: 44.1288, lng: -81.1449 },
+    city: "Walkerton",
+    postalPrefix: "N0G",
+    streets: [
+      "YONGE ST S", "DURHAM ST E", "JACKSON ST", "COLBORNE ST S", "VICTORIA ST S",
+      "THOMAS ST", "HINKS ST", "WESTWOOD DR", "OLD DURHAM RD", "ORANGE ST",
+      "WILLOW ST", "VALLEYSIDE DR", "CONCESSION 6", "BRUCE ROAD 15", "LAKE ROSALIND RD 4",
+    ],
+  },
+  {
+    name: "Municipality of West Grey",
+    usesWards: true,
+    centre: { lat: 44.1836, lng: -80.8189 },
+    city: "Durham",
+    postalPrefix: "N0G",
+    streets: [
+      "GARAFRAXA ST S", "GEORGE ST W", "LAMBTON ST E", "COUNTESS ST",
+      "SADDLER ST W", "ELGIN ST N", "QUEEN ST", "MILL ST",
+      "CONCESSION 2 NDR", "GREY ROAD 4",
+    ],
+  },
 ];
 
-/**
- * Plausible coordinates for the demo, laid out as a street grid over Lindsay,
- * Ontario. Real campaigns geocode their addresses through Google; this exists
- * only so the map has something to draw before a key is configured.
- */
-const TOWN_CENTRE = { lat: 44.3567, lng: -78.7378 };
-
-function streetGeometry(index: number) {
-  // Alternate north-south and east-west streets, offset from the centre, so
-  // the demo reads as a town rather than a random scatter.
-  const eastWest = index % 2 === 0;
-  const offset = (Math.floor(index / 2) - 3) * 0.0055;
-  return {
-    eastWest,
-    // Metres-per-degree differ by axis; these keep the blocks roughly square.
-    baseLat: TOWN_CENTRE.lat + (eastWest ? offset : -0.008),
-    baseLng: TOWN_CENTRE.lng + (eastWest ? -0.011 : offset * 1.4),
-  };
-}
-
-function doorCoordinates(streetIndex: number, doorIndex: number) {
-  const g = streetGeometry(streetIndex);
+/** Streets laid out as a grid over the town centre, so the map reads as a town. */
+function doorCoordinates(town: TownSpec, streetIndex: number, doorIndex: number) {
+  const eastWest = streetIndex % 2 === 0;
+  const offset = (Math.floor(streetIndex / 2) - 3) * 0.0055;
+  const baseLat = town.centre.lat + (eastWest ? offset : -0.008);
+  const baseLng = town.centre.lng + (eastWest ? -0.011 : offset * 1.4);
   const along = doorIndex * 0.00042;
-  // A few metres of jitter so doors do not sit in a perfectly straight line.
   const jitter = ((doorIndex % 3) - 1) * 0.00008;
-  return g.eastWest
-    ? { latitude: g.baseLat + jitter, longitude: g.baseLng + along }
-    : { latitude: g.baseLat + along, longitude: g.baseLng + jitter };
+  return eastWest
+    ? { latitude: baseLat + jitter, longitude: baseLng + along }
+    : { latitude: baseLat + along, longitude: baseLng + jitter };
 }
 
 const FIRST_NAMES = [
@@ -99,542 +105,414 @@ const LAST_NAMES = [
   "Campbell", "Ferguson", "Doyle", "Beaulieu", "Ahmed", "Kaur", "Rossi", "Cormier",
 ];
 
-/**
- * Text-message consent for the demo. Deliberately mixed: a minority agreed, a
- * few said no outright, and most were never asked — which is what a real
- * consent register looks like partway through a campaign, and it stops the
- * texting screens from implying you can message the whole voters' list.
- */
-function smsConsentFor(identified: boolean) {
-  if (!identified || !chance(0.45)) return {};
-  const agreed = chance(0.62);
-  return {
-    smsConsent: agreed ? "GRANTED" : "DECLINED",
-    smsConsentAt: new Date(Date.now() - intBetween(1, 60) * DAY),
-    smsConsentSource: "DOOR",
-    smsConsentWording: DOOR_CONSENT_SCRIPT,
-  };
-}
+const ISSUES = ["roads", "taxes", "development", "parks", "seniors", "water", "policing", "broadband"];
 
-const ISSUES = [
-  "roads", "transit", "taxes", "development", "parks", "seniors", "water", "policing",
+type CandidateSpec = {
+  town: string;
+  name: string;
+  office: string;
+  ward?: string;
+  electors: number;
+  /** How much of the file this campaign has worked through. */
+  effort: number;
+};
+
+const CANDIDATES: CandidateSpec[] = [
+  { town: "Municipality of West Grey", name: "Rebecca Hergert", office: "HEAD_OF_COUNCIL", ward: "", electors: 10400, effort: 0.62 },
+  { town: "Municipality of Brockton", name: "Dana Whitfield", office: "HEAD_OF_COUNCIL", electors: 7900, effort: 0.55 },
+  { town: "Municipality of Brockton", name: "Owen Kilbride", office: "COUNCILLOR", electors: 7900, effort: 0.41 },
+  { town: "Municipality of Brockton", name: "Priya Raman", office: "COUNCILLOR", electors: 7900, effort: 0.33 },
+  { town: "Municipality of Brockton", name: "Marcus Bell", office: "COUNCILLOR", electors: 7900, effort: 0.24 },
+  { town: "Municipality of Brockton", name: "Helen Ostrander", office: "SCHOOL_TRUSTEE", electors: 7900, effort: 0.18 },
 ];
 
 async function main() {
   console.log("Clearing existing data…");
-  // Order matters: children before parents.
-  await db.textMessage.deleteMany();
-  await db.textCampaign.deleteMany();
-  await db.smsOptOut.deleteMany();
-  await db.contactAttempt.deleteMany();
-  await db.shiftAssignment.deleteMany();
-  await db.shift.deleteMany();
-  await db.signRequest.deleteMany();
-  await db.signInventory.deleteMany();
-  await db.contribution.deleteMany();
-  await db.expense.deleteMany();
-  await db.contributor.deleteMany();
-  await db.event.deleteMany();
-  await db.voter.deleteMany();
-  await db.household.deleteMany();
-  await db.turf.deleteMany();
-  await db.volunteer.deleteMany();
+  // Municipality and Campaign cascade to everything else.
+  await db.municipality.deleteMany();
   await db.campaign.deleteMany();
 
-  console.log("Campaign…");
-  await db.campaign.create({
-    data: {
-      id: "campaign",
-      candidateName: "Jordan Reyes",
-      office: "COUNCILLOR",
-      municipality: "City of Kawartha Lakes",
-      // The demo municipality has wards; many do not, and the app hides every
-      // ward field when this is false. See Settings.
-      usesWards: true,
-      ward: "Ward 3",
-      votingDay: VOTING_DAY,
-      campaignPeriodStart: daysBefore(150),
-      campaignPeriodEnd: new Date(2026, 11, 31),
-      electorCount: 8200,
-      contactEmail: "team@jordanreyes.example",
-      contactPhone: "705-555-0142",
-    },
-  });
+  const townIds = new Map<string, string>();
+  const householdsByTown = new Map<string, { id: string; street: string }[]>();
+  const votersByTown = new Map<string, string[]>();
 
-  console.log("Volunteers…");
-  const volunteerSpecs = [
-    { firstName: "Elena", lastName: "Vasquez", roles: "CANVASSER,PHONE_BANKER,DATA_ENTRY", hasVehicle: true, availability: "Weekday evenings, all day Saturday" },
-    { firstName: "Marcus", lastName: "Bell", roles: "SIGN_CREW,DRIVER", hasVehicle: true, availability: "Weekends, has a pickup truck" },
-    { firstName: "Priya", lastName: "Raman", roles: "CANVASSER,SOCIAL_MEDIA", hasVehicle: false, availability: "Evenings after 6" },
-    { firstName: "Doug", lastName: "Fraser", roles: "CANVASSER,SCRUTINEER", hasVehicle: true, availability: "Retired — any time" },
-    { firstName: "Hannah", lastName: "Oyelaran", roles: "FUNDRAISING,EVENT_HELP", hasVehicle: false, availability: "Weekends" },
-    { firstName: "Tom", lastName: "Petrov", roles: "PHONE_BANKER,LIT_DROP", hasVehicle: false, availability: "Weekday afternoons" },
-    { firstName: "Grace", lastName: "Lam", roles: "DATA_ENTRY,CANVASSER", hasVehicle: true, availability: "Tuesday and Thursday evenings" },
-    { firstName: "Bill", lastName: "Hutchins", roles: "SIGN_CREW", hasVehicle: true, status: "PROSPECT", availability: "Not sure yet" },
-  ];
+  for (const town of TOWNS) {
+    console.log(`${town.name}…`);
+    const municipality = await db.municipality.create({
+      data: { name: town.name, usesWards: town.usesWards },
+    });
+    townIds.set(town.name, municipality.id);
 
-  const volunteers: { id: string; roles: string }[] = [];
-  for (const [i, spec] of volunteerSpecs.entries()) {
-    volunteers.push(
-      await db.volunteer.create({
-        data: {
-          firstName: spec.firstName,
-          lastName: spec.lastName,
-          email: `${spec.firstName.toLowerCase()}@example.com`,
-          phone: `705-555-0${100 + i}`,
-          status: spec.status ?? "ACTIVE",
-          roles: spec.roles,
-          availability: spec.availability,
-          hasVehicle: spec.hasVehicle,
-        },
-      }),
-    );
+    const households: { id: string; street: string }[] = [];
+    const voters: string[] = [];
+    let externalId = 30000;
+
+    for (const [streetIndex, street] of town.streets.entries()) {
+      const doors = intBetween(12, 22);
+      for (let d = 0; d < doors; d++) {
+        const coords = doorCoordinates(town, streetIndex, d);
+        const household = await db.household.create({
+          data: {
+            municipalityId: municipality.id,
+            streetNumber: String(2 + d * 2 + intBetween(0, 1)),
+            streetName: street,
+            streetKey: canonicalStreet(street),
+            city: town.city,
+            postalCode: `${town.postalPrefix} ${intBetween(1, 9)}${pick(["A", "B", "C", "G", "H", "J"])}${intBetween(1, 9)}`,
+            ward: town.usesWards ? `Ward ${intBetween(1, 4)}` : "",
+            pollNumber: String(intBetween(1, 12)).padStart(3, "0"),
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+            geocodeStatus: "OK",
+            // A handful land on the road rather than the driveway, so the map's
+            // "rough location" flag has something real to show.
+            geocodePrecision: d % 11 === 0 ? "GEOMETRIC_CENTER" : "ROOFTOP",
+            geocodedAt: new Date(),
+          },
+        });
+        households.push({ id: household.id, street });
+
+        const lastName = pick(LAST_NAMES);
+        const occupants = chance(0.45) ? 2 : chance(0.15) ? 3 : 1;
+        for (let p = 0; p < occupants; p++) {
+          const voter = await db.voter.create({
+            data: {
+              municipalityId: municipality.id,
+              externalId: `${town.postalPrefix}-${externalId++}`,
+              firstName: pick(FIRST_NAMES),
+              lastName: chance(0.8) ? lastName : pick(LAST_NAMES),
+              phone: chance(0.55) ? `519-555-${String(intBetween(1000, 9999))}` : "",
+              email: chance(0.25) ? `resident${externalId}@example.com` : "",
+              householdId: household.id,
+              deceased: chance(0.01),
+              movedAway: chance(0.02),
+            },
+          });
+          voters.push(voter.id);
+        }
+      }
+    }
+
+    householdsByTown.set(town.name, households);
+    votersByTown.set(town.name, voters);
+    console.log(`  ${households.length} doors, ${voters.length} electors`);
   }
 
-  console.log("Turf…");
-  const turfSpecs = [
-    { name: "Ward 3 — downtown core", streets: STREETS.slice(0, 5), assignee: 0, status: "IN_PROGRESS", daysOut: 3 },
-    { name: "Ward 3 — north of Colborne", streets: STREETS.slice(5, 10), assignee: 2, status: "ASSIGNED", daysOut: 9 },
-    { name: "Ward 3 — west end", streets: STREETS.slice(10), assignee: null, status: "UNASSIGNED", daysOut: null },
-  ];
-  const turfs: { id: string }[] = [];
-  for (const spec of turfSpecs) {
-    turfs.push(
-      await db.turf.create({
+  for (const spec of CANDIDATES) {
+    console.log(`${spec.name}…`);
+    const municipalityId = townIds.get(spec.town)!;
+    const town = TOWNS.find((t) => t.name === spec.town)!;
+
+    const campaign = await db.campaign.create({
+      data: {
+        slug: spec.name.toLowerCase().replace(/[^a-z]+/g, "-") + "-" + spec.office.toLowerCase().replace(/_/g, "-"),
+        candidateName: spec.name,
+        office: spec.office,
+        municipalityId,
+        ward: spec.ward ?? "",
+        votingDay: VOTING_DAY,
+        campaignPeriodStart: daysBefore(150),
+        campaignPeriodEnd: new Date(2026, 11, 31),
+        electorCount: spec.electors,
+        contactEmail: `team@${spec.name.split(" ")[1].toLowerCase()}.example`,
+        contactPhone: `519-555-0${intBetween(100, 199)}`,
+        twilioFromNumber: `+1519555${intBetween(1000, 9999)}`,
+      },
+    });
+
+    /* --- volunteers --- */
+    const volunteerCount = spec.office === "HEAD_OF_COUNCIL" ? 8 : intBetween(3, 5);
+    const volunteers = [];
+    for (let i = 0; i < volunteerCount; i++) {
+      volunteers.push(
+        await db.volunteer.create({
+          data: {
+            campaignId: campaign.id,
+            firstName: pick(FIRST_NAMES),
+            lastName: pick(LAST_NAMES),
+            email: `vol${i}@example.com`,
+            phone: `519-555-0${200 + i}`,
+            status: chance(0.85) ? "ACTIVE" : "PROSPECT",
+            roles: pick(["CANVASSER", "CANVASSER,DRIVER", "PHONE_BANKER", "SIGN_CREW", "CANVASSER,DATA_ENTRY"]),
+            availability: pick(["Weekday evenings", "Weekends", "Retired — any time", "Saturday mornings"]),
+            hasVehicle: chance(0.6),
+          },
+        }),
+      );
+    }
+
+    /* --- turf, cut this campaign's own way --- */
+    const households = householdsByTown.get(spec.town)!;
+    const streets = town.streets;
+    const chunk = Math.ceil(streets.length / 3);
+    for (let t = 0; t < 3; t++) {
+      const turfStreets = streets.slice(t * chunk, (t + 1) * chunk);
+      if (turfStreets.length === 0) continue;
+      const turf = await db.turf.create({
         data: {
-          name: spec.name,
+          campaignId: campaign.id,
+          name: `${spec.name.split(" ")[1]} turf ${t + 1}`,
           description: "Two hours of doors. Skip anything marked do-not-contact.",
-          ward: "Ward 3",
-          status: spec.status,
-          assignedToId: spec.assignee === null ? null : volunteers[spec.assignee].id,
-          plannedFor:
-            spec.daysOut === null
-              ? null
-              : new Date(Date.now() + spec.daysOut * DAY),
+          status: t === 0 ? "IN_PROGRESS" : t === 1 ? "ASSIGNED" : "UNASSIGNED",
+          assignedToId: t < volunteers.length ? volunteers[t].id : null,
+          plannedFor: t < 2 ? new Date(Date.now() + (t * 6 + 3) * DAY) : null,
         },
-      }),
-    );
-  }
-  const turfForStreet = new Map<string, string>();
-  turfSpecs.forEach((spec, i) => {
-    for (const street of spec.streets) turfForStreet.set(street, turfs[i].id);
-  });
+      });
+      const members = households.filter((h) => turfStreets.includes(h.street));
+      if (members.length > 0) {
+        await db.turfHousehold.createMany({
+          data: members.map((h) => ({ turfId: turf.id, householdId: h.id })),
+        });
+      }
+    }
 
-  console.log("Households and voters…");
-  const voterIds: string[] = [];
-  let externalId = 30000;
+    /* --- what this campaign knows about the electors --- */
+    const voters = votersByTown.get(spec.town)!;
+    const worked = voters.filter(() => chance(spec.effort));
+    let identified = 0;
+    let consented = 0;
 
-  for (const [streetIndex, street] of STREETS.entries()) {
-    const doors = intBetween(12, 22);
-    for (let d = 0; d < doors; d++) {
-      const streetNumber = String(2 + d * 2 + intBetween(0, 1));
-      const coords = doorCoordinates(streetIndex, d);
-      const household = await db.household.create({
+    for (const voterId of worked) {
+      const supportLevel = pick([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5]);
+      const wantsSign = supportLevel === 1 && chance(0.3);
+      const askedAboutTexts = chance(0.45);
+      const agreed = askedAboutTexts && chance(0.6);
+
+      await db.voterCampaignState.create({
         data: {
-          streetNumber,
-          streetName: street,
-          city: "Lindsay",
-          postalCode: `K9V ${intBetween(1, 9)}${pick(["A", "B", "C", "G", "H", "J"])}${intBetween(1, 9)}`,
-          ward: "Ward 3",
-          pollNumber: String(intBetween(1, 12)).padStart(3, "0"),
-          turfId: turfForStreet.get(street) ?? null,
-          latitude: coords.latitude,
-          longitude: coords.longitude,
-          geocodeStatus: "OK",
-          // A handful land on the road rather than the driveway, so the map's
-          // "rough location" flag has something real to show.
-          geocodePrecision: d % 11 === 0 ? "GEOMETRIC_CENTER" : "ROOFTOP",
-          geocodedAt: new Date(),
+          campaignId: campaign.id,
+          voterId,
+          supportLevel,
+          wantsSign,
+          wantsToVolunteer: supportLevel === 1 && chance(0.1),
+          isDonorProspect: supportLevel <= 2 && chance(0.15),
+          doNotContact: chance(0.03),
+          tags: chance(0.3) ? pick(ISSUES) : "",
+          ...(askedAboutTexts
+            ? {
+                smsConsent: agreed ? "GRANTED" : "DECLINED",
+                smsConsentAt: new Date(Date.now() - intBetween(1, 60) * DAY),
+                smsConsentSource: "DOOR",
+                smsConsentWording: DOOR_CONSENT_SCRIPT,
+              }
+            : {}),
+        },
+      });
+      identified++;
+      if (agreed) consented++;
+
+      await db.contactAttempt.create({
+        data: {
+          campaignId: campaign.id,
+          voterId,
+          volunteerId: pick(volunteers).id,
+          method: chance(0.75) ? "DOOR" : "PHONE",
+          result: "SPOKE",
+          supportLevel,
+          issues: chance(0.4) ? pick(ISSUES) : "",
+          notes: chance(0.2)
+            ? pick([
+                "Wants to talk about the road reconstruction.",
+                "Concerned about the tax increase; asked for the platform.",
+                "Long-time supporter, offered to hand out flyers.",
+                "Asked whether the arena decision is settled.",
+              ])
+            : "",
+          occurredAt: new Date(Date.now() - intBetween(1, 60) * DAY),
         },
       });
 
-      const lastName = pick(LAST_NAMES);
-      const occupants = chance(0.45) ? 2 : chance(0.15) ? 3 : 1;
-
-      for (let p = 0; p < occupants; p++) {
-        // About 55% of the file has been identified — a realistic mid-campaign
-        // position for a ward race.
-        const identified = chance(0.55);
-        const supportLevel = identified
-          ? pick([1, 1, 1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 5])
-          : null;
-
-        const voter = await db.voter.create({
-          data: {
-            externalId: `KL-${externalId++}`,
-            firstName: pick(FIRST_NAMES),
-            lastName: chance(0.8) ? lastName : pick(LAST_NAMES),
-            phone: chance(0.55) ? `705-555-${String(intBetween(1000, 9999))}` : "",
-            email: chance(0.25) ? `resident${externalId}@example.com` : "",
-            householdId: household.id,
-            supportLevel,
-            wantsSign: supportLevel === 1 && chance(0.35),
-            wantsToVolunteer: supportLevel === 1 && chance(0.12),
-            isDonorProspect: supportLevel !== null && supportLevel <= 2 && chance(0.15),
-            doNotContact: chance(0.03),
-            tags: chance(0.3) ? pick(ISSUES) : "",
-            // Consent is only ever recorded where a number exists to attach it
-            // to, and most people at the door simply are not asked.
-            ...(smsConsentFor(identified)),
-          },
+      if (wantsSign) {
+        const voter = await db.voter.findUnique({
+          where: { id: voterId },
+          include: { household: true },
         });
-        voterIds.push(voter.id);
-
-        if (identified) {
-          const canvasser = pick(volunteers.slice(0, 5));
-          const daysAgo = intBetween(1, 60);
-          await db.contactAttempt.create({
+        if (voter?.household) {
+          await db.signRequest.create({
             data: {
-              voterId: voter.id,
-              volunteerId: canvasser.id,
-              method: chance(0.75) ? "DOOR" : "PHONE",
-              result: "SPOKE",
-              supportLevel,
-              issues: chance(0.4) ? pick(ISSUES) : "",
-              notes: chance(0.25)
-                ? pick([
-                    "Wants to talk about the Kent Street reconstruction.",
-                    "Concerned about the tax increase; asked for the platform.",
-                    "Long-time supporter, offered to hand out flyers.",
-                    "Asked whether the arena decision is settled.",
-                  ])
-                : "",
-              occurredAt: new Date(Date.now() - daysAgo * DAY),
-            },
-          });
-        } else if (chance(0.2)) {
-          await db.contactAttempt.create({
-            data: {
-              voterId: voter.id,
-              volunteerId: pick(volunteers.slice(0, 5)).id,
-              method: "DOOR",
-              result: pick(["NOT_HOME", "NOT_HOME", "LEFT_LITERATURE", "REFUSED"]),
-              occurredAt: new Date(Date.now() - intBetween(1, 45) * DAY),
+              campaignId: campaign.id,
+              voterId,
+              requesterName: `${voter.firstName} ${voter.lastName}`.trim(),
+              phone: voter.phone,
+              addressLine: `${voter.household.streetNumber} ${voter.household.streetName}`,
+              city: voter.household.city,
+              postalCode: voter.household.postalCode,
+              ward: voter.household.ward,
+              latitude: voter.household.latitude,
+              longitude: voter.household.longitude,
+              geocodeStatus: "OK",
+              geocodePrecision: "ROOFTOP",
+              geocodedAt: new Date(),
+              status: pick(["INSTALLED", "INSTALLED", "SCHEDULED", "APPROVED", "REQUESTED"]),
+              permissionConfirmed: chance(0.8),
+              requestedAt: daysBefore(intBetween(30, 90)),
+              installedAt: chance(0.5) ? daysBefore(intBetween(10, 60)) : null,
             },
           });
         }
       }
     }
-  }
-  console.log(`  ${voterIds.length} voters`);
 
-  console.log("Events…");
-  const kickoff = await db.event.create({
-    data: {
-      name: "Campaign kickoff barbecue",
-      type: "FUNDRAISER",
-      startsAt: new Date(daysBefore(120).getTime() + 17 * 3_600_000),
-      endsAt: new Date(daysBefore(120).getTime() + 20 * 3_600_000),
-      location: "Lindsay Legion, Branch 67",
-      addressLine: "9 York St S, Lindsay",
-      description: "Ticketed barbecue to launch the campaign.",
-      isFundraiser: true,
-      ticketPriceCents: 5000,
-      expectedAttendance: 80,
-      actualAttendance: 94,
-    },
-  });
+    await db.signInventory.createMany({
+      data: [
+        { campaignId: campaign.id, signType: "SMALL_LAWN", quantityOwned: spec.office === "HEAD_OF_COUNCIL" ? 400 : 200 },
+        { campaignId: campaign.id, signType: "LARGE_LAWN", quantityOwned: 40 },
+        { campaignId: campaign.id, signType: "BIG_4X8", quantityOwned: 4 },
+      ],
+    });
 
-  await db.event.create({
-    data: {
-      name: "Ward 3 all-candidates meeting",
-      type: "ALL_CANDIDATES",
-      startsAt: new Date(daysBefore(21).getTime() + 19 * 3_600_000),
-      location: "Lindsay Public Library",
-      addressLine: "190 Kent St W, Lindsay",
-      description: "Hosted by the ratepayers' association. Two-minute openings.",
-      expectedAttendance: 120,
-    },
-  });
+    /* --- shifts --- */
+    for (const [i, title] of ["Saturday canvass", "Evening phone bank", "Sign install run"].entries()) {
+      const startsAt = new Date();
+      startsAt.setDate(startsAt.getDate() + 3 + i * 3);
+      startsAt.setHours(10 + i * 2, 0, 0, 0);
+      const shift = await db.shift.create({
+        data: {
+          campaignId: campaign.id,
+          title: `${title} — ${spec.name.split(" ")[1]}`,
+          type: i === 1 ? "PHONE_BANK" : i === 2 ? "SIGN_INSTALL" : "CANVASS",
+          startsAt,
+          endsAt: new Date(startsAt.getTime() + 2.5 * 3_600_000),
+          location: "Campaign office",
+          capacity: 4,
+          notes: "Clipboards, walk lists and water provided.",
+        },
+      });
+      for (const volunteer of volunteers.slice(0, intBetween(1, 3))) {
+        await db.shiftAssignment.create({
+          data: {
+            shiftId: shift.id,
+            volunteerId: volunteer.id,
+            status: chance(0.5) ? "CONFIRMED" : "SIGNED_UP",
+          },
+        });
+      }
+    }
 
-  const dinner = await db.event.create({
-    data: {
-      name: "Autumn fundraising dinner",
-      type: "FUNDRAISER",
-      startsAt: new Date(daysBefore(35).getTime() + 18 * 3_600_000),
-      location: "Victoria Park Armoury",
-      addressLine: "210 Kent St W, Lindsay",
-      isFundraiser: true,
-      ticketPriceCents: 10000,
-      expectedAttendance: 60,
-    },
-  });
-
-  await db.event.create({
-    data: {
-      name: "Saturday morning canvass blitz",
-      type: "BLITZ",
-      startsAt: new Date(daysBefore(14).getTime() + 10 * 3_600_000),
-      location: "Campaign office",
-      addressLine: "12 Kent St W, Lindsay",
-      description: "All hands. Coffee and turf handed out at 10.",
-    },
-  });
-
-  console.log("Shifts…");
-  const shiftSpecs = [
-    { title: "Saturday canvass — downtown core", type: "CANVASS", daysOut: 3, hour: 10, capacity: 6 },
-    { title: "Evening phone bank", type: "PHONE_BANK", daysOut: 5, hour: 18, capacity: 4 },
-    { title: "Sign install run", type: "SIGN_INSTALL", daysOut: 6, hour: 9, capacity: 3 },
-    { title: "Literature drop — west end", type: "LIT_DROP", daysOut: 9, hour: 13, capacity: 5 },
-    { title: "Sunday canvass — north of Colborne", type: "CANVASS", daysOut: 11, hour: 13, capacity: 6 },
-    { title: "Last Saturday canvass", type: "CANVASS", daysOut: -4, hour: 10, capacity: 6 },
-  ];
-
-  for (const spec of shiftSpecs) {
-    const startsAt = new Date();
-    startsAt.setDate(startsAt.getDate() + spec.daysOut);
-    startsAt.setHours(spec.hour, 0, 0, 0);
-    const endsAt = new Date(startsAt.getTime() + 2.5 * 3_600_000);
-
-    const shift = await db.shift.create({
+    /* --- events --- */
+    const fundraiser = await db.event.create({
       data: {
-        title: spec.title,
-        type: spec.type,
-        startsAt,
-        endsAt,
-        location: "Campaign office, 12 Kent St W",
-        capacity: spec.capacity,
-        notes: "Clipboards, walk lists and water provided.",
+        campaignId: campaign.id,
+        name: `${spec.name.split(" ")[1]} campaign launch`,
+        type: "FUNDRAISER",
+        startsAt: new Date(daysBefore(120).getTime() + 17 * 3_600_000),
+        location: "Legion hall",
+        isFundraiser: true,
+        ticketPriceCents: 5000,
+        expectedAttendance: 60,
+        actualAttendance: intBetween(40, 90),
+      },
+    });
+    await db.event.create({
+      data: {
+        campaignId: campaign.id,
+        name: "All-candidates meeting",
+        type: "ALL_CANDIDATES",
+        startsAt: new Date(daysBefore(21).getTime() + 19 * 3_600_000),
+        location: "Community centre",
+        expectedAttendance: 120,
       },
     });
 
-    // Fill most shifts partway, so the roster shows real gaps to chase.
-    const signups = intBetween(1, spec.capacity);
-    const shuffled = [...volunteers].sort(() => rand() - 0.5).slice(0, signups);
-    for (const volunteer of shuffled) {
-      const past = spec.daysOut < 0;
-      await db.shiftAssignment.create({
+    /* --- money, with deliberate compliance problems on the lead campaign --- */
+    const isLead = spec.name === "Rebecca Hergert";
+    const donors: { first: string; last: string; address: string; amounts: number[]; cash?: boolean; candidate?: boolean; spouse?: boolean }[] = [
+      { first: spec.name.split(" ")[0], last: spec.name.split(" ")[1], address: "44 Main St", amounts: [300000], candidate: true },
+      { first: "Eleanor", last: "Whitfield", address: "18 Bond St W", amounts: isLead ? [50000, 50000, 40000] : [40000] },
+      { first: "Raj", last: "Balakrishnan", address: "212 Elgin St N", amounts: [80000] },
+      { first: "Denise", last: "Corbeil", address: "7 Peel St", amounts: [25000] },
+      { first: "Colin", last: "Hargreaves", address: "", amounts: isLead ? [45000] : [15000] },
+      { first: "Gordon", last: "Leask", address: "4 Adelaide St N", amounts: [3000], cash: isLead },
+    ];
+
+    let receipt = 1;
+    for (const donor of donors) {
+      const contributor = await db.contributor.create({
         data: {
-          shiftId: shift.id,
-          volunteerId: volunteer.id,
-          status: past ? (chance(0.85) ? "CHECKED_IN" : "NO_SHOW") : chance(0.5) ? "CONFIRMED" : "SIGNED_UP",
-          checkedInAt: past && chance(0.85) ? startsAt : null,
-          hoursLogged: past && chance(0.85) ? 2.5 : null,
+          campaignId: campaign.id,
+          firstName: donor.first,
+          lastName: donor.last,
+          addressLine: donor.address,
+          city: donor.address ? town.city : "",
+          postalCode: donor.address ? `${town.postalPrefix} 2A1` : "",
+          isCandidate: donor.candidate ?? false,
+          isCandidateSpouse: donor.spouse ?? false,
+        },
+      });
+      for (const amountCents of donor.amounts) {
+        await db.contribution.create({
+          data: {
+            campaignId: campaign.id,
+            contributorId: contributor.id,
+            amountCents,
+            receivedAt: daysBefore(intBetween(20, 130)),
+            method: donor.cash ? "CASH" : pick(["CHEQUE", "ETRANSFER", "CREDIT_CARD"]),
+            receiptNumber: `R-${String(receipt++).padStart(4, "0")}`,
+            receiptIssuedAt: daysBefore(intBetween(20, 130)),
+            eventId: chance(0.3) ? fundraiser.id : null,
+          },
+        });
+      }
+    }
+
+    const expenses: { desc: string; category: string; cents: number; days: number }[] = [
+      { desc: "Nomination filing fee", category: "NOMINATION_FEE", cents: 10000, days: 150 },
+      { desc: "Lawn signs", category: "SIGNS", cents: spec.office === "HEAD_OF_COUNCIL" ? 187500 : 96000, days: 110 },
+      { desc: "Brochures", category: "BROCHURES", cents: 62000, days: 60 },
+      { desc: "Newspaper advertising", category: "ADVERTISING", cents: 45000, days: 40 },
+      { desc: "Campaign launch — hall and food", category: "FUNDRAISING_COSTS", cents: 88000, days: 120 },
+      { desc: "Financial statement preparation", category: "ACCOUNTING_AUDIT", cents: 90000, days: 5 },
+      { desc: "Volunteer thank-you", category: "APPRECIATION_PARTY", cents: 48000, days: -7 },
+    ];
+    for (const e of expenses) {
+      const subject = !["NOMINATION_FEE", "FUNDRAISING_COSTS", "ACCOUNTING_AUDIT", "APPRECIATION_PARTY"].includes(e.category);
+      await db.expense.create({
+        data: {
+          campaignId: campaign.id,
+          description: e.desc,
+          category: e.category,
+          amountCents: e.cents,
+          incurredAt: daysBefore(e.days),
+          paidAt: e.days > 0 ? daysBefore(e.days - 2) : null,
+          subjectToLimit: subject,
+          isPartyExpense: e.category === "APPRECIATION_PARTY",
+          eventId: e.category === "FUNDRAISING_COSTS" ? fundraiser.id : null,
         },
       });
     }
-  }
 
-  console.log("Contributors and contributions…");
-  const contributorSpecs = [
-    { firstName: "Jordan", lastName: "Reyes", isCandidate: true, address: "44 Sussex St N", amounts: [400000] },
-    { firstName: "Sam", lastName: "Reyes", isCandidateSpouse: true, address: "44 Sussex St N", amounts: [150000] },
-    { firstName: "Eleanor", lastName: "Whitfield", address: "18 Bond St W", amounts: [50000, 50000, 30000] },
-    { firstName: "Raj", lastName: "Balakrishnan", address: "212 Angeline St N", amounts: [100000] },
-    { firstName: "Denise", lastName: "Corbeil", address: "7 Peel St", amounts: [25000, 25000] },
-    { firstName: "Frank", lastName: "Mazur", address: "88 Russell St W", amounts: [12000] },
-    { firstName: "Yuki", lastName: "Tanaka", address: "31 Mary St W", amounts: [7500] },
-    { firstName: "Colin", lastName: "Hargreaves", address: "", amounts: [45000] },
-    { firstName: "Beatrice", lastName: "Odum", address: "150 Colborne St E", amounts: [20000] },
-    { firstName: "Wendell", lastName: "Pike", address: "9 Glenelg St W", amounts: [130000] },
-    { firstName: "Nadia", lastName: "Haddad", address: "77 Cambridge St S", amounts: [60000] },
-    { firstName: "Gordon", lastName: "Leask", address: "4 Adelaide St N", amounts: [3000] },
-  ];
-
-  let receiptNumber = 1;
-  for (const spec of contributorSpecs) {
-    const contributor = await db.contributor.create({
-      data: {
-        firstName: spec.firstName,
-        lastName: spec.lastName,
-        addressLine: spec.address,
-        city: spec.address ? "Lindsay" : "",
-        province: "ON",
-        postalCode: spec.address ? "K9V 2A1" : "",
-        email: `${spec.firstName.toLowerCase()}.${spec.lastName.toLowerCase()}@example.com`,
-        isCandidate: spec.isCandidate ?? false,
-        isCandidateSpouse: spec.isCandidateSpouse ?? false,
-        ontarioResident: true,
-      },
+    /* --- one opt-out, so the block list is not empty --- */
+    const consentedVoter = await db.voterCampaignState.findFirst({
+      where: { campaignId: campaign.id, smsConsent: "GRANTED", voter: { NOT: { phone: "" } } },
+      include: { voter: true },
     });
-
-    for (const [i, amountCents] of spec.amounts.entries()) {
-      // Gordon Leask's $30 in cash is deliberately over the $25 cash ceiling,
-      // so the compliance page has a real cash-rule breach to show.
-      const isCash = spec.lastName === "Leask";
-      await db.contribution.create({
-        data: {
-          contributorId: contributor.id,
-          amountCents,
-          receivedAt: daysBefore(intBetween(20, 130)),
-          method: isCash ? "CASH" : pick(["CHEQUE", "ETRANSFER", "CREDIT_CARD"]),
-          receiptNumber: `R-${String(receiptNumber++).padStart(4, "0")}`,
-          receiptIssuedAt: daysBefore(intBetween(20, 130)),
-          eventId: i === 0 && chance(0.4) ? pick([kickoff.id, dinner.id]) : null,
-        },
-      });
+    if (consentedVoter) {
+      const e164 = normalisePhone(consentedVoter.voter.phone);
+      if (e164) {
+        await db.smsOptOut.create({
+          data: { campaignId: campaign.id, phone: e164, reason: 'Texted "STOP"' },
+        });
+        await db.voterCampaignState.update({
+          where: { id: consentedVoter.id },
+          data: { smsConsent: "REVOKED" },
+        });
+      }
     }
+
+    console.log(`  ${identified} identified, ${consented} agreed to texts`);
   }
 
-  // An in-kind contribution and its matching expense, as the Act requires.
-  const printer = await db.contributor.create({
-    data: {
-      firstName: "Marguerite",
-      lastName: "Delisle",
-      addressLine: "3 Durham St E",
-      city: "Lindsay",
-      province: "ON",
-      postalCode: "K9V 2N4",
-      ontarioResident: true,
-    },
-  });
-  await db.contribution.create({
-    data: {
-      contributorId: printer.id,
-      amountCents: 65000,
-      receivedAt: daysBefore(80),
-      method: "IN_KIND",
-      isInKind: true,
-      inKindDescription: "Design and printing of 2,000 door hangers, at fair market value.",
-      receiptNumber: `R-${String(receiptNumber++).padStart(4, "0")}`,
-      receiptIssuedAt: daysBefore(80),
-    },
-  });
-
-  // Anonymous cash from the barbecue bucket — lawful because it is $25 or less.
-  for (let i = 0; i < 6; i++) {
-    await db.contribution.create({
-      data: {
-        amountCents: intBetween(500, 2500),
-        receivedAt: daysBefore(120),
-        method: "CASH",
-        isAnonymous: true,
-        eventId: kickoff.id,
-        notes: "Bucket collection at the kickoff barbecue.",
-      },
-    });
-  }
-
-  console.log("Expenses…");
-  const expenseSpecs = [
-    { description: "Nomination filing fee", vendor: "City of Kawartha Lakes", category: "NOMINATION_FEE", amountCents: 10000, daysBefore: 150 },
-    { description: "500 small lawn signs", vendor: "Kawartha Print Co.", category: "SIGNS", amountCents: 187500, daysBefore: 110 },
-    { description: "Six 4×8 road signs", vendor: "Kawartha Print Co.", category: "SIGNS", amountCents: 96000, daysBefore: 105 },
-    { description: "Door hangers — 2,000 (in kind)", vendor: "M. Delisle", category: "BROCHURES", amountCents: 65000, daysBefore: 80, isInKind: true },
-    { description: "Newspaper advertisement — half page", vendor: "Lindsay Advocate", category: "ADVERTISING", amountCents: 62000, daysBefore: 45 },
-    { description: "Facebook and Instagram advertising", vendor: "Meta Platforms", category: "ADVERTISING", amountCents: 45000, daysBefore: 30 },
-    { description: "Campaign office rent — three months", vendor: "Kent Street Holdings", category: "OFFICE_BEFORE", amountCents: 240000, daysBefore: 100 },
-    { description: "Mobile phone and internet", vendor: "Bell", category: "PHONE_BEFORE", amountCents: 32000, daysBefore: 60 },
-    { description: "Campaign manager honorarium", vendor: "E. Vasquez", category: "SALARIES_BEFORE", amountCents: 300000, daysBefore: 40 },
-    { description: "Bank account monthly fees", vendor: "Kawartha Credit Union", category: "BANK_BEFORE", amountCents: 4500, daysBefore: 90 },
-    { description: "Meet-and-greet hall rental", vendor: "Lindsay Legion", category: "MEETINGS_HOSTED", amountCents: 25000, daysBefore: 70 },
-    { description: "Kickoff barbecue — food and hall", vendor: "Lindsay Legion", category: "FUNDRAISING_COSTS", amountCents: 118000, daysBefore: 120, eventId: kickoff.id },
-    { description: "Autumn dinner — catering", vendor: "Boiling Over's", category: "FUNDRAISING_COSTS", amountCents: 210000, daysBefore: 35, eventId: dinner.id },
-    { description: "Financial statement preparation", vendor: "Gagnon & Co. CPA", category: "ACCOUNTING_AUDIT", amountCents: 120000, daysBefore: 5 },
-    { description: "Volunteer thank-you party", vendor: "Lindsay Legion", category: "APPRECIATION_PARTY", amountCents: 68000, daysBefore: -7 },
-  ];
-
-  const { expenseCategory } = await import("../src/lib/ontario");
-  for (const spec of expenseSpecs) {
-    const category = expenseCategory(spec.category);
-    await db.expense.create({
-      data: {
-        description: spec.description,
-        vendor: spec.vendor,
-        category: spec.category,
-        amountCents: spec.amountCents,
-        incurredAt: daysBefore(spec.daysBefore),
-        paidAt: spec.daysBefore > 0 ? daysBefore(spec.daysBefore - 2) : null,
-        subjectToLimit: category.subjectToLimit,
-        isPartyExpense: category.partyExpense === true,
-        isInKind: spec.isInKind ?? false,
-        eventId: spec.eventId ?? null,
-      },
-    });
-  }
-
-  console.log("Lawn signs…");
-  await db.signInventory.createMany({
-    data: [
-      { signType: "SMALL_LAWN", quantityOwned: 500 },
-      { signType: "LARGE_LAWN", quantityOwned: 60 },
-      { signType: "BIG_4X8", quantityOwned: 6 },
-      { signType: "WINDOW", quantityOwned: 40 },
-    ],
-  });
-
-  const signVoters = await db.voter.findMany({
-    where: { wantsSign: true },
-    include: { household: true },
-    take: 40,
-  });
-
-  const signCrew = volunteers.filter((v) => v.roles.includes("SIGN_CREW"));
-  for (const [i, voter] of signVoters.entries()) {
-    // A sign sits on the lawn of the household that asked for it.
-    const at = voter.household;
-    const status = i < 18 ? "INSTALLED" : i < 24 ? "SCHEDULED" : i < 30 ? "APPROVED" : "REQUESTED";
-    const installed = status === "INSTALLED";
-    await db.signRequest.create({
-      data: {
-        voterId: voter.id,
-        requesterName: `${voter.firstName} ${voter.lastName}`.trim(),
-        phone: voter.phone,
-        email: voter.email,
-        addressLine: voter.household
-          ? `${voter.household.streetNumber} ${voter.household.streetName}`
-          : "",
-        city: "Lindsay",
-        postalCode: voter.household?.postalCode ?? "",
-        ward: "Ward 3",
-        latitude: at?.latitude ?? null,
-        longitude: at?.longitude ?? null,
-        geocodeStatus: at?.latitude != null ? "OK" : "PENDING",
-        geocodePrecision: at?.latitude != null ? "ROOFTOP" : "",
-        geocodedAt: at?.latitude != null ? new Date() : null,
-        signType: chance(0.9) ? "SMALL_LAWN" : "LARGE_LAWN",
-        quantity: 1,
-        status,
-        permissionConfirmed: status !== "REQUESTED",
-        requestedAt: daysBefore(intBetween(30, 90)),
-        scheduledFor: status === "SCHEDULED" ? daysBefore(intBetween(5, 15)) : null,
-        installedAt: installed ? daysBefore(intBetween(10, 60)) : null,
-        installedById: installed && signCrew.length > 0 ? pick(signCrew).id : null,
-      },
-    });
-  }
-
-  // One damaged sign, so the "needs repair" column is not always empty.
-  const firstInstalled = await db.signRequest.findFirst({ where: { status: "INSTALLED" } });
-  if (firstInstalled) {
-    await db.signRequest.update({
-      where: { id: firstInstalled.id },
-      data: { status: "NEEDS_REPAIR", notes: "Knocked over by the wind; post snapped." },
-    });
-  }
-
-  console.log("Text consent and opt-outs…");
-  const consented = await db.voter.findMany({
-    where: { smsConsent: "GRANTED", NOT: { phone: "" } },
-    take: 3,
-    select: { id: true, phone: true },
-  });
-  // Two people who agreed at the door and later texted STOP — so the opt-out
-  // list, and the rule that it overrides the voter record, are both visible.
-  for (const voter of consented.slice(0, 2)) {
-    const e164 = normalisePhone(voter.phone);
-    if (!e164) continue;
-    await db.smsOptOut.upsert({
-      where: { phone: e164 },
-      create: { phone: e164, reason: 'Texted "STOP"' },
-      update: {},
-    });
-    await db.voter.update({ where: { id: voter.id }, data: { smsConsent: "REVOKED" } });
-  }
-
-  const counts = {
-    voters: await db.voter.count(),
+  console.log("\nDone:", {
+    municipalities: await db.municipality.count(),
+    campaigns: await db.campaign.count(),
     households: await db.household.count(),
+    voters: await db.voter.count(),
+    voterStates: await db.voterCampaignState.count(),
     contacts: await db.contactAttempt.count(),
     volunteers: await db.volunteer.count(),
-    contributions: await db.contribution.count(),
-    expenses: await db.expense.count(),
     signs: await db.signRequest.count(),
-    textConsent: await db.voter.count({ where: { smsConsent: "GRANTED" } }),
-    optOuts: await db.smsOptOut.count(),
-  };
-  console.log("Done:", counts);
+    contributions: await db.contribution.count(),
+  });
 }
 
 main()

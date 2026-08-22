@@ -34,6 +34,9 @@ yarn-error.log*
 .env*
 !.env.example
 
+# Migrations ARE committed — they are how the deployed database is built.
+!prisma/migrations
+
 # local database — voter data must never be committed
 *.db
 *.db-journal

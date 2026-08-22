@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getActiveCampaign } from "@/lib/campaign";
 import { smsConfig } from "@/lib/sms";
 import { buildAudience } from "@/lib/sms";
 import { TEXT_CAMPAIGN_STATUSES, label } from "@/lib/enums";
@@ -11,15 +13,19 @@ export const dynamic = "force-dynamic";
 
 export default async function TextingPage() {
   const config = smsConfig();
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+  const campaignId = campaign.id;
 
   const [campaigns, consentCounts, optOuts, audience] = await Promise.all([
     db.textCampaign.findMany({
+      where: { campaignId },
       include: { _count: { select: { messages: true } } },
       orderBy: { createdAt: "desc" },
     }),
-    db.voter.groupBy({ by: ["smsConsent"], _count: true }),
-    db.smsOptOut.count(),
-    buildAudience({}),
+    db.voterCampaignState.groupBy({ by: ["smsConsent"], where: { campaignId }, _count: true }),
+    db.smsOptOut.count({ where: { campaignId } }),
+    buildAudience({}, campaignId),
   ]);
 
   const consent = new Map(consentCounts.map((c) => [c.smsConsent, c._count]));

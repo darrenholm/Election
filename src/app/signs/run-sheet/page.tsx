@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign } from "@/lib/campaign";
+import { redirect } from "next/navigation";
 import { SIGN_TYPES, label } from "@/lib/enums";
 import { formatDate } from "@/lib/dates";
 import { Card, EmptyState, PageHeader } from "@/components/ui";
@@ -23,21 +24,24 @@ export default async function RunSheetPage({
   const { mode = "install" } = await searchParams;
   const retrieving = mode === "retrieve";
 
-  const [campaign, signs] = await Promise.all([
-    getCampaign(),
-    db.signRequest.findMany({
-      where: retrieving
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+
+  const signs = await db.signRequest.findMany({
+    where: {
+      campaignId: campaign.id,
+      ...(retrieving
         ? { status: { in: ["INSTALLED", "NEEDS_REPAIR"] } }
-        : { status: { in: ["APPROVED", "SCHEDULED"] } },
-      orderBy: [{ ward: "asc" }, { addressLine: "asc" }],
-    }),
-  ]);
+        : { status: { in: ["APPROVED", "SCHEDULED"] } }),
+    },
+    orderBy: [{ ward: "asc" }, { addressLine: "asc" }],
+  });
 
   const groups = new Map<string, typeof signs>();
   for (const sign of signs) {
     // Addresses arrive from the voters' list in caps; a printed sheet reads
     // better in title case.
-    const key = campaign.usesWards
+    const key = campaign.municipality.usesWards
       ? sign.ward || "Unassigned ward"
       : titleCase(streetOf(sign.addressLine));
     const list = groups.get(key);
@@ -50,7 +54,7 @@ export default async function RunSheetPage({
       name,
       // Within a street, drive it in civic-number order rather than the
       // alphabetical order a text sort would give ("10" before "9").
-      items: campaign.usesWards ? items : [...items].sort(byCivicNumber),
+      items: campaign.municipality.usesWards ? items : [...items].sort(byCivicNumber),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 

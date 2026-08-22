@@ -35,7 +35,7 @@ export default async function ContributorPage({
     .reduce((n, c) => n + c.amountCents, 0);
 
   const selfFunding = contributor.isCandidate || contributor.isCandidateSpouse;
-  const ceiling = selfFunding ? limits.selfFundingLimitCents : CONTRIBUTION_LIMIT_CENTS;
+  const ceiling = selfFunding ? (limits?.selfFundingLimitCents ?? 0) : CONTRIBUTION_LIMIT_CENTS;
 
   const save = updateContributor.bind(null, contributor.id);
   const remove = deleteContributor.bind(null, contributor.id);

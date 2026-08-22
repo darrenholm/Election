@@ -1,11 +1,27 @@
 // Municipal Election Campaign Manager — data model
 //
-// Provider is SQLite for zero-setup local use. To move to Postgres, change
-// `provider` to "postgresql" and point DATABASE_URL at your server; every
-// field below is portable (no SQLite-only types are used). Enum-like columns
-// are stored as String because the SQLite connector does not support native
-// enums — the allowed values live in src/lib/enums.ts and are validated with
-// zod before any write.
+// Built to run several candidates at once, across more than one municipality:
+// a consultant might be helping a deputy-mayor candidate in one town and five
+// council candidates in another. Two rules follow from that, and most of the
+// shape below is a consequence of them:
+//
+//   1. DOORS AND ELECTORS BELONG TO A MUNICIPALITY, NOT A CAMPAIGN.
+//      Every candidate in Brockton knocks the same doors and works from the
+//      same voters' list, so Household and Voter hang off Municipality and are
+//      loaded once.
+//
+//   2. EVERYTHING A CAMPAIGN LEARNS OR OWNS BELONGS TO THAT CAMPAIGN.
+//      A voter friendly to one candidate is not thereby friendly to another,
+//      and consent to be texted is given to a named sender rather than to
+//      whoever holds the list. So support levels, consent, contacts,
+//      volunteers, money, signs and messages are all scoped by campaignId, and
+//      per-voter campaign findings live in VoterCampaignState.
+//
+// Provider is PostgreSQL, which is what Railway provisions and what a shared
+// deployment needs — several people entering canvass results at once is exactly
+// the workload SQLite handles worst. Enum-like columns are stored as String
+// rather than as native enums so the allowed values can change without a
+// migration; they live in src/lib/enums.ts and are validated before any write.
 //
 // All money is stored as integer cents to avoid floating-point drift.
 
@@ -14,50 +30,103 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-/// Singleton row holding campaign identity and the numbers that drive the
-/// Ontario Municipal Elections Act limit calculations.
+/// A municipality: Brockton, West Grey. Owns the doors and the electors, which
+/// every campaign running there shares.
+model Municipality {
+  id   String @id @default(cuid())
+  name String @unique
+
+  /// Many Ontario municipalities elect council at large. When false, every ward
+  /// field, filter and grouping is hidden for this municipality and run sheets
+  /// group by street instead.
+  usesWards Boolean @default(false)
+
+  province String @default("ON")
+
+  campaigns  Campaign[]
+  households Household[]
+  voters     Voter[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// One candidate's campaign for one office.
 model Campaign {
-  id            String @id @default("campaign")
+  id   String @id @default(cuid())
+  /// Short URL-safe handle, e.g. "hergert-deputy-mayor".
+  slug String @unique
+
   candidateName String
   office        String @default("COUNCILLOR")
-  municipality  String @default("")
-  ward          String @default("")
 
-  /// Many Ontario municipalities elect council at large with no wards. When
-  /// false, every ward field, filter and grouping is hidden across the app,
-  /// and run sheets group by street instead of by ward.
-  usesWards Boolean @default(false)
+  municipalityId String
+  municipality   Municipality @relation(fields: [municipalityId], references: [id], onDelete: Cascade)
+
+  /// Only meaningful where the municipality uses wards.
+  ward String @default("")
 
   votingDay           DateTime
   campaignPeriodStart DateTime
   campaignPeriodEnd   DateTime?
 
-  /// Number of eligible electors for the office, from the clerk. Drives the
-  /// computed spending limit when no certified limit has been entered.
+  /// Eligible electors for this office, from the clerk. Drives the spending
+  /// limit when no certified limit has been entered. Belongs to the campaign
+  /// rather than the municipality because it differs by office and by ward.
   electorCount Int @default(0)
 
-  /// Values from the clerk's certificate. When present these override the
-  /// computed estimates everywhere in the app.
+  /// Figures from the clerk's certificate, which override the formulas.
   certifiedSpendingLimitCents     Int?
   certifiedPartyExpenseLimitCents Int?
+  certifiedSelfFundingLimitCents  Int?
 
-  /// Candidate + spouse self-funding limit, if the clerk has certified one.
-  certifiedSelfFundingLimitCents Int?
+  contactEmail String @default("")
+  contactPhone String @default("")
 
-  contactEmail String   @default("")
-  contactPhone String   @default("")
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  /// Each candidate texts from their own number: consent runs to a named
+  /// sender, and one shared number would make every opt-out ambiguous. The
+  /// Twilio account credentials stay in the environment; only the sending
+  /// identity is per campaign.
+  twilioFromNumber          String @default("")
+  twilioMessagingServiceSid String @default("")
+
+  /// Archived campaigns stay readable — a filed Form 4 has to be defensible for
+  /// years — but drop out of the switcher.
+  isActive Boolean @default(true)
+
+  voterStates   VoterCampaignState[]
+  contacts      ContactAttempt[]
+  turfs         Turf[]
+  volunteers    Volunteer[]
+  shifts        Shift[]
+  contributors  Contributor[]
+  contributions Contribution[]
+  expenses      Expense[]
+  signRequests  SignRequest[]
+  signInventory SignInventory[]
+  events        Event[]
+  textCampaigns TextCampaign[]
+  smsOptOuts    SmsOptOut[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([municipalityId])
+  @@index([isActive])
 }
 
-/// A physical address. Voters are grouped into households so canvassers can
-/// work a door rather than a person, and so walk lists sort geographically.
+/// A physical address. Voters are grouped into households so canvassers work a
+/// door rather than a person, and so walk lists sort geographically.
 model Household {
-  id           String @id @default(cuid())
+  id String @id @default(cuid())
+
+  municipalityId String
+  municipality   Municipality @relation(fields: [municipalityId], references: [id], onDelete: Cascade)
+
   streetNumber String @default("")
   streetName   String @default("")
   /// Normalised form of streetName used to match the same street across the
@@ -69,65 +138,106 @@ model Household {
   postalCode   String @default("")
   ward         String @default("")
   pollNumber   String @default("")
-  latitude     Float?
-  longitude    Float?
 
+  latitude         Float?
+  longitude        Float?
   /// PENDING, OK, FAILED or MANUAL. Addresses the geocoder cannot place are
-  /// pinned by hand on the map, and MANUAL stops a re-run from overwriting that
-  /// with another bad guess.
+  /// pinned by hand, and MANUAL stops a re-run from overwriting that with
+  /// another bad guess.
   geocodeStatus    String    @default("PENDING")
-  /// Google's location_type for the match. ROOFTOP is exact; APPROXIMATE is
-  /// often just the middle of a rural road and worth checking by eye.
+  /// Google's location_type. ROOFTOP is exact; APPROXIMATE is often just the
+  /// middle of a rural road and worth checking by eye.
   geocodePrecision String    @default("")
   geocodedAt       DateTime?
-  notes            String    @default("")
 
-  turfId String?
-  turf   Turf?   @relation(fields: [turfId], references: [id], onDelete: SetNull)
+  notes String @default("")
+
+  /// Turf is per-campaign, so a household can sit in several campaigns' turf at
+  /// once — hence a join table rather than a column.
+  turfHouseholds TurfHousehold[]
 
   voters    Voter[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([streetName, streetNumber])
-  @@index([streetKey, streetNumber])
+  @@index([municipalityId, streetKey, streetNumber])
+  @@index([municipalityId, streetName])
   @@index([ward])
-  @@index([turfId])
   @@index([postalCode])
 }
 
-/// A person on the voters' list (or added by the campaign).
+/// A person on the voters' list, or added by a campaign. Shared by every
+/// campaign in the municipality; what any one campaign thinks of them lives in
+/// VoterCampaignState.
 model Voter {
-  id         String  @id @default(cuid())
-  /// Identifier from the imported voters' list, used to de-duplicate re-imports.
-  externalId String? @unique
-  firstName  String  @default("")
-  lastName   String  @default("")
-  email      String  @default("")
-  phone      String  @default("")
-  language   String  @default("")
-  birthYear  Int?
+  id String @id @default(cuid())
+
+  municipalityId String
+  municipality   Municipality @relation(fields: [municipalityId], references: [id], onDelete: Cascade)
+
+  /// Identifier from the imported voters' list, unique within a municipality
+  /// rather than globally — two municipalities may well reuse a number.
+  externalId String?
+
+  firstName String @default("")
+  lastName  String @default("")
+  email     String @default("")
+  phone     String @default("")
+  language  String @default("")
+  birthYear Int?
 
   householdId String?
   household   Household? @relation(fields: [householdId], references: [id], onDelete: SetNull)
 
-  /// 1 = strong support … 5 = strong oppose. Null = never identified.
-  supportLevel     Int?
-  /// Set when the voter has agreed to take a sign; the SignRequest tracks the sign itself.
-  wantsSign        Boolean   @default(false)
-  wantsToVolunteer Boolean   @default(false)
-  isDonorProspect  Boolean   @default(false)
-  /// Suppresses the voter from every walk list, call list and mailing.
-  doNotContact     Boolean   @default(false)
-  movedAway        Boolean   @default(false)
-  deceased         Boolean   @default(false)
-  /// Recorded as voted (from the poll book / scrutineer reports) on voting day.
-  votedAt          DateTime?
+  /// Objective facts about the person, true for every campaign.
+  movedAway Boolean @default(false)
+  deceased  Boolean @default(false)
 
-  /// Consent to receive text messages: UNKNOWN, GRANTED, DECLINED or REVOKED.
-  /// Only GRANTED is ever sent to. The wording actually read to the voter is
-  /// stored with it, because a consent record you cannot produce the script for
-  /// is not much of a record.
+  campaignStates VoterCampaignState[]
+  contacts       ContactAttempt[]
+  signRequests   SignRequest[]
+  volunteers     Volunteer[]
+  textMessages   TextMessage[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([municipalityId, externalId])
+  @@index([municipalityId, lastName, firstName])
+  @@index([householdId])
+}
+
+/// What one campaign knows about one voter.
+///
+/// This is the heart of running several candidates off one voters' list.
+/// Support is an opinion about a particular candidate, and consent is given to
+/// a particular sender, so neither can live on the shared Voter row.
+model VoterCampaignState {
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  voterId    String
+  voter      Voter    @relation(fields: [voterId], references: [id], onDelete: Cascade)
+
+  /// 1 = strong support … 5 = strong oppose. Null = never identified.
+  supportLevel Int?
+
+  wantsSign        Boolean @default(false)
+  wantsToVolunteer Boolean @default(false)
+  isDonorProspect  Boolean @default(false)
+
+  /// Asking one candidate not to call again says nothing about the others, so
+  /// this is per campaign. Deceased and moved-away are on the Voter instead.
+  doNotContact Boolean @default(false)
+
+  /// Recorded as voted, from this campaign's own scrutineers.
+  votedAt DateTime?
+
+  /// Consent to receive text messages from THIS campaign: UNKNOWN, GRANTED,
+  /// DECLINED or REVOKED. Only GRANTED is ever sent to. The wording actually
+  /// read to the voter is stored with it, because a consent record you cannot
+  /// produce the script for is not much of a record.
   smsConsent        String    @default("UNKNOWN")
   smsConsentAt      DateTime?
   /// DOOR, PHONE, EVENT, WEB or IMPORT.
@@ -137,68 +247,94 @@ model Voter {
   tags  String @default("")
   notes String @default("")
 
-  contacts     ContactAttempt[]
-  textMessages TextMessage[]
-  signRequests SignRequest[]
-  volunteer    Volunteer?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([campaignId, voterId])
+  @@index([campaignId, supportLevel])
+  @@index([campaignId, smsConsent])
+  @@index([voterId])
+}
+
+/// A canvass area: a bundle of households handed to one canvasser as a walk
+/// list. Per campaign, so two candidates can cut the same town differently.
+model Turf {
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  name        String
+  description String    @default("")
+  ward        String    @default("")
+  status      String    @default("UNASSIGNED")
+  /// When this turf is meant to be walked. Turf dated in the future is drawn on
+  /// the map as an upcoming route.
+  plannedFor  DateTime?
+
+  assignedToId String?
+  assignedTo   Volunteer? @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  households TurfHousehold[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([lastName, firstName])
-  @@index([supportLevel])
+  @@index([campaignId, status])
+}
+
+/// Which doors are in which turf. A join table because turf is per campaign and
+/// the same door belongs to several campaigns' walk lists.
+model TurfHousehold {
+  turfId      String
+  turf        Turf      @relation(fields: [turfId], references: [id], onDelete: Cascade)
+  householdId String
+  household   Household @relation(fields: [householdId], references: [id], onDelete: Cascade)
+
+  @@id([turfId, householdId])
   @@index([householdId])
-  @@index([doNotContact])
 }
 
-/// A canvass area: a bundle of households handed to one canvasser as a walk list.
-model Turf {
-  id           String      @id @default(cuid())
-  name         String
-  description  String      @default("")
-  ward         String      @default("")
-  status       String      @default("UNASSIGNED")
-  /// When this turf is meant to be walked. Turf dated in the future is drawn on
-  /// the map as an upcoming route.
-  plannedFor   DateTime?
-  assignedToId String?
-  assignedTo   Volunteer?  @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
-  households   Household[]
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
-
-  @@index([status])
-}
-
-/// One attempt to reach one voter, at the door, on the phone or anywhere else.
+/// One attempt to reach one voter, on behalf of one campaign.
 model ContactAttempt {
-  id          String     @id @default(cuid())
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
   /// Generated on the canvasser's phone before the contact is sent. Retries
   /// from the offline outbox carry the same value, so a door knocked in a dead
-  /// zone is recorded exactly once however many times the upload is attempted.
-  clientId    String?    @unique
-  voterId     String
-  voter       Voter      @relation(fields: [voterId], references: [id], onDelete: Cascade)
+  /// zone is recorded exactly once however many times upload is attempted.
+  clientId String? @unique
+
+  voterId String
+  voter   Voter  @relation(fields: [voterId], references: [id], onDelete: Cascade)
+
   volunteerId String?
   volunteer   Volunteer? @relation(fields: [volunteerId], references: [id], onDelete: SetNull)
 
-  method       String   @default("DOOR")
-  result       String   @default("SPOKE")
-  /// Support level captured at this contact; the voter's current level is the
-  /// most recent non-null value.
+  method       String @default("DOOR")
+  result       String @default("SPOKE")
+  /// Support level captured at this contact; the voter's current level for this
+  /// campaign is the most recent non-null value.
   supportLevel Int?
-  issues       String   @default("")
-  notes        String   @default("")
-  occurredAt   DateTime @default(now())
-  createdAt    DateTime @default(now())
+  issues       String @default("")
+  notes        String @default("")
 
+  occurredAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  @@index([campaignId, occurredAt])
   @@index([voterId])
-  @@index([occurredAt])
   @@index([volunteerId])
 }
 
 model Volunteer {
-  id           String  @id @default(cuid())
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
   firstName    String
   lastName     String  @default("")
   email        String  @default("")
@@ -210,7 +346,8 @@ model Volunteer {
   hasVehicle   Boolean @default(false)
   notes        String  @default("")
 
-  voterId String? @unique
+  /// Link to the elector record, where the volunteer is also on the list.
+  voterId String?
   voter   Voter?  @relation(fields: [voterId], references: [id], onDelete: SetNull)
 
   assignments    ShiftAssignment[]
@@ -221,12 +358,16 @@ model Volunteer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([status])
-  @@index([lastName])
+  @@index([campaignId, status])
+  @@index([campaignId, lastName])
 }
 
 model Shift {
-  id       String   @id @default(cuid())
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
   title    String
   type     String   @default("CANVASS")
   startsAt DateTime
@@ -242,8 +383,7 @@ model Shift {
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
 
-  @@index([startsAt])
-  @@index([type])
+  @@index([campaignId, startsAt])
 }
 
 model ShiftAssignment {
@@ -262,11 +402,16 @@ model ShiftAssignment {
   @@index([volunteerId])
 }
 
-/// A person who has given, or may give, to the campaign. Under the Municipal
-/// Elections Act only individuals normally resident in Ontario may contribute.
+/// A person who has given, or may give, to one campaign. Per campaign because
+/// the $1,200 limit is per contributor per candidate — the same donor giving to
+/// two candidates has two separate limits.
 model Contributor {
-  id          String @id @default(cuid())
-  firstName   String
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  firstName   String @default("")
   lastName    String @default("")
   addressLine String @default("")
   city        String @default("")
@@ -275,7 +420,6 @@ model Contributor {
   email       String @default("")
   phone       String @default("")
 
-  /// Eligibility flags checked at entry time; see src/lib/ontario.ts.
   ontarioResident   Boolean @default(true)
   isCandidate       Boolean @default(false)
   isCandidateSpouse Boolean @default(false)
@@ -286,11 +430,15 @@ model Contributor {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([lastName, firstName])
+  @@index([campaignId, lastName, firstName])
 }
 
 model Contribution {
-  id            String       @id @default(cuid())
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
   contributorId String?
   contributor   Contributor? @relation(fields: [contributorId], references: [id], onDelete: SetNull)
 
@@ -320,13 +468,17 @@ model Contribution {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@index([campaignId, receivedAt])
   @@index([contributorId])
-  @@index([receivedAt])
   @@index([eventId])
 }
 
 model Expense {
-  id            String    @id @default(cuid())
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
   description   String
   vendor        String    @default("")
   category      String    @default("OTHER")
@@ -339,8 +491,8 @@ model Expense {
   /// Whether this expense counts against the general spending limit. Defaults
   /// from the category (see src/lib/ontario.ts) and can be overridden per row.
   subjectToLimit Boolean @default(true)
-  /// Expenses for a party or other expression of appreciation held after
-  /// voting day, which carry their own separate limit.
+  /// Expenses for a party or other expression of appreciation held after voting
+  /// day, which carry their own separate limit.
   isPartyExpense Boolean @default(false)
   /// Matches an in-kind contribution, so the pair nets to zero in cash terms.
   isInKind       Boolean @default(false)
@@ -352,12 +504,16 @@ model Expense {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([incurredAt])
-  @@index([category])
+  @@index([campaignId, incurredAt])
+  @@index([campaignId, category])
 }
 
 model SignRequest {
-  id      String  @id @default(cuid())
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
   voterId String?
   voter   Voter?  @relation(fields: [voterId], references: [id], onDelete: SetNull)
 
@@ -368,15 +524,10 @@ model SignRequest {
   city          String @default("")
   postalCode    String @default("")
   ward          String @default("")
-  latitude      Float?
-  longitude     Float?
 
-  /// PENDING, OK, FAILED or MANUAL. Addresses the geocoder cannot place are
-  /// pinned by hand on the map, and MANUAL stops a re-run from overwriting that
-  /// with another bad guess.
+  latitude         Float?
+  longitude        Float?
   geocodeStatus    String    @default("PENDING")
-  /// Google's location_type for the match. ROOFTOP is exact; APPROXIMATE is
-  /// often just the middle of a rural road and worth checking by eye.
   geocodePrecision String    @default("")
   geocodedAt       DateTime?
 
@@ -398,23 +549,32 @@ model SignRequest {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([status])
-  @@index([signType])
-  @@index([ward])
+  @@index([campaignId, status])
+  @@index([campaignId, signType])
 }
 
-/// How many signs of each type the campaign physically owns, so the signs
-/// board can show what is left in the garage.
+/// How many signs of each type a campaign owns, so the board can show what is
+/// left in the garage.
 model SignInventory {
-  id            String   @id @default(cuid())
-  signType      String   @unique
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  signType      String
   quantityOwned Int      @default(0)
   notes         String   @default("")
   updatedAt     DateTime @updatedAt
+
+  @@unique([campaignId, signType])
 }
 
 model Event {
-  id                 String    @id @default(cuid())
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
   name               String
   type               String    @default("MEET_GREET")
   startsAt           DateTime
@@ -436,13 +596,17 @@ model Event {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([startsAt])
+  @@index([campaignId, startsAt])
 }
 
-/// One bulk text send, kept as a record afterwards so the campaign can show
+/// One bulk text send, kept as a record afterwards so a campaign can show
 /// exactly what went out, to how many people, and what it cost.
 model TextCampaign {
-  id     String @id @default(cuid())
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
   name   String
   /// Body, which may contain {{firstName}} and {{lastName}} merge fields.
   body   String
@@ -462,15 +626,15 @@ model TextCampaign {
   createdAt DateTime      @default(now())
   updatedAt DateTime      @updatedAt
 
-  @@index([status])
+  @@index([campaignId, status])
 }
 
 /// One text to one number. Rows are created up front in QUEUED state so a send
 /// that dies partway through resumes without double-texting anyone.
 model TextMessage {
-  id         String       @id @default(cuid())
-  campaignId String
-  campaign   TextCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  id             String       @id @default(cuid())
+  textCampaignId String
+  textCampaign   TextCampaign @relation(fields: [textCampaignId], references: [id], onDelete: Cascade)
 
   voterId String?
   voter   Voter?  @relation(fields: [voterId], references: [id], onDelete: SetNull)
@@ -490,17 +654,27 @@ model TextMessage {
   sentAt      DateTime?
   deliveredAt DateTime?
 
-  @@unique([campaignId, toPhone])
+  @@unique([textCampaignId, toPhone])
   @@index([status])
   @@index([voterId])
 }
 
-/// Numbers that have texted STOP, keyed by phone rather than by voter so an
-/// opt-out survives the voter record being edited, merged or deleted. Checked
-/// on every send and never bypassed.
+/// Numbers that have opted out of one campaign's texts.
+///
+/// Keyed by phone rather than by voter so an opt-out survives the voter record
+/// being edited, merged or deleted, and scoped by campaign because consent runs
+/// to a named sender: telling one candidate to stop is not instruction to
+/// another. Each campaign therefore needs its own sending number.
 model SmsOptOut {
-  id        String   @id @default(cuid())
-  phone     String   @unique
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  phone     String
   reason    String   @default("")
   createdAt DateTime @default(now())
+
+  @@unique([campaignId, phone])
+  @@index([phone])
 }

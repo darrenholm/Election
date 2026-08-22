@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign, requireCampaignId } from "@/lib/campaign";
 import { countSegments, normalisePhone } from "@/lib/consent";
 import {
   buildAudience,
@@ -14,6 +14,7 @@ import {
   type SendBatchResult,
 } from "@/lib/sms";
 import { bool, list, str } from "@/lib/form";
+import { upsertVoterState } from "@/lib/voter-state";
 
 function refresh(id?: string) {
   revalidatePath("/texting");
@@ -44,10 +45,16 @@ function readFilter(formData: FormData): AudienceFilter {
 export async function previewAudience(formData: FormData) {
   const filter = readFilter(formData);
   const body = str(formData, "body");
-  const campaign = await getCampaign();
+  const campaign = await getActiveCampaign();
   const config = smsConfig();
+  if (!campaign) {
+    return {
+      recipients: 0, segments: 0, encoding: "GSM-7" as const, offenders: [] as string[],
+      sample: "", estimatedCostCents: 0, configured: config.configured,
+    };
+  }
 
-  const audience = await buildAudience(filter);
+  const audience = await buildAudience(filter, campaign.id);
   const bodies = audience.map((m) => composeBody(body, m, campaign.candidateName));
   const sample = bodies[0] ?? composeBody(body, null, campaign.candidateName);
 
@@ -72,10 +79,11 @@ export async function createTextCampaign(formData: FormData) {
   if (body.trim() === "") return;
 
   const filter = readFilter(formData);
-  const campaign = await getCampaign();
+  const campaign = await getActiveCampaign();
+  if (!campaign) return;
   const config = smsConfig();
 
-  const audience = await buildAudience(filter);
+  const audience = await buildAudience(filter, campaign.id);
   const rendered = audience.map((member) => ({
     member,
     body: composeBody(body, member, campaign.candidateName),
@@ -83,6 +91,7 @@ export async function createTextCampaign(formData: FormData) {
 
   const created = await db.textCampaign.create({
     data: {
+      campaignId: campaign.id,
       name,
       body,
       status: bool(formData, "queueNow") ? "QUEUED" : "DRAFT",
@@ -97,7 +106,7 @@ export async function createTextCampaign(formData: FormData) {
   if (rendered.length > 0) {
     await db.textMessage.createMany({
       data: rendered.map((r) => ({
-        campaignId: created.id,
+        textCampaignId: created.id,
         voterId: r.member.voterId,
         toPhone: r.member.phone,
         body: r.body,
@@ -122,7 +131,7 @@ export async function queueCampaign(campaignId: string) {
 export async function cancelCampaign(campaignId: string) {
   // Only untouched messages are cancelled; anything already sent has gone.
   await db.textMessage.updateMany({
-    where: { campaignId, status: "QUEUED" },
+    where: { textCampaignId: campaignId, status: "QUEUED" },
     data: { status: "SKIPPED", errorMessage: "Campaign cancelled" },
   });
   await db.textCampaign.update({
@@ -175,17 +184,15 @@ export async function sendBatch(campaignId: string, limit = 25): Promise<SendBat
 
 /** Record consent from somewhere other than the door — a form, a phone call. */
 export async function setVoterConsent(voterId: string, formData: FormData) {
+  const campaignId = await requireCampaignId();
   const state = str(formData, "smsConsent");
   if (!["UNKNOWN", "GRANTED", "DECLINED", "REVOKED"].includes(state)) return;
 
-  await db.voter.update({
-    where: { id: voterId },
-    data: {
-      smsConsent: state,
-      smsConsentAt: state === "UNKNOWN" ? null : new Date(),
-      smsConsentSource: state === "UNKNOWN" ? "" : str(formData, "smsConsentSource") || "PHONE",
-      smsConsentWording: state === "UNKNOWN" ? "" : str(formData, "smsConsentWording"),
-    },
+  await upsertVoterState(campaignId, voterId, {
+    smsConsent: state,
+    smsConsentAt: state === "UNKNOWN" ? null : new Date(),
+    smsConsentSource: state === "UNKNOWN" ? "" : str(formData, "smsConsentSource") || "PHONE",
+    smsConsentWording: state === "UNKNOWN" ? "" : str(formData, "smsConsentWording"),
   });
 
   revalidatePath(`/voters/${voterId}`);
@@ -197,21 +204,29 @@ export async function setVoterConsent(voterId: string, formData: FormData) {
  * be taken off by phone or in person rather than by texting STOP.
  */
 export async function addOptOut(formData: FormData) {
+  const campaign = await getActiveCampaign();
+  if (!campaign) return;
+
   const e164 = normalisePhone(str(formData, "phone"));
   if (!e164) return;
 
+  const reason = str(formData, "reason") || "Asked to be removed";
   await db.smsOptOut.upsert({
-    where: { phone: e164 },
-    create: { phone: e164, reason: str(formData, "reason") || "Asked to be removed" },
-    update: { reason: str(formData, "reason") || "Asked to be removed" },
+    where: { campaignId_phone: { campaignId: campaign.id, phone: e164 } },
+    create: { campaignId: campaign.id, phone: e164, reason },
+    update: { reason },
   });
 
-  // Reflect it on any voter carrying that number, so the roster agrees with
-  // the block list rather than quietly disagreeing.
-  const voters = await db.voter.findMany({ where: { NOT: { phone: "" } }, select: { id: true, phone: true } });
-  const ids = voters.filter((v) => normalisePhone(v.phone) === e164).map((v) => v.id);
-  if (ids.length > 0) {
-    await db.voter.updateMany({ where: { id: { in: ids } }, data: { smsConsent: "REVOKED" } });
+  // Reflect it on this campaign's view of any voter carrying that number, so
+  // the roster agrees with the block list rather than quietly disagreeing.
+  const voters = await db.voter.findMany({
+    where: { municipalityId: campaign.municipalityId, NOT: { phone: "" } },
+    select: { id: true, phone: true },
+  });
+  for (const voter of voters) {
+    if (normalisePhone(voter.phone) === e164) {
+      await upsertVoterState(campaign.id, voter.id, { smsConsent: "REVOKED" });
+    }
   }
 
   revalidatePath("/texting");
@@ -219,6 +234,7 @@ export async function addOptOut(formData: FormData) {
 }
 
 export async function removeOptOut(phone: string) {
-  await db.smsOptOut.deleteMany({ where: { phone } });
+  const campaignId = await requireCampaignId();
+  await db.smsOptOut.deleteMany({ where: { campaignId, phone } });
   revalidatePath("/texting/consent");
 }

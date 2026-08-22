@@ -1,10 +1,18 @@
-import { getCampaign } from "@/lib/campaign";
-import { computeLimits, describeSelfFundingFormula, describeSpendingFormula, COMPLIANCE_DISCLAIMER } from "@/lib/ontario";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { getActiveCampaign } from "@/lib/campaign";
+import {
+  computeLimits,
+  describeSelfFundingFormula,
+  describeSpendingFormula,
+  COMPLIANCE_DISCLAIMER,
+} from "@/lib/ontario";
 import { formatCents } from "@/lib/money";
 import { toDateInput } from "@/lib/dates";
 import { OFFICE_OPTIONS } from "@/lib/enums";
 import { authEnabled } from "@/lib/auth";
-import { saveCampaign } from "@/app/actions/settings";
+import { smsConfig } from "@/lib/sms";
+import { updateCampaign } from "@/app/actions/campaigns";
 import { signOut } from "@/app/actions/auth";
 import { Card, Field, Note, PageHeader, Select } from "@/components/ui";
 import { WardSetting } from "./ward-setting";
@@ -12,48 +20,56 @@ import { WardSetting } from "./ward-setting";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  const campaign = await getCampaign();
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+
   const limits = computeLimits(campaign);
+  const save = updateCampaign.bind(null, campaign.id);
+  const twilio = smsConfig();
 
   return (
     <>
       <PageHeader
         title="Settings"
-        subtitle="Campaign identity and the numbers that drive every compliance figure in the app."
+        subtitle={`${campaign.candidateName} — ${campaign.municipality.name}. These figures drive every compliance number for this candidate.`}
         actions={
-          authEnabled() ? (
-            <form action={signOut}>
-              <button type="submit" className="btn-secondary">
-                Sign out
-              </button>
-            </form>
-          ) : null
+          <>
+            <Link href="/campaigns" className="btn-secondary">
+              All campaigns
+            </Link>
+            {authEnabled() ? (
+              <form action={signOut}>
+                <button type="submit" className="btn-secondary">
+                  Sign out
+                </button>
+              </form>
+            ) : null}
+          </>
         }
       />
 
-      <form action={saveCampaign} className="space-y-6">
-        <Card title="Campaign">
+      <div className="mb-6">
+        <Note>
+          You are editing <strong>{campaign.candidateName}</strong>. Other
+          campaigns have their own settings, limits and books — switch between
+          them from the panel at the top of the sidebar.
+        </Note>
+      </div>
+
+      <form action={save} className="space-y-6">
+        <Card title="Candidate">
           <div className="grid gap-4 sm:grid-cols-2">
             <Field label="Candidate name">
-              <input
-                name="candidateName"
-                defaultValue={campaign.candidateName}
-                className="field"
-                placeholder="Jordan Reyes"
-              />
+              <input name="candidateName" defaultValue={campaign.candidateName} className="field" required />
             </Field>
             <Field label="Office sought" hint="Head of council has a higher base limit.">
               <Select name="office" options={OFFICE_OPTIONS} defaultValue={campaign.office} />
             </Field>
-            <Field label="Municipality">
-              <input
-                name="municipality"
-                defaultValue={campaign.municipality}
-                className="field"
-                placeholder="City of Kawartha Lakes"
-              />
+            <Field label="Municipality" hint="Change this from the campaigns page — doors and electors are attached to it.">
+              <input value={campaign.municipality.name} className="field" disabled />
             </Field>
-            <WardSetting usesWards={campaign.usesWards} ward={campaign.ward} />
+            <div />
+            <WardSetting usesWards={campaign.municipality.usesWards} ward={campaign.ward} />
             <Field label="Campaign email">
               <input name="contactEmail" type="email" defaultValue={campaign.contactEmail} className="field" />
             </Field>
@@ -66,17 +82,9 @@ export default async function SettingsPage() {
         <Card title="Dates">
           <div className="grid gap-4 sm:grid-cols-3">
             <Field label="Voting day">
-              <input
-                name="votingDay"
-                type="date"
-                defaultValue={toDateInput(campaign.votingDay)}
-                className="field"
-              />
+              <input name="votingDay" type="date" defaultValue={toDateInput(campaign.votingDay)} className="field" />
             </Field>
-            <Field
-              label="Campaign period start"
-              hint="Normally the day you filed your nomination."
-            >
+            <Field label="Campaign period start" hint="Normally the day you filed your nomination.">
               <input
                 name="campaignPeriodStart"
                 type="date"
@@ -95,16 +103,13 @@ export default async function SettingsPage() {
           </div>
         </Card>
 
-        <Card
-          title="Ontario limits"
-          description="Municipal Elections Act, 1996"
-        >
+        <Card title="Ontario limits" description="Municipal Elections Act, 1996">
           <div className="space-y-4">
             <Note>{COMPLIANCE_DISCLAIMER}</Note>
 
             <Field
               label="Eligible electors for this office"
-              hint="From the clerk. Drives both the spending limit and the self-funding limit."
+              hint="From the clerk. Drives both the spending limit and the self-funding limit. Where council is elected at large this is the whole municipality, not a ward."
             >
               <input
                 name="electorCount"
@@ -112,7 +117,7 @@ export default async function SettingsPage() {
                 min={0}
                 defaultValue={campaign.electorCount || ""}
                 className="field"
-                placeholder="12500"
+                placeholder="8200"
               />
             </Field>
 
@@ -135,7 +140,8 @@ export default async function SettingsPage() {
                 </div>
                 <div className="flex flex-wrap justify-between gap-2">
                   <dt className="text-muted">
-                    Appreciation-party limit — <span className="text-xs">10% of the general limit</span>
+                    Appreciation-party limit —{" "}
+                    <span className="text-xs">10% of the general limit</span>
                   </dt>
                   <dd className="font-semibold tabular-nums">
                     {formatCents(
@@ -165,8 +171,8 @@ export default async function SettingsPage() {
             </div>
 
             <p className="text-sm text-muted">
-              Enter the clerk&apos;s certified figures below to override the
-              calculated ones. Leave blank to keep using the formulas.
+              Enter the clerk&apos;s certified figures below to override the calculated
+              ones. Leave blank to keep using the formulas.
             </p>
 
             <div className="grid gap-4 sm:grid-cols-3">
@@ -209,8 +215,46 @@ export default async function SettingsPage() {
             </div>
 
             {limits.certified.spending || limits.certified.partyExpense || limits.certified.selfFunding ? (
+              <Note tone="warn">Certified figures are in use and override the formulas above.</Note>
+            ) : null}
+          </div>
+        </Card>
+
+        <Card
+          title="Text messaging"
+          description="This candidate's own sending identity"
+        >
+          <div className="space-y-4">
+            <Note>
+              Each candidate must text from their own number. Consent runs to a
+              named sender, so one shared number would make every opt-out
+              ambiguous — and a STOP meant for one candidate would either
+              under-honour or wrongly silence the others. The Twilio account
+              credentials live in the environment; only the sending identity is
+              set here.
+            </Note>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="From number" hint="E.164, e.g. +15195550134">
+                <input
+                  name="twilioFromNumber"
+                  defaultValue={campaign.twilioFromNumber}
+                  className="field"
+                  placeholder="+15195550134"
+                />
+              </Field>
+              <Field label="Messaging service SID" hint="Preferred over a bare number where you have one.">
+                <input
+                  name="twilioMessagingServiceSid"
+                  defaultValue={campaign.twilioMessagingServiceSid}
+                  className="field"
+                  placeholder="MG…"
+                />
+              </Field>
+            </div>
+            {!twilio.configured ? (
               <Note tone="warn">
-                Certified figures are in use and override the formulas above.
+                No Twilio account credentials are configured, so sending runs in
+                dry-run mode whatever is entered here.
               </Note>
             ) : null}
           </div>
@@ -229,6 +273,11 @@ export default async function SettingsPage() {
             {authEnabled()
               ? "A shared password is set. Everyone on the team signs in with it; changing APP_PASSWORD signs everyone out."
               : "No password is set. Set the APP_PASSWORD environment variable before running this anywhere other than your own machine — the database holds electors' names, addresses and phone numbers."}
+          </p>
+          <p className="mt-2 text-sm text-muted">
+            Note that the password is shared across <em>every</em> campaign in
+            this install. Anyone who can sign in can switch to any candidate and
+            see their data.
           </p>
         </Card>
       </div>

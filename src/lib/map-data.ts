@@ -1,5 +1,6 @@
 import { db } from "./db";
 import { IMPRECISE_GEOCODES } from "./enums";
+import { getActiveCampaign } from "./campaign";
 
 /**
  * Builds every point the map draws. Shared by the page's first render and the
@@ -53,14 +54,26 @@ export type MapPayload = {
 };
 
 export async function getMapPayload(): Promise<MapPayload> {
+  const campaign = await getActiveCampaign();
+  if (!campaign) return { doors: [], routes: [], signs: [], centre: null };
+
+  const campaignId = campaign.id;
+  const municipalityId = campaign.municipalityId;
+
   const [households, signs, turfs] = await Promise.all([
+    // Doors belong to the municipality and are shared; what this campaign knows
+    // about the people behind them does not.
     db.household.findMany({
-      where: { latitude: { not: null }, longitude: { not: null } },
+      where: { municipalityId, latitude: { not: null }, longitude: { not: null } },
       include: {
         voters: {
           select: {
-            supportLevel: true,
+            campaignStates: {
+              where: { campaignId },
+              select: { supportLevel: true },
+            },
             contacts: {
+              where: { campaignId },
               select: { occurredAt: true },
               orderBy: { occurredAt: "desc" },
               take: 1,
@@ -70,18 +83,24 @@ export async function getMapPayload(): Promise<MapPayload> {
       },
     }),
     db.signRequest.findMany({
-      where: { latitude: { not: null }, longitude: { not: null } },
+      where: { campaignId, latitude: { not: null }, longitude: { not: null } },
     }),
     db.turf.findMany({
-      where: { status: { not: "COMPLETE" } },
+      where: { campaignId, status: { not: "COMPLETE" } },
       include: {
         households: {
-          where: { latitude: { not: null }, longitude: { not: null } },
+          where: {
+            household: { latitude: { not: null }, longitude: { not: null } },
+          },
           select: {
-            latitude: true,
-            longitude: true,
-            streetName: true,
-            streetNumber: true,
+            household: {
+              select: {
+                latitude: true,
+                longitude: true,
+                streetName: true,
+                streetNumber: true,
+              },
+            },
           },
         },
       },
@@ -90,7 +109,7 @@ export async function getMapPayload(): Promise<MapPayload> {
 
   const doors: MapDoor[] = households.map((h) => {
     const known = h.voters
-      .map((v) => v.supportLevel)
+      .map((v) => v.campaignStates[0]?.supportLevel ?? null)
       .filter((n): n is number => n !== null && n >= 1 && n <= 5);
 
     const contactTimes = h.voters
@@ -109,15 +128,15 @@ export async function getMapPayload(): Promise<MapPayload> {
       visited: contactTimes.length > 0,
       lastContact: contactTimes[0]?.toISOString() ?? null,
       imprecise: IMPRECISE_GEOCODES.includes(h.geocodePrecision),
-      turfId: h.turfId,
+      turfId: null,
     };
   });
 
   const routes: MapRoute[] = turfs
-    .filter((t) => t.households.length > 1)
     .map((t) => {
-      const byStreet = new Map<string, typeof t.households>();
-      for (const h of t.households) {
+      const members = t.households.map((th) => th.household);
+      const byStreet = new Map<string, typeof members>();
+      for (const h of members) {
         const list = byStreet.get(h.streetName);
         if (list) list.push(h);
         else byStreet.set(h.streetName, [h]);
@@ -136,7 +155,7 @@ export async function getMapPayload(): Promise<MapPayload> {
         turfId: t.id,
         name: t.name,
         plannedFor: t.plannedFor?.toISOString() ?? null,
-        doors: t.households.length,
+        doors: members.length,
         segments,
       };
     })

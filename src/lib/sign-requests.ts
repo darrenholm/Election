@@ -1,14 +1,19 @@
 import { db } from "./db";
 
 /**
- * Raise a sign request for a voter who asked for one, unless they already have
- * a live one. Shared by the canvass API and the server action so a sign
- * promised at the door reaches the sign crew the same way whichever route the
- * contact came in through.
+ * Raise a sign request for a voter who asked for one, unless this campaign
+ * already has a live one for them. Shared by the canvass API and the server
+ * action so a sign promised at the door reaches the sign crew the same way
+ * whichever route the contact came in through.
+ *
+ * Scoped by campaign: two candidates can both have a sign on the same lawn.
  */
-export async function createSignRequestForVoter(voterId: string): Promise<void> {
+export async function createSignRequestForVoter(
+  campaignId: string,
+  voterId: string,
+): Promise<void> {
   const existing = await db.signRequest.findFirst({
-    where: { voterId, status: { notIn: ["REMOVED", "DECLINED"] } },
+    where: { campaignId, voterId, status: { notIn: ["REMOVED", "DECLINED"] } },
     select: { id: true },
   });
   if (existing) return;
@@ -21,6 +26,7 @@ export async function createSignRequestForVoter(voterId: string): Promise<void> 
 
   await db.signRequest.create({
     data: {
+      campaignId,
       voterId,
       requesterName: `${voter.firstName} ${voter.lastName}`.trim(),
       phone: voter.phone,

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { getCampaign, isCampaignConfigured } from "@/lib/campaign";
+import { getActiveCampaign, isCampaignConfigured } from "@/lib/campaign";
+import { redirect } from "next/navigation";
 import { getFinanceSummary, auditContributions } from "@/lib/finance";
 import { formatCentsShort } from "@/lib/money";
 import { daysUntil, formatDate, formatDateTime } from "@/lib/dates";
@@ -18,7 +19,9 @@ import { Card, LimitBar, Note, PageHeader, StatTile, EmptyState, Badge } from "@
 export const dynamic = "force-dynamic";
 
 export default async function Dashboard() {
-  const campaign = await getCampaign();
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+  const campaignId = campaign.id;
   const now = new Date();
   const weekAgo = new Date(now.getTime() - 7 * 86_400_000);
   const weekAhead = new Date(now.getTime() + 7 * 86_400_000);
@@ -37,25 +40,38 @@ export default async function Dashboard() {
     finance,
     flags,
   ] = await Promise.all([
-    db.voter.count(),
-    db.voter.count({ where: { doNotContact: false, movedAway: false, deceased: false } }),
-    db.voter.groupBy({ by: ["supportLevel"], _count: true }),
-    db.contactAttempt.count({ where: { occurredAt: { gte: weekAgo } } }),
-    db.contactAttempt.count({ where: { occurredAt: { gte: weekAgo }, result: "SPOKE" } }),
-    db.volunteer.count({ where: { status: "ACTIVE" } }),
+    db.voter.count({ where: { municipalityId: campaign.municipalityId } }),
+    db.voter.count({
+      where: {
+        municipalityId: campaign.municipalityId,
+        movedAway: false,
+        deceased: false,
+        NOT: { campaignStates: { some: { campaignId, doNotContact: true } } },
+      },
+    }),
+    db.voterCampaignState.groupBy({
+      by: ["supportLevel"],
+      where: { campaignId },
+      _count: true,
+    }),
+    db.contactAttempt.count({ where: { campaignId, occurredAt: { gte: weekAgo } } }),
+    db.contactAttempt.count({
+      where: { campaignId, occurredAt: { gte: weekAgo }, result: "SPOKE" },
+    }),
+    db.volunteer.count({ where: { campaignId, status: "ACTIVE" } }),
     db.shift.findMany({
-      where: { startsAt: { gte: now, lte: weekAhead } },
+      where: { campaignId, startsAt: { gte: now, lte: weekAhead } },
       include: { assignments: true },
       orderBy: { startsAt: "asc" },
       take: 6,
     }),
-    db.signRequest.count({ where: { status: { in: PENDING_SIGN_STATUSES } } }),
+    db.signRequest.count({ where: { campaignId, status: { in: PENDING_SIGN_STATUSES } } }),
     db.signRequest.aggregate({
-      where: { status: { in: DEPLOYED_SIGN_STATUSES } },
+      where: { campaignId, status: { in: DEPLOYED_SIGN_STATUSES } },
       _sum: { quantity: true },
     }),
     db.event.findMany({
-      where: { startsAt: { gte: now } },
+      where: { campaignId, startsAt: { gte: now } },
       orderBy: { startsAt: "asc" },
       take: 4,
     }),
@@ -84,7 +100,7 @@ export default async function Dashboard() {
         title={campaign.candidateName ? `${campaign.candidateName} for ${officeWord(campaign.office)}` : "Campaign dashboard"}
         subtitle={
           <>
-            {campaign.municipality || "Set your municipality in Settings"}
+            {campaign.municipality.name}
             {campaign.ward ? ` · ${campaign.ward}` : ""} · Voting day{" "}
             {formatDate(campaign.votingDay)}
           </>

@@ -3,6 +3,8 @@ import { db } from "@/lib/db";
 import { CONTACT_METHODS, CONTACT_RESULTS, SMS_CONSENT_STATES } from "@/lib/enums";
 import { normalisePhone } from "@/lib/consent";
 import { createSignRequestForVoter } from "@/lib/sign-requests";
+import { getActiveCampaign } from "@/lib/campaign";
+import { upsertVoterState } from "@/lib/voter-state";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +39,11 @@ const Payload = z.object({
 });
 
 export async function POST(request: Request) {
+  const campaign = await getActiveCampaign();
+  if (!campaign) {
+    return Response.json({ error: "No campaign selected" }, { status: 409 });
+  }
+
   let body: unknown;
   try {
     body = await request.json();
@@ -72,6 +79,7 @@ export async function POST(request: Request) {
 
   const contact = await db.contactAttempt.create({
     data: {
+      campaignId: campaign.id,
       clientId: data.clientId,
       voterId: data.voterId,
       volunteerId: data.volunteerId ?? null,
@@ -83,48 +91,54 @@ export async function POST(request: Request) {
     },
   });
 
-  const update: Record<string, unknown> = {};
-  if (data.supportLevel != null) update.supportLevel = data.supportLevel;
-  if (data.wantsSign) update.wantsSign = true;
-  if (data.wantsToVolunteer) update.wantsToVolunteer = true;
-  if (data.isDonorProspect) update.isDonorProspect = true;
-  if (data.result === "MOVED") update.movedAway = true;
-  if (data.result === "DECEASED") update.deceased = true;
-  if (data.result === "REFUSED" && data.markDoNotContact) update.doNotContact = true;
+  // What this campaign learned about the voter.
+  const state: Record<string, unknown> = {};
+  if (data.supportLevel != null) state.supportLevel = data.supportLevel;
+  if (data.wantsSign) state.wantsSign = true;
+  if (data.wantsToVolunteer) state.wantsToVolunteer = true;
+  if (data.isDonorProspect) state.isDonorProspect = true;
+  if (data.result === "REFUSED" && data.markDoNotContact) state.doNotContact = true;
 
+  // Consent is recorded with its wording and the moment it was given, and
+  // belongs to this campaign alone — agreeing to hear from one candidate says
+  // nothing about the others. DECLINED is stored as deliberately as GRANTED,
+  // because knowing someone said no is what stops them being asked every
+  // canvass.
+  if (data.smsConsent === "GRANTED" || data.smsConsent === "DECLINED") {
+    state.smsConsent = data.smsConsent;
+    state.smsConsentAt = new Date();
+    state.smsConsentSource = "DOOR";
+    state.smsConsentWording = data.smsConsentWording;
+  }
+
+  // A number collected at the door is useless if it has already opted out of
+  // this campaign's messages, so honour any standing opt-out immediately.
+  const e164 = normalisePhone(data.phone || voter.phone);
+  if (e164 && data.smsConsent === "GRANTED") {
+    const optedOut = await db.smsOptOut.findUnique({
+      where: { campaignId_phone: { campaignId: campaign.id, phone: e164 } },
+    });
+    if (optedOut) state.smsConsent = "REVOKED";
+  }
+
+  if (Object.keys(state).length > 0) {
+    await upsertVoterState(campaign.id, data.voterId, state);
+  }
+
+  // Facts about the person, true for every campaign in the municipality.
+  const person: Record<string, unknown> = {};
+  if (data.result === "MOVED") person.movedAway = true;
+  if (data.result === "DECEASED") person.deceased = true;
   // Details collected at the door only ever fill gaps; they never overwrite
   // something already on file, which a canvasser cannot verify from the step.
-  if (data.phone.trim() && !voter.phone.trim()) update.phone = data.phone.trim();
-  if (data.email.trim() && !voter.email.trim()) update.email = data.email.trim();
+  if (data.phone.trim() && !voter.phone.trim()) person.phone = data.phone.trim();
+  if (data.email.trim() && !voter.email.trim()) person.email = data.email.trim();
 
-  // Consent is recorded with its wording and the moment it was given. DECLINED
-  // is stored as deliberately as GRANTED — knowing someone said no is what
-  // stops them being asked again every canvass.
-  if (data.smsConsent === "GRANTED" || data.smsConsent === "DECLINED") {
-    update.smsConsent = data.smsConsent;
-    update.smsConsentAt = new Date();
-    update.smsConsentSource = "DOOR";
-    update.smsConsentWording = data.smsConsentWording;
+  if (Object.keys(person).length > 0) {
+    await db.voter.update({ where: { id: data.voterId }, data: person });
   }
 
-  if (Object.keys(update).length > 0) {
-    await db.voter.update({ where: { id: data.voterId }, data: update });
-  }
-
-  // A number collected at the door is useless if a previous occupant opted it
-  // out, so honour any standing opt-out immediately.
-  const e164 = normalisePhone(data.phone || voter.phone);
-  if (e164 && (data.smsConsent === "GRANTED")) {
-    const optedOut = await db.smsOptOut.findUnique({ where: { phone: e164 } });
-    if (optedOut) {
-      await db.voter.update({
-        where: { id: data.voterId },
-        data: { smsConsent: "REVOKED" },
-      });
-    }
-  }
-
-  if (data.wantsSign) await createSignRequestForVoter(data.voterId);
+  if (data.wantsSign) await createSignRequestForVoter(campaign.id, data.voterId);
 
   return Response.json({ ok: true, id: contact.id });
 }

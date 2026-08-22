@@ -1,12 +1,14 @@
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { stateOf } from "@/lib/voter-state";
 import { SUPPORT_LEVEL_OPTIONS } from "@/lib/enums";
 import { formatDate } from "@/lib/dates";
 import { Badge, Card, EmptyState, PageHeader, Table, Td, Th } from "@/components/ui";
 import { SupportBadge, VoterLink, addressLine, titleCase } from "@/components/voter";
 import { normaliseStreet } from "@/lib/address";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign } from "@/lib/campaign";
 
 export const dynamic = "force-dynamic";
 
@@ -22,15 +24,54 @@ type Search = {
 };
 
 /** Named slices of the file that a campaign asks for over and over. */
-const FLAGS: Record<string, { label: string; where: Prisma.VoterWhereInput }> = {
-  "needs-id": { label: "Not yet identified", where: { supportLevel: null } },
-  supporters: { label: "Supporters (1–2)", where: { supportLevel: { in: [1, 2] } } },
-  undecided: { label: "Undecided (3)", where: { supportLevel: 3 } },
-  signs: { label: "Wants a sign", where: { wantsSign: true } },
-  volunteers: { label: "Offered to volunteer", where: { wantsToVolunteer: true } },
-  donors: { label: "Donor prospects", where: { isDonorProspect: true } },
-  phone: { label: "Has a phone number", where: { NOT: { phone: "" } } },
-  dnc: { label: "Do not contact", where: { doNotContact: true } },
+/**
+ * Named slices of the file. Most are about what THIS campaign thinks, so they
+ * filter on its VoterCampaignState row; "needs-id" is the absence of one.
+ */
+function flagWhere(key: string, campaignId: string): Prisma.VoterWhereInput | null {
+  const state = (where: Prisma.VoterCampaignStateWhereInput): Prisma.VoterWhereInput => ({
+    campaignStates: { some: { campaignId, ...where } },
+  });
+
+  switch (key) {
+    case "needs-id":
+      return {
+        OR: [
+          { campaignStates: { none: { campaignId } } },
+          { campaignStates: { some: { campaignId, supportLevel: null } } },
+        ],
+      };
+    case "supporters":
+      return state({ supportLevel: { in: [1, 2] } });
+    case "undecided":
+      return state({ supportLevel: 3 });
+    case "signs":
+      return state({ wantsSign: true });
+    case "volunteers":
+      return state({ wantsToVolunteer: true });
+    case "donors":
+      return state({ isDonorProspect: true });
+    case "consented":
+      return state({ smsConsent: "GRANTED" });
+    case "phone":
+      return { NOT: { phone: "" } };
+    case "dnc":
+      return state({ doNotContact: true });
+    default:
+      return null;
+  }
+}
+
+const FLAG_LABELS: Record<string, string> = {
+  "needs-id": "Not yet identified",
+  supporters: "Supporters (1–2)",
+  undecided: "Undecided (3)",
+  signs: "Wants a sign",
+  volunteers: "Offered to volunteer",
+  donors: "Donor prospects",
+  consented: "Agreed to texts",
+  phone: "Has a phone number",
+  dnc: "Do not contact",
 };
 
 export default async function VotersPage({
@@ -48,7 +89,11 @@ export default async function VotersPage({
     .filter((n) => n >= 1 && n <= 5);
   const page = Math.max(1, Number(params.page ?? 1) || 1);
 
-  const where: Prisma.VoterWhereInput = { AND: [] };
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+  const campaignId = campaign.id;
+
+  const where: Prisma.VoterWhereInput = { AND: [{ municipalityId: campaign.municipalityId }] };
   const and = where.AND as Prisma.VoterWhereInput[];
 
   if (q) {
@@ -66,21 +111,27 @@ export default async function VotersPage({
   }
   if (ward) and.push({ household: { is: { ward } } });
   if (street) and.push({ household: { is: { streetName: normaliseStreet(street) } } });
-  if (supportValues.length > 0) and.push({ supportLevel: { in: supportValues } });
-  if (flag && FLAGS[flag]) and.push(FLAGS[flag].where);
+  if (supportValues.length > 0) {
+    and.push({ campaignStates: { some: { campaignId, supportLevel: { in: supportValues } } } });
+  }
+  const flagFilter = flag ? flagWhere(flag, campaignId) : null;
+  if (flagFilter) and.push(flagFilter);
 
-  const [campaign, total, voters, wards] = await Promise.all([
-    getCampaign(),
+  const [total, voters, wards] = await Promise.all([
     db.voter.count({ where }),
     db.voter.findMany({
       where,
-      include: { household: true, contacts: { orderBy: { occurredAt: "desc" }, take: 1 } },
+      include: {
+        household: true,
+        campaignStates: { where: { campaignId } },
+        contacts: { where: { campaignId }, orderBy: { occurredAt: "desc" }, take: 1 },
+      },
       orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
     db.household.findMany({
-      where: { NOT: { ward: "" } },
+      where: { municipalityId: campaign.municipalityId, NOT: { ward: "" } },
       distinct: ["ward"],
       select: { ward: true },
       orderBy: { ward: "asc" },
@@ -117,7 +168,7 @@ export default async function VotersPage({
               className="field"
             />
           </label>
-          {campaign.usesWards ? (
+          {campaign.municipality.usesWards ? (
             <label>
               <span className="field-label">Ward</span>
               <select name="ward" defaultValue={ward} className="field">
@@ -134,9 +185,9 @@ export default async function VotersPage({
             <span className="field-label">List</span>
             <select name="flag" defaultValue={flag} className="field">
               <option value="">Everyone</option>
-              {Object.entries(FLAGS).map(([key, f]) => (
+              {Object.entries(FLAG_LABELS).map(([key, text]) => (
                 <option key={key} value={key}>
-                  {f.label}
+                  {text}
                 </option>
               ))}
             </select>
@@ -202,7 +253,9 @@ export default async function VotersPage({
                 </tr>
               </thead>
               <tbody>
-                {voters.map((voter) => (
+                {voters.map((voter) => {
+                  const state = stateOf(voter.campaignStates[0]);
+                  return (
                   <tr key={voter.id} className="hover:bg-raise">
                     <Td>
                       <VoterLink
@@ -211,21 +264,21 @@ export default async function VotersPage({
                         lastName={voter.lastName}
                       />
                       <div className="mt-1 flex flex-wrap gap-1">
-                        {voter.doNotContact ? <Badge tone="bad">Do not contact</Badge> : null}
+                        {state.doNotContact ? <Badge tone="bad">Do not contact</Badge> : null}
                         {voter.movedAway ? <Badge tone="warn">Moved</Badge> : null}
                         {voter.deceased ? <Badge tone="neutral">Deceased</Badge> : null}
-                        {voter.wantsSign ? <Badge tone="brand">Sign</Badge> : null}
-                        {voter.wantsToVolunteer ? <Badge tone="good">Volunteer</Badge> : null}
+                        {state.wantsSign ? <Badge tone="brand">Sign</Badge> : null}
+                        {state.wantsToVolunteer ? <Badge tone="good">Volunteer</Badge> : null}
                       </div>
                     </Td>
                     <Td className="text-muted">
                       {addressLine(voter.household)}
-                      {campaign.usesWards && voter.household?.ward ? (
+                      {campaign.municipality.usesWards && voter.household?.ward ? (
                         <span className="block text-xs">{voter.household.ward}</span>
                       ) : null}
                     </Td>
                     <Td>
-                      <SupportBadge level={voter.supportLevel} />
+                      <SupportBadge level={state.supportLevel} />
                     </Td>
                     <Td className="text-muted">
                       {voter.phone ? <span className="block">{voter.phone}</span> : null}
@@ -238,7 +291,8 @@ export default async function VotersPage({
                       {voter.contacts[0] ? formatDate(voter.contacts[0].occurredAt) : "Never"}
                     </Td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </Table>
 

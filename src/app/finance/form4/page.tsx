@@ -1,6 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign } from "@/lib/campaign";
 import { getFinanceSummary, getItemisedContributors } from "@/lib/finance";
 import {
   EXPENSE_CATEGORIES,
@@ -21,12 +22,14 @@ export const dynamic = "force-dynamic";
  * box by box, and so anything missing is obvious before the filing deadline.
  */
 export default async function Form4Page() {
-  const [campaign, summary, itemised, fundraisers] = await Promise.all([
-    getCampaign(),
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+
+  const [summary, itemised, fundraisers] = await Promise.all([
     getFinanceSummary(),
     getItemisedContributors(),
     db.event.findMany({
-      where: { isFundraiser: true },
+      where: { campaignId: campaign.id, isFundraiser: true },
       include: {
         contributions: { where: { returnedAt: null } },
         expenses: true,
@@ -80,8 +83,8 @@ export default async function Form4Page() {
           <dl className="grid gap-3 text-sm sm:grid-cols-2">
             <Line term="Candidate" value={campaign.candidateName || "—"} />
             <Line term="Office" value={label(OFFICES, campaign.office)} />
-            <Line term="Municipality" value={campaign.municipality || "—"} />
-            {campaign.usesWards ? (
+            <Line term="Municipality" value={campaign.municipality.name} />
+            {campaign.municipality.usesWards ? (
               <Line term="Ward or district" value={campaign.ward || "—"} />
             ) : null}
             <Line term="Campaign period start" value={formatDate(campaign.campaignPeriodStart)} />

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
-import { getCampaign } from "@/lib/campaign";
+import { getActiveCampaign } from "@/lib/campaign";
+import { redirect } from "next/navigation";
 import {
   DEPLOYED_SIGN_STATUSES,
   PENDING_SIGN_STATUSES,
@@ -32,19 +33,23 @@ const COLUMNS: { status: string; tone: "neutral" | "brand" | "good" | "warn" }[]
 ];
 
 export default async function SignsPage() {
-  const [campaign, signs, inventory, volunteers, wantsSign] = await Promise.all([
-    getCampaign(),
+  const campaign = await getActiveCampaign();
+  if (!campaign) redirect("/campaigns");
+  const campaignId = campaign.id;
+
+  const [signs, inventory, volunteers, wantsSign] = await Promise.all([
     db.signRequest.findMany({
+      where: { campaignId },
       include: { installedBy: true, voter: true },
       orderBy: [{ status: "asc" }, { requestedAt: "asc" }],
     }),
-    db.signInventory.findMany(),
+    db.signInventory.findMany({ where: { campaignId } }),
     db.volunteer.findMany({
-      where: { status: "ACTIVE" },
+      where: { campaignId, status: "ACTIVE" },
       orderBy: { firstName: "asc" },
       select: { id: true, firstName: true, lastName: true },
     }),
-    db.voter.count({ where: { wantsSign: true } }),
+    db.voterCampaignState.count({ where: { campaignId, wantsSign: true } }),
   ]);
 
   const owned = new Map(inventory.map((i) => [i.signType, i.quantityOwned]));
@@ -130,7 +135,7 @@ export default async function SignsPage() {
                               <p className="text-xs text-muted">
                                 {[sign.addressLine, sign.city].filter(Boolean).join(", ") ||
                                   "No address"}
-                                {campaign.usesWards && sign.ward ? ` · ${sign.ward}` : ""}
+                                {campaign.municipality.usesWards && sign.ward ? ` · ${sign.ward}` : ""}
                               </p>
                               <p className="text-xs text-muted">
                                 {[sign.phone, sign.email].filter(Boolean).join(" · ")}
@@ -243,7 +248,7 @@ export default async function SignsPage() {
                                     placeholder="Phone"
                                     className="field text-xs"
                                   />
-                                  {campaign.usesWards ? (
+                                  {campaign.municipality.usesWards ? (
                                     <input
                                       name="ward"
                                       defaultValue={sign.ward}
@@ -346,7 +351,7 @@ export default async function SignsPage() {
                 <Field label="Phone">
                   <input name="phone" type="tel" className="field" />
                 </Field>
-                {campaign.usesWards ? (
+                {campaign.municipality.usesWards ? (
                   <Field label="Ward">
                     <input name="ward" className="field" />
                   </Field>
