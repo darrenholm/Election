@@ -21,10 +21,11 @@ export default async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Sign-in and setup have to be reachable signed out, and Twilio's webhooks
+  // Sign-in and setup have to be reachable signed out; Twilio's webhooks
   // authenticate themselves with a request signature instead — an opt-out
-  // bounced to a login page is an opt-out that never happened.
+  // bounced to a login page is an opt-out that never happened; and the health
+  // check has to answer the platform, which has no session.
   matcher: [
-    "/((?!login|setup|api/sms|manifest.webmanifest|sw.js|offline.html|icons|_next/static|_next/image|favicon.ico|.*\\.png$).*)",
+    "/((?!login|setup|api/sms|api/health|manifest.webmanifest|sw.js|offline.html|icons|_next/static|_next/image|favicon.ico|.*\\.png$).*)",
   ],
 };
