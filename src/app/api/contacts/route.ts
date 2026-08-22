@@ -1,0 +1,130 @@
+import { z } from "zod";
+import { db } from "@/lib/db";
+import { CONTACT_METHODS, CONTACT_RESULTS, SMS_CONSENT_STATES } from "@/lib/enums";
+import { normalisePhone } from "@/lib/consent";
+import { createSignRequestForVoter } from "@/lib/sign-requests";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * Where a canvasser's phone posts a door.
+ *
+ * This is an API route rather than a server action because the mobile form has
+ * to be able to *catch* a failure and hold the contact locally — a server
+ * action that throws in a dead zone gives the client nothing useful to work
+ * with. See src/lib/outbox.ts.
+ *
+ * Writes are idempotent on clientId, so the outbox can retry as often as it
+ * likes without recording the same door twice.
+ */
+const Payload = z.object({
+  clientId: z.string().min(1).max(100),
+  voterId: z.string().min(1),
+  volunteerId: z.string().nullable().optional(),
+  method: z.enum(Object.keys(CONTACT_METHODS) as [string, ...string[]]).default("DOOR"),
+  result: z.enum(Object.keys(CONTACT_RESULTS) as [string, ...string[]]).default("SPOKE"),
+  supportLevel: z.number().int().min(1).max(5).nullable().optional(),
+  wantsSign: z.boolean().default(false),
+  wantsToVolunteer: z.boolean().default(false),
+  isDonorProspect: z.boolean().default(false),
+  markDoNotContact: z.boolean().default(false),
+  phone: z.string().max(40).default(""),
+  email: z.string().max(200).default(""),
+  smsConsent: z.enum(Object.keys(SMS_CONSENT_STATES) as [string, ...string[]]).default("UNKNOWN"),
+  smsConsentWording: z.string().max(1000).default(""),
+  notes: z.string().max(4000).default(""),
+  occurredAt: z.string().optional(),
+});
+
+export async function POST(request: Request) {
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return Response.json({ error: "Body was not JSON" }, { status: 400 });
+  }
+
+  const parsed = Payload.safeParse(body);
+  if (!parsed.success) {
+    return Response.json(
+      { error: "Invalid contact", detail: parsed.error.issues.slice(0, 5) },
+      { status: 400 },
+    );
+  }
+  const data = parsed.data;
+
+  // A retry of something already stored is a success, not a duplicate.
+  const existing = await db.contactAttempt.findUnique({
+    where: { clientId: data.clientId },
+    select: { id: true },
+  });
+  if (existing) return Response.json({ ok: true, id: existing.id, duplicate: true });
+
+  const voter = await db.voter.findUnique({
+    where: { id: data.voterId },
+    select: { id: true, phone: true, email: true },
+  });
+  // 404 rather than 5xx: the outbox drops entries it can never deliver, and a
+  // voter deleted since the door was knocked is exactly that case.
+  if (!voter) return Response.json({ error: "Voter no longer exists" }, { status: 404 });
+
+  const occurredAt = data.occurredAt ? new Date(data.occurredAt) : new Date();
+
+  const contact = await db.contactAttempt.create({
+    data: {
+      clientId: data.clientId,
+      voterId: data.voterId,
+      volunteerId: data.volunteerId ?? null,
+      method: data.method,
+      result: data.result,
+      supportLevel: data.supportLevel ?? null,
+      notes: data.notes,
+      occurredAt: Number.isNaN(occurredAt.getTime()) ? new Date() : occurredAt,
+    },
+  });
+
+  const update: Record<string, unknown> = {};
+  if (data.supportLevel != null) update.supportLevel = data.supportLevel;
+  if (data.wantsSign) update.wantsSign = true;
+  if (data.wantsToVolunteer) update.wantsToVolunteer = true;
+  if (data.isDonorProspect) update.isDonorProspect = true;
+  if (data.result === "MOVED") update.movedAway = true;
+  if (data.result === "DECEASED") update.deceased = true;
+  if (data.result === "REFUSED" && data.markDoNotContact) update.doNotContact = true;
+
+  // Details collected at the door only ever fill gaps; they never overwrite
+  // something already on file, which a canvasser cannot verify from the step.
+  if (data.phone.trim() && !voter.phone.trim()) update.phone = data.phone.trim();
+  if (data.email.trim() && !voter.email.trim()) update.email = data.email.trim();
+
+  // Consent is recorded with its wording and the moment it was given. DECLINED
+  // is stored as deliberately as GRANTED — knowing someone said no is what
+  // stops them being asked again every canvass.
+  if (data.smsConsent === "GRANTED" || data.smsConsent === "DECLINED") {
+    update.smsConsent = data.smsConsent;
+    update.smsConsentAt = new Date();
+    update.smsConsentSource = "DOOR";
+    update.smsConsentWording = data.smsConsentWording;
+  }
+
+  if (Object.keys(update).length > 0) {
+    await db.voter.update({ where: { id: data.voterId }, data: update });
+  }
+
+  // A number collected at the door is useless if a previous occupant opted it
+  // out, so honour any standing opt-out immediately.
+  const e164 = normalisePhone(data.phone || voter.phone);
+  if (e164 && (data.smsConsent === "GRANTED")) {
+    const optedOut = await db.smsOptOut.findUnique({ where: { phone: e164 } });
+    if (optedOut) {
+      await db.voter.update({
+        where: { id: data.voterId },
+        data: { smsConsent: "REVOKED" },
+      });
+    }
+  }
+
+  if (data.wantsSign) await createSignRequestForVoter(data.voterId);
+
+  return Response.json({ ok: true, id: contact.id });
+}

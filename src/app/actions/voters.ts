@@ -5,7 +5,8 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { CONTACT_METHODS, CONTACT_RESULTS, joinList } from "@/lib/enums";
 import { bool, date, intOrNull, list, oneOf, str, strOrNull } from "@/lib/form";
-import { normalisePostal, normaliseStreet } from "@/lib/address";
+import { canonicalStreet, normalisePostal, normaliseStreet } from "@/lib/address";
+import { createSignRequestForVoter } from "@/lib/sign-requests";
 
 /* -------------------------------------------------------------- households */
 
@@ -22,28 +23,76 @@ export async function upsertHousehold(input: {
   postalCode: string;
   ward: string;
   pollNumber: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  geocodePrecision?: string;
 }): Promise<string | null> {
   const streetName = normaliseStreet(input.streetName);
   const streetNumber = input.streetNumber.trim();
   if (streetName === "" && streetNumber === "") return null;
 
   const unit = input.unit.trim();
+  const city = input.city.trim();
   const postalCode = normalisePostal(input.postalCode);
+  const streetKey = canonicalStreet(input.streetName);
 
+  // Match on the address itself — number, canonical street, unit, city — and
+  // deliberately NOT on postal code. The municipality's civic address file has
+  // no postal codes at all while the clerk's voters' list does, so keying on it
+  // would give every door two records, one from each import. The street is
+  // matched on its canonical key for the same reason: the two sources spell
+  // "Yonge Street South" and "YONGE ST S" differently.
   const existing = await db.household.findFirst({
-    where: { streetName, streetNumber, unit, postalCode },
+    where: { streetKey, streetNumber, unit, city },
   });
-  if (existing) return existing.id;
 
+  if (existing) {
+    // Later imports fill gaps but never overwrite. A postal code from the
+    // voters' list is worth adding to an address-file household; coordinates
+    // from the address file are worth adding to one the voters' list created.
+    // Neither should clobber a value already there, and a hand-placed pin is
+    // never touched.
+    const fill: Record<string, unknown> = {};
+    if (postalCode && !existing.postalCode) fill.postalCode = postalCode;
+    if (input.ward.trim() && !existing.ward) fill.ward = input.ward.trim();
+    if (input.pollNumber.trim() && !existing.pollNumber) {
+      fill.pollNumber = input.pollNumber.trim();
+    }
+    if (
+      input.latitude != null &&
+      input.longitude != null &&
+      existing.latitude == null &&
+      existing.geocodeStatus !== "MANUAL"
+    ) {
+      fill.latitude = input.latitude;
+      fill.longitude = input.longitude;
+      fill.geocodeStatus = "OK";
+      fill.geocodePrecision = input.geocodePrecision ?? "ROOFTOP";
+      fill.geocodedAt = new Date();
+    }
+
+    if (Object.keys(fill).length > 0) {
+      await db.household.update({ where: { id: existing.id }, data: fill });
+    }
+    return existing.id;
+  }
+
+  const hasCoords = input.latitude != null && input.longitude != null;
   const created = await db.household.create({
     data: {
       streetNumber,
       streetName,
+      streetKey,
       unit,
-      city: input.city.trim(),
+      city,
       postalCode,
       ward: input.ward.trim(),
       pollNumber: input.pollNumber.trim(),
+      latitude: input.latitude ?? null,
+      longitude: input.longitude ?? null,
+      geocodeStatus: hasCoords ? "OK" : "PENDING",
+      geocodePrecision: hasCoords ? (input.geocodePrecision ?? "ROOFTOP") : "",
+      geocodedAt: hasCoords ? new Date() : null,
     },
   });
   return created.id;
@@ -187,36 +236,6 @@ export async function recordContact(formData: FormData) {
   revalidatePath("/signs");
 }
 
-async function createSignRequestForVoter(voterId: string) {
-  const existing = await db.signRequest.findFirst({
-    where: { voterId, status: { notIn: ["REMOVED", "DECLINED"] } },
-  });
-  if (existing) return;
-
-  const voter = await db.voter.findUnique({
-    where: { id: voterId },
-    include: { household: true },
-  });
-  if (!voter) return;
-
-  await db.signRequest.create({
-    data: {
-      voterId,
-      requesterName: `${voter.firstName} ${voter.lastName}`.trim(),
-      phone: voter.phone,
-      email: voter.email,
-      addressLine: voter.household
-        ? `${voter.household.streetNumber} ${voter.household.streetName}${
-            voter.household.unit ? ` Unit ${voter.household.unit}` : ""
-          }`.trim()
-        : "",
-      city: voter.household?.city ?? "",
-      postalCode: voter.household?.postalCode ?? "",
-      ward: voter.household?.ward ?? "",
-      notes: "Requested at the door.",
-    },
-  });
-}
 
 /* ------------------------------------------------------------------- turfs */
 
@@ -341,9 +360,9 @@ export async function importVoters(rows: ImportRow[]): Promise<ImportResult> {
     try {
       const key = [
         (row.streetNumber ?? "").trim(),
-        normaliseStreet(row.streetName ?? ""),
+        canonicalStreet(row.streetName ?? ""),
         (row.unit ?? "").trim(),
-        normalisePostal(row.postalCode ?? ""),
+        (row.city ?? "").trim(),
       ].join("|");
 
       let householdId = householdCache.get(key);
@@ -397,4 +416,116 @@ export async function importVoters(rows: ImportRow[]): Promise<ImportResult> {
   revalidatePath("/voters");
   revalidatePath("/canvass");
   return result;
+}
+
+/* --------------------------------------------------------- address import */
+
+export type AddressRow = {
+  streetNumber?: string;
+  streetName?: string;
+  unit?: string;
+  city?: string;
+  postalCode?: string;
+  ward?: string;
+  pollNumber?: string;
+  latitude?: string;
+  longitude?: string;
+};
+
+export type AddressImportResult = {
+  created: number;
+  updated: number;
+  skipped: number;
+  withCoordinates: number;
+  errors: string[];
+};
+
+/**
+ * Load a municipal civic address file.
+ *
+ * This is separate from the voters' list import because the two answer
+ * different questions: the address file is every door in the municipality,
+ * while the voters' list is the people entitled to vote at some of them.
+ * Loading addresses first gives a complete map and true door counts per
+ * street; importing the voters' list afterwards attaches people to the doors
+ * already there rather than creating a second set.
+ *
+ * Address-point files of this kind carry coordinates, so households created
+ * here need no geocoding at all.
+ */
+export async function importAddresses(rows: AddressRow[]): Promise<AddressImportResult> {
+  const result: AddressImportResult = {
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    withCoordinates: 0,
+    errors: [],
+  };
+
+  for (const [index, row] of rows.entries()) {
+    const streetName = normaliseStreet(row.streetName ?? "");
+    const streetNumber = (row.streetNumber ?? "").trim();
+
+    if (streetName === "" || streetNumber === "") {
+      result.skipped++;
+      continue;
+    }
+
+    const latitude = toCoordinate(row.latitude, -90, 90);
+    const longitude = toCoordinate(row.longitude, -180, 180);
+
+    try {
+      const existing = await db.household.findFirst({
+        where: {
+          streetKey: canonicalStreet(row.streetName ?? ""),
+          streetNumber,
+          unit: (row.unit ?? "").trim(),
+          city: (row.city ?? "").trim(),
+        },
+        select: { id: true },
+      });
+
+      await upsertHousehold({
+        streetNumber,
+        streetName,
+        unit: row.unit ?? "",
+        city: row.city ?? "",
+        postalCode: row.postalCode ?? "",
+        ward: row.ward ?? "",
+        pollNumber: row.pollNumber ?? "",
+        latitude,
+        longitude,
+        // Address-point data is surveyed to the property, not interpolated.
+        geocodePrecision: "ROOFTOP",
+      });
+
+      if (existing) result.updated++;
+      else result.created++;
+      if (latitude !== null && longitude !== null) result.withCoordinates++;
+    } catch (error) {
+      result.skipped++;
+      if (result.errors.length < 20) {
+        result.errors.push(
+          `Row ${index + 2}: ${error instanceof Error ? error.message : "could not import"}`,
+        );
+      }
+    }
+  }
+
+  revalidatePath("/map");
+  revalidatePath("/streets");
+  revalidatePath("/canvass");
+  return result;
+}
+
+function toCoordinate(value: string | undefined, min: number, max: number): number | null {
+  if (value === undefined) return null;
+  const trimmed = String(value).trim();
+  if (trimmed === "") return null;
+  const parsed = Number(trimmed);
+  if (!Number.isFinite(parsed)) return null;
+  // A zero here is nearly always a missing value rather than a real point in
+  // the Gulf of Guinea.
+  if (parsed === 0) return null;
+  return parsed >= min && parsed <= max ? parsed : null;
 }

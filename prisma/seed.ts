@@ -12,6 +12,7 @@
  */
 
 import { PrismaClient } from "@prisma/client";
+import { DOOR_CONSENT_SCRIPT, normalisePhone } from "../src/lib/consent";
 
 const db = new PrismaClient();
 
@@ -55,6 +56,36 @@ const STREETS = [
   "BOND ST W",
 ];
 
+/**
+ * Plausible coordinates for the demo, laid out as a street grid over Lindsay,
+ * Ontario. Real campaigns geocode their addresses through Google; this exists
+ * only so the map has something to draw before a key is configured.
+ */
+const TOWN_CENTRE = { lat: 44.3567, lng: -78.7378 };
+
+function streetGeometry(index: number) {
+  // Alternate north-south and east-west streets, offset from the centre, so
+  // the demo reads as a town rather than a random scatter.
+  const eastWest = index % 2 === 0;
+  const offset = (Math.floor(index / 2) - 3) * 0.0055;
+  return {
+    eastWest,
+    // Metres-per-degree differ by axis; these keep the blocks roughly square.
+    baseLat: TOWN_CENTRE.lat + (eastWest ? offset : -0.008),
+    baseLng: TOWN_CENTRE.lng + (eastWest ? -0.011 : offset * 1.4),
+  };
+}
+
+function doorCoordinates(streetIndex: number, doorIndex: number) {
+  const g = streetGeometry(streetIndex);
+  const along = doorIndex * 0.00042;
+  // A few metres of jitter so doors do not sit in a perfectly straight line.
+  const jitter = ((doorIndex % 3) - 1) * 0.00008;
+  return g.eastWest
+    ? { latitude: g.baseLat + jitter, longitude: g.baseLng + along }
+    : { latitude: g.baseLat + along, longitude: g.baseLng + jitter };
+}
+
 const FIRST_NAMES = [
   "Margaret", "David", "Susan", "Robert", "Linda", "Michael", "Patricia", "James",
   "Barbara", "John", "Jennifer", "William", "Elizabeth", "Richard", "Nancy",
@@ -68,6 +99,23 @@ const LAST_NAMES = [
   "Campbell", "Ferguson", "Doyle", "Beaulieu", "Ahmed", "Kaur", "Rossi", "Cormier",
 ];
 
+/**
+ * Text-message consent for the demo. Deliberately mixed: a minority agreed, a
+ * few said no outright, and most were never asked — which is what a real
+ * consent register looks like partway through a campaign, and it stops the
+ * texting screens from implying you can message the whole voters' list.
+ */
+function smsConsentFor(identified: boolean) {
+  if (!identified || !chance(0.45)) return {};
+  const agreed = chance(0.62);
+  return {
+    smsConsent: agreed ? "GRANTED" : "DECLINED",
+    smsConsentAt: new Date(Date.now() - intBetween(1, 60) * DAY),
+    smsConsentSource: "DOOR",
+    smsConsentWording: DOOR_CONSENT_SCRIPT,
+  };
+}
+
 const ISSUES = [
   "roads", "transit", "taxes", "development", "parks", "seniors", "water", "policing",
 ];
@@ -75,6 +123,9 @@ const ISSUES = [
 async function main() {
   console.log("Clearing existing data…");
   // Order matters: children before parents.
+  await db.textMessage.deleteMany();
+  await db.textCampaign.deleteMany();
+  await db.smsOptOut.deleteMany();
   await db.contactAttempt.deleteMany();
   await db.shiftAssignment.deleteMany();
   await db.shift.deleteMany();
@@ -142,9 +193,9 @@ async function main() {
 
   console.log("Turf…");
   const turfSpecs = [
-    { name: "Ward 3 — downtown core", streets: STREETS.slice(0, 5), assignee: 0, status: "IN_PROGRESS" },
-    { name: "Ward 3 — north of Colborne", streets: STREETS.slice(5, 10), assignee: 2, status: "ASSIGNED" },
-    { name: "Ward 3 — west end", streets: STREETS.slice(10), assignee: null, status: "UNASSIGNED" },
+    { name: "Ward 3 — downtown core", streets: STREETS.slice(0, 5), assignee: 0, status: "IN_PROGRESS", daysOut: 3 },
+    { name: "Ward 3 — north of Colborne", streets: STREETS.slice(5, 10), assignee: 2, status: "ASSIGNED", daysOut: 9 },
+    { name: "Ward 3 — west end", streets: STREETS.slice(10), assignee: null, status: "UNASSIGNED", daysOut: null },
   ];
   const turfs: { id: string }[] = [];
   for (const spec of turfSpecs) {
@@ -156,6 +207,10 @@ async function main() {
           ward: "Ward 3",
           status: spec.status,
           assignedToId: spec.assignee === null ? null : volunteers[spec.assignee].id,
+          plannedFor:
+            spec.daysOut === null
+              ? null
+              : new Date(Date.now() + spec.daysOut * DAY),
         },
       }),
     );
@@ -169,10 +224,11 @@ async function main() {
   const voterIds: string[] = [];
   let externalId = 30000;
 
-  for (const street of STREETS) {
+  for (const [streetIndex, street] of STREETS.entries()) {
     const doors = intBetween(12, 22);
     for (let d = 0; d < doors; d++) {
       const streetNumber = String(2 + d * 2 + intBetween(0, 1));
+      const coords = doorCoordinates(streetIndex, d);
       const household = await db.household.create({
         data: {
           streetNumber,
@@ -182,6 +238,13 @@ async function main() {
           ward: "Ward 3",
           pollNumber: String(intBetween(1, 12)).padStart(3, "0"),
           turfId: turfForStreet.get(street) ?? null,
+          latitude: coords.latitude,
+          longitude: coords.longitude,
+          geocodeStatus: "OK",
+          // A handful land on the road rather than the driveway, so the map's
+          // "rough location" flag has something real to show.
+          geocodePrecision: d % 11 === 0 ? "GEOMETRIC_CENTER" : "ROOFTOP",
+          geocodedAt: new Date(),
         },
       });
 
@@ -210,6 +273,9 @@ async function main() {
             isDonorProspect: supportLevel !== null && supportLevel <= 2 && chance(0.15),
             doNotContact: chance(0.03),
             tags: chance(0.3) ? pick(ISSUES) : "",
+            // Consent is only ever recorded where a number exists to attach it
+            // to, and most people at the door simply are not asked.
+            ...(smsConsentFor(identified)),
           },
         });
         voterIds.push(voter.id);
@@ -496,6 +562,8 @@ async function main() {
 
   const signCrew = volunteers.filter((v) => v.roles.includes("SIGN_CREW"));
   for (const [i, voter] of signVoters.entries()) {
+    // A sign sits on the lawn of the household that asked for it.
+    const at = voter.household;
     const status = i < 18 ? "INSTALLED" : i < 24 ? "SCHEDULED" : i < 30 ? "APPROVED" : "REQUESTED";
     const installed = status === "INSTALLED";
     await db.signRequest.create({
@@ -510,6 +578,11 @@ async function main() {
         city: "Lindsay",
         postalCode: voter.household?.postalCode ?? "",
         ward: "Ward 3",
+        latitude: at?.latitude ?? null,
+        longitude: at?.longitude ?? null,
+        geocodeStatus: at?.latitude != null ? "OK" : "PENDING",
+        geocodePrecision: at?.latitude != null ? "ROOFTOP" : "",
+        geocodedAt: at?.latitude != null ? new Date() : null,
         signType: chance(0.9) ? "SMALL_LAWN" : "LARGE_LAWN",
         quantity: 1,
         status,
@@ -531,6 +604,25 @@ async function main() {
     });
   }
 
+  console.log("Text consent and opt-outs…");
+  const consented = await db.voter.findMany({
+    where: { smsConsent: "GRANTED", NOT: { phone: "" } },
+    take: 3,
+    select: { id: true, phone: true },
+  });
+  // Two people who agreed at the door and later texted STOP — so the opt-out
+  // list, and the rule that it overrides the voter record, are both visible.
+  for (const voter of consented.slice(0, 2)) {
+    const e164 = normalisePhone(voter.phone);
+    if (!e164) continue;
+    await db.smsOptOut.upsert({
+      where: { phone: e164 },
+      create: { phone: e164, reason: 'Texted "STOP"' },
+      update: {},
+    });
+    await db.voter.update({ where: { id: voter.id }, data: { smsConsent: "REVOKED" } });
+  }
+
   const counts = {
     voters: await db.voter.count(),
     households: await db.household.count(),
@@ -539,6 +631,8 @@ async function main() {
     contributions: await db.contribution.count(),
     expenses: await db.expense.count(),
     signs: await db.signRequest.count(),
+    textConsent: await db.voter.count({ where: { smsConsent: "GRANTED" } }),
+    optOuts: await db.smsOptOut.count(),
   };
   console.log("Done:", counts);
 }

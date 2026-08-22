@@ -9,10 +9,13 @@ const ITEMS: Item[] = [
   { href: "/", label: "Dashboard", icon: "◉" },
   { href: "/voters", label: "Voters", icon: "☰" },
   { href: "/canvass", label: "Canvassing", icon: "⚑" },
+  { href: "/map", label: "Map", icon: "◈" },
+  { href: "/streets", label: "Streets", icon: "⌸" },
   { href: "/volunteers", label: "Volunteers", icon: "♣" },
   { href: "/shifts", label: "Shifts", icon: "◷" },
   { href: "/finance", label: "Finance", icon: "$" },
   { href: "/signs", label: "Lawn signs", icon: "▤" },
+  { href: "/texting", label: "Texting", icon: "✉" },
   { href: "/events", label: "Events", icon: "★" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];

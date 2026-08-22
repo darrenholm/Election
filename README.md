@@ -49,6 +49,67 @@ limit formula, the self-funding ceiling and the Form 4 expense taxonomy.
   Schedule 2) for transcription onto the filing, plus CSV exports for the
   bookkeeper and auditor.
 
+### Map and geography
+- A map of the whole operation: doors knocked coloured by support level, doors
+  not yet reached, upcoming canvass routes drawn street by street in walk order,
+  and every lawn sign — installed or waiting on the crew.
+- Tiles come from OpenStreetMap and need no account. Google is used only to turn
+  addresses into coordinates, and often not even for that (see below).
+- Addresses the geocoder could only place roughly — common on concession roads
+  and rural routes — are outlined so they can be checked, and any of them can be
+  pinned by hand. A hand-placed pin is never overwritten by a later run.
+
+### Loading addresses
+- The civic address importer loads every door in the municipality, with
+  coordinates. **Statistics Canada's Open Database of Addresses** publishes this
+  per province under an open licence, and most Ontario county GIS portals
+  publish address points too. If the file has latitude and longitude — these
+  generally do — no geocoding is needed at all and the whole Google step is
+  moot.
+- Load addresses first, then the clerk's voters' list when it arrives. The
+  voters' list then attaches people to doors that already exist rather than
+  creating a second set of them.
+- Streets are matched on a normalised key, so `YONGE ST S` from an address file
+  and `Yonge Street South` from a voters' list land on the same door. Postal code
+  is deliberately not part of the match, because civic address files usually have
+  none. Later imports fill gaps — a postal code from the voters' list, coordinates
+  from the address file — but never overwrite what is already there.
+
+### Street coverage
+- Door counts per street with coverage: how many doors, how many knocked, how
+  many identified, and the street's average lean. Sortable by least-covered, so
+  the question "where does the next canvass go" has an answer on one screen.
+
+### On a phone at the door
+- Installable to a phone's home screen. Contact logging, the walk list and the
+  consent script all work one-handed.
+- **Patchy signal is handled.** Every contact is written to a local queue on the
+  phone before it is sent, and only cleared once the server confirms it. In a
+  dead zone the canvasser is told it is held, not lost; it uploads on its own
+  when coverage returns. Each entry carries an id generated on the device, so
+  retries can never record the same door twice.
+- Walk lists are deliberately *not* cached offline. A cached list is stale data,
+  and a canvasser knocking from yesterday's support levels does real damage —
+  so what survives a dead zone is the outbox, not the list.
+
+### Text messages
+- Consent is captured at the door with the exact wording read to the voter, and
+  stored with it. The consent register shows who agreed, when, and through what
+  script.
+- Audiences can only ever contain voters who gave express consent, have a usable
+  number, and have not opted out. That is enforced at send time, not just in the
+  audience builder — consent is re-checked for every message as it goes.
+- The composer shows the recipient count, the real segment count and the
+  estimated cost before anything sends, and names the characters that pushed the
+  message into the expensive encoding.
+- A `STOP` reply blocks that number permanently, in its own table keyed by phone
+  rather than as a flag on a voter row, so an opt-out survives edits, imports and
+  merges. Twilio's webhooks are signature-verified and sit outside the password
+  gate, because an opt-out bounced to a login page is an opt-out that never
+  happened.
+- With no Twilio credentials the whole pipeline runs in dry-run mode, so a send
+  can be rehearsed end to end before an account exists.
+
 ### Lawn signs and events
 - Requests move through requested → approved → scheduled → installed → removed,
   with permission tracking and a per-type inventory that shows what is left in
@@ -196,6 +257,12 @@ prisma/
 src/
   lib/
     ontario.ts         The Act's rules: limits, categories, contribution checks
+    consent.ts         Consent wording, phone normalisation, SMS segment counting
+    sms.ts             Twilio sending, audience building, the three send-time rules
+    geocode.ts         Google geocoding with precision tracking
+    map-data.ts        Every point the map draws
+    outbox.ts          The canvasser's offline queue
+    address.ts         Address and street-name normalisation for cross-source matching
     finance.ts         Aggregations shared by the finance pages and Form 4
     enums.ts           Value sets for every String-backed column, plus labels
     campaign.ts        The singleton campaign row and its computed limits
@@ -217,8 +284,11 @@ Two conventions worth knowing:
   and the standing audit call the same `checkContribution`, which is why what
   the form warns about at entry is exactly what the finance page flags
   afterwards.
+- **Consent rules live in `src/lib/sms.ts`, not in the UI.** The audience
+  builder, the send loop and the opt-out list all enforce them, so a mistake in
+  a screen cannot result in an unlawful message.
 
 ## Stack
 
 Next.js 16 (App Router, server actions), React 19, TypeScript, Tailwind CSS v4,
-Prisma 6 with SQLite.
+Prisma 6 with SQLite, Leaflet for mapping, Twilio for text messaging.

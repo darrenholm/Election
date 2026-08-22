@@ -80,7 +80,13 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-6 lg:col-span-2">
           <Card title="Record a contact">
-            <ContactForm voterId={voter.id} volunteers={volunteers} />
+            <ContactForm
+              voterId={voter.id}
+              volunteers={volunteers}
+              knownPhone={voter.phone}
+              knownEmail={voter.email}
+              smsConsent={voter.smsConsent}
+            />
           </Card>
 
           <Card

@@ -60,6 +60,10 @@ model Household {
   id           String @id @default(cuid())
   streetNumber String @default("")
   streetName   String @default("")
+  /// Normalised form of streetName used to match the same street across the
+  /// civic address file and the clerk's voters' list, which spell them
+  /// differently. See canonicalStreet() in src/lib/address.ts.
+  streetKey    String @default("")
   unit         String @default("")
   city         String @default("")
   postalCode   String @default("")
@@ -67,7 +71,16 @@ model Household {
   pollNumber   String @default("")
   latitude     Float?
   longitude    Float?
-  notes        String @default("")
+
+  /// PENDING, OK, FAILED or MANUAL. Addresses the geocoder cannot place are
+  /// pinned by hand on the map, and MANUAL stops a re-run from overwriting that
+  /// with another bad guess.
+  geocodeStatus    String    @default("PENDING")
+  /// Google's location_type for the match. ROOFTOP is exact; APPROXIMATE is
+  /// often just the middle of a rural road and worth checking by eye.
+  geocodePrecision String    @default("")
+  geocodedAt       DateTime?
+  notes            String    @default("")
 
   turfId String?
   turf   Turf?   @relation(fields: [turfId], references: [id], onDelete: SetNull)
@@ -77,6 +90,7 @@ model Household {
   updatedAt DateTime @updatedAt
 
   @@index([streetName, streetNumber])
+  @@index([streetKey, streetNumber])
   @@index([ward])
   @@index([turfId])
   @@index([postalCode])
@@ -110,10 +124,21 @@ model Voter {
   /// Recorded as voted (from the poll book / scrutineer reports) on voting day.
   votedAt          DateTime?
 
+  /// Consent to receive text messages: UNKNOWN, GRANTED, DECLINED or REVOKED.
+  /// Only GRANTED is ever sent to. The wording actually read to the voter is
+  /// stored with it, because a consent record you cannot produce the script for
+  /// is not much of a record.
+  smsConsent        String    @default("UNKNOWN")
+  smsConsentAt      DateTime?
+  /// DOOR, PHONE, EVENT, WEB or IMPORT.
+  smsConsentSource  String    @default("")
+  smsConsentWording String    @default("")
+
   tags  String @default("")
   notes String @default("")
 
   contacts     ContactAttempt[]
+  textMessages TextMessage[]
   signRequests SignRequest[]
   volunteer    Volunteer?
 
@@ -133,6 +158,9 @@ model Turf {
   description  String      @default("")
   ward         String      @default("")
   status       String      @default("UNASSIGNED")
+  /// When this turf is meant to be walked. Turf dated in the future is drawn on
+  /// the map as an upcoming route.
+  plannedFor   DateTime?
   assignedToId String?
   assignedTo   Volunteer?  @relation(fields: [assignedToId], references: [id], onDelete: SetNull)
   households   Household[]
@@ -145,6 +173,10 @@ model Turf {
 /// One attempt to reach one voter, at the door, on the phone or anywhere else.
 model ContactAttempt {
   id          String     @id @default(cuid())
+  /// Generated on the canvasser's phone before the contact is sent. Retries
+  /// from the offline outbox carry the same value, so a door knocked in a dead
+  /// zone is recorded exactly once however many times the upload is attempted.
+  clientId    String?    @unique
   voterId     String
   voter       Voter      @relation(fields: [voterId], references: [id], onDelete: Cascade)
   volunteerId String?
@@ -339,6 +371,15 @@ model SignRequest {
   latitude      Float?
   longitude     Float?
 
+  /// PENDING, OK, FAILED or MANUAL. Addresses the geocoder cannot place are
+  /// pinned by hand on the map, and MANUAL stops a re-run from overwriting that
+  /// with another bad guess.
+  geocodeStatus    String    @default("PENDING")
+  /// Google's location_type for the match. ROOFTOP is exact; APPROXIMATE is
+  /// often just the middle of a rural road and worth checking by eye.
+  geocodePrecision String    @default("")
+  geocodedAt       DateTime?
+
   signType            String  @default("SMALL_LAWN")
   quantity            Int     @default(1)
   status              String  @default("REQUESTED")
@@ -396,4 +437,70 @@ model Event {
   updatedAt DateTime @updatedAt
 
   @@index([startsAt])
+}
+
+/// One bulk text send, kept as a record afterwards so the campaign can show
+/// exactly what went out, to how many people, and what it cost.
+model TextCampaign {
+  id     String @id @default(cuid())
+  name   String
+  /// Body, which may contain {{firstName}} and {{lastName}} merge fields.
+  body   String
+  status String @default("DRAFT")
+
+  /// JSON snapshot of the audience filter used, so a send can still be
+  /// explained after the underlying voter data has moved on.
+  audienceFilter String @default("{}")
+
+  /// Estimated at queue time from the segment count and the per-segment rate.
+  estimatedCostCents Int @default(0)
+
+  scheduledFor DateTime?
+  sentAt       DateTime?
+
+  messages  TextMessage[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+
+  @@index([status])
+}
+
+/// One text to one number. Rows are created up front in QUEUED state so a send
+/// that dies partway through resumes without double-texting anyone.
+model TextMessage {
+  id         String       @id @default(cuid())
+  campaignId String
+  campaign   TextCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  voterId String?
+  voter   Voter?  @relation(fields: [voterId], references: [id], onDelete: SetNull)
+
+  toPhone String
+  /// The rendered body actually sent, with merge fields filled in.
+  body    String
+  status  String @default("QUEUED")
+
+  /// Twilio's message SID, for reconciling delivery callbacks.
+  providerSid  String @default("")
+  errorMessage String @default("")
+  /// Billable segments; a message over 160 GSM-7 characters costs more than one.
+  segments     Int    @default(1)
+
+  queuedAt    DateTime  @default(now())
+  sentAt      DateTime?
+  deliveredAt DateTime?
+
+  @@unique([campaignId, toPhone])
+  @@index([status])
+  @@index([voterId])
+}
+
+/// Numbers that have texted STOP, keyed by phone rather than by voter so an
+/// opt-out survives the voter record being edited, merged or deleted. Checked
+/// on every send and never bypassed.
+model SmsOptOut {
+  id        String   @id @default(cuid())
+  phone     String   @unique
+  reason    String   @default("")
+  createdAt DateTime @default(now())
 }

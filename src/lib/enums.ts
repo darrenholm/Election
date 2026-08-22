@@ -209,7 +209,79 @@ export const EVENT_TYPES = {
 export type EventType = keyof typeof EVENT_TYPES;
 export const EVENT_TYPE_OPTIONS = options(EVENT_TYPES);
 
+/* ------------------------------------------------------------------ mapping */
+
+export const GEOCODE_STATUSES = {
+  PENDING: "Not geocoded yet",
+  OK: "Located",
+  FAILED: "Could not be located",
+  MANUAL: "Pinned by hand",
+} as const;
+export type GeocodeStatus = keyof typeof GEOCODE_STATUSES;
+export const GEOCODE_STATUS_OPTIONS = options(GEOCODE_STATUSES);
+
+/**
+ * Google's location_type, worst to best. Anything below ROOFTOP on a rural
+ * road is a guess at the road centre rather than the driveway, so the map
+ * flags it and the crew can drop a pin properly.
+ */
+export const GEOCODE_PRECISION = {
+  ROOFTOP: "Exact address",
+  RANGE_INTERPOLATED: "Interpolated along the street",
+  GEOMETRIC_CENTER: "Centre of the street",
+  APPROXIMATE: "Approximate only",
+} as const;
+export type GeocodePrecision = keyof typeof GEOCODE_PRECISION;
+
+/** Precision values worth a second look before trusting the pin. */
+export const IMPRECISE_GEOCODES: string[] = ["GEOMETRIC_CENTER", "APPROXIMATE"];
+
+/* ------------------------------------------------------------------ consent */
+
+export const SMS_CONSENT_STATES = {
+  UNKNOWN: "Not asked",
+  GRANTED: "Agreed to texts",
+  DECLINED: "Said no",
+  REVOKED: "Opted out",
+} as const;
+export type SmsConsent = keyof typeof SMS_CONSENT_STATES;
+export const SMS_CONSENT_OPTIONS = options(SMS_CONSENT_STATES);
+
+export const SMS_CONSENT_SOURCES = {
+  DOOR: "At the door",
+  PHONE: "On the phone",
+  EVENT: "At an event",
+  WEB: "Web form",
+  IMPORT: "Imported with consent record",
+} as const;
+export type SmsConsentSource = keyof typeof SMS_CONSENT_SOURCES;
+export const SMS_CONSENT_SOURCE_OPTIONS = options(SMS_CONSENT_SOURCES);
+
+/* ------------------------------------------------------------------ texting */
+
+export const TEXT_CAMPAIGN_STATUSES = {
+  DRAFT: "Draft",
+  QUEUED: "Queued",
+  SENDING: "Sending",
+  SENT: "Sent",
+  CANCELLED: "Cancelled",
+  FAILED: "Failed",
+} as const;
+export type TextCampaignStatus = keyof typeof TEXT_CAMPAIGN_STATUSES;
+export const TEXT_CAMPAIGN_STATUS_OPTIONS = options(TEXT_CAMPAIGN_STATUSES);
+
+export const TEXT_MESSAGE_STATUSES = {
+  QUEUED: "Queued",
+  SENT: "Sent",
+  DELIVERED: "Delivered",
+  FAILED: "Failed",
+  UNDELIVERED: "Undelivered",
+  SKIPPED: "Skipped",
+} as const;
+export type TextMessageStatus = keyof typeof TEXT_MESSAGE_STATUSES;
+
 /* ------------------------------------------------------------------- helpers */
+
 
 export function label<T extends string>(map: Record<T, string>, key: string): string {
   return (map as Record<string, string>)[key] ?? key;

@@ -15,6 +15,12 @@ export default async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Everything except the login route, Next's own assets and static files.
-  matcher: ["/((?!login|_next/static|_next/image|favicon.ico|.*\\.png$).*)"],
+  // Everything except the login route, Twilio's webhooks, Next's own assets
+  // and static files. The webhooks authenticate themselves with Twilio's
+  // request signature instead — see src/app/api/sms/webhook/route.ts — because
+  // a provider callback cannot sign in with a shared password, and an opt-out
+  // that gets bounced to a login page is an opt-out that never happened.
+  matcher: [
+    "/((?!login|api/sms|manifest.webmanifest|sw.js|offline.html|icons|_next/static|_next/image|favicon.ico|.*\\.png$).*)",
+  ],
 };
