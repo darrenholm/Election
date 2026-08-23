@@ -13,6 +13,7 @@ const ITEMS: Item[] = [
   { href: "/meet", label: "Met someone", icon: "✦" },
   { href: "/map", label: "Map", icon: "◈" },
   { href: "/streets", label: "Streets", icon: "⌸" },
+  { href: "/insights", label: "What doors say", icon: "◎" },
   { href: "/volunteers", label: "Volunteers", icon: "♣" },
   { href: "/shifts", label: "Shifts", icon: "◷" },
   { href: "/finance", label: "Finance", icon: "$" },

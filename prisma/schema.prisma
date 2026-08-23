@@ -126,6 +126,7 @@ model Campaign {
 
   postPlan    PostPlan?
   socialPosts SocialPost[]
+  insights    CanvassInsight[]
 
   access           CampaignAccess[]
   slateMemberships SlateMembership[]
@@ -965,4 +966,40 @@ model SocialPost {
 
   @@index([campaignId, scheduledFor])
   @@index([campaignId, status])
+}
+
+/// What a campaign's own canvass notes add up to.
+///
+/// Stored rather than computed on the fly for three reasons: a reading costs
+/// money to produce, a candidate wants to compare what the doors were saying
+/// last month with what they are saying now, and a claim about what the town
+/// thinks should be traceable to the run that produced it.
+model CanvassInsight {
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  generatedAt DateTime @default(now())
+
+  /// How many notes went in. A reading of 40 doors and a reading of 400 are
+  /// not the same claim, and the page says which one this is.
+  notesRead Int @default(0)
+
+  /// JSON array of { theme, mentions, streets, summary }. Stored as text for
+  /// the same reason the enum-like columns are: the shape can change without a
+  /// migration.
+  themes String @default("[]")
+
+  /// Which model produced it, so an old reading is not mistaken for what
+  /// today's would say.
+  model String @default("")
+
+  /// Set when the run failed. Kept rather than discarded so the page can show
+  /// what went wrong instead of an empty reading that looks like "no themes".
+  error String @default("")
+
+  createdAt DateTime @default(now())
+
+  @@index([campaignId, generatedAt])
 }
