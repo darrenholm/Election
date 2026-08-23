@@ -5,6 +5,9 @@
 /*
   Rack card, 4in x 9in trim, 0.125in bleed on every edge.
   Page is therefore 4.25in x 9.25in. Live copy is kept 0.25in inside the trim.
+  Single-sided: everything a candidate needs to decide whether to ask for a
+  demo has to fit here, so the feature lists of the old two-sided version are
+  compressed into one "what's inside" block.
   Colours are RGB: fine for digital printing, convert to CMYK for offset.
 */
 @page { size: 4.25in 9.25in; margin: 0; }
@@ -12,7 +15,6 @@
 :root {
   --brand:      #24499f;  /* the app's blue */
   --brand-deep: #16295c;
-  --brand-tint: #edf1fb;
   --accent:     #c9302c;  /* the app's red, held back for emphasis */
   --accent-tint:#fdeeed;
   --ink:        #15171c;
@@ -36,19 +38,17 @@ html, body {
   height: 9.25in;
   overflow: hidden;
   background: #fff;
-  page-break-after: always;
 }
-.page:last-child { page-break-after: auto; }
 
-/* ------------------------------------------------------------ front ---- */
+/* ------------------------------------------------------------- hero ---- */
 
 .hero {
   position: absolute;
   top: 0; left: 0; right: 0;
-  height: 4.6in;
+  height: 3.45in;
   background: linear-gradient(168deg, var(--brand) 0%, var(--brand-deep) 100%);
   color: #fff;
-  padding: var(--safe) var(--safe) 0.34in;
+  padding: var(--safe) var(--safe) 0.3in;
   display: flex;
   flex-direction: column;
 }
@@ -66,219 +66,162 @@ html, body {
 .mark svg { display: block; }
 
 .hero h1 {
-  margin-top: 0.46in;
-  font-size: 27pt;
-  line-height: 1.06;
+  margin-top: 0.36in;
+  font-size: 23pt;
+  line-height: 1.07;
   letter-spacing: -0.022em;
   font-weight: 700;
 }
 .hero h1 em { font-style: normal; color: #ff8a80; }
 
 .hero .sub {
-  margin-top: 0.11in;
-  font-size: 10pt;
+  margin-top: 0.1in;
+  font-size: 9.6pt;
   line-height: 1.38;
   color: rgba(255,255,255,0.9);
   max-width: 3.1in;
 }
 
 .hero .rule {
-  margin-top: 0.2in;
+  margin-top: 0.17in;
   width: 0.62in;
   height: 3px;
   background: var(--accent);
 }
 
-/* Fills the lower half of the blue with something worth reading, and gives
-   the eye somewhere to land between the headline and the fold. */
 .strip {
   margin-top: auto;
   display: flex;
   border-top: 1px solid rgba(255,255,255,0.28);
-  padding-top: 0.14in;
+  padding-top: 0.13in;
 }
 .strip div {
   flex: 1;
-  padding-right: 0.1in;
-  font-size: 7.2pt;
-  line-height: 1.32;
+  padding-right: 0.09in;
+  font-size: 7pt;
+  line-height: 1.3;
   color: rgba(255,255,255,0.88);
 }
 .strip div + div {
-  padding-left: 0.1in;
+  padding-left: 0.09in;
   border-left: 1px solid rgba(255,255,255,0.22);
 }
 .strip b {
   display: block;
-  font-size: 12.5pt;
+  font-size: 12pt;
   font-weight: 700;
   color: #fff;
   letter-spacing: -0.02em;
   margin-bottom: 0.02in;
 }
 
-/* the four promises */
-.promises {
+/* ------------------------------------------------------------- body ---- */
+
+.body {
   background: linear-gradient(#f4f6fa 0%, #fff 1.1in);
   position: absolute;
-  top: 4.6in; left: 0; right: 0; bottom: 0;
-  padding: 0.34in var(--safe) var(--safe);
+  top: 3.45in; left: 0; right: 0; bottom: 0;
+  padding: 0.2in var(--safe) var(--safe);
   display: flex;
   flex-direction: column;
 }
 
 .promise {
   display: flex;
-  gap: 0.13in;
-  padding: 0.135in 0;
+  gap: 0.12in;
+  padding: 0.068in 0;
   border-bottom: 1px solid var(--rule);
 }
-.promise:last-of-type { border-bottom: 0; }
-
 .promise .n {
   flex: 0 0 auto;
-  width: 0.22in;
-  font-size: 8.5pt;
+  width: 0.2in;
+  font-size: 8pt;
   font-weight: 700;
   color: var(--accent);
   padding-top: 0.012in;
 }
 .promise h3 {
-  font-size: 10pt;
+  font-size: 9.6pt;
   font-weight: 700;
   letter-spacing: -0.008em;
-  margin-bottom: 0.028in;
+  margin-bottom: 0.024in;
 }
 .promise p {
-  font-size: 8.2pt;
-  line-height: 1.42;
+  font-size: 7.9pt;
+  line-height: 1.4;
   color: var(--muted);
 }
 
-.front-foot {
-  margin-top: auto;
-  padding-top: 0.16in;
-  border-top: 3px solid var(--accent);
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
+/* Replaces the old back panel: the feature detail, boiled to four lines. */
+.inside {
+  padding: 0.11in 0 0.02in;
 }
-.front-foot .url {
-  font-size: 12.5pt;
-  font-weight: 700;
-  color: var(--brand);
-  letter-spacing: -0.015em;
-}
-.front-foot .where {
-  font-size: 7.4pt;
-  color: var(--muted);
-  text-align: right;
-  line-height: 1.3;
-}
-
-/* ------------------------------------------------------------- back ---- */
-
-.back {
-  padding: var(--safe);
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-}
-
-.back h2 {
-  font-size: 15pt;
-  letter-spacing: -0.018em;
-  line-height: 1.1;
-}
-.back .lede {
-  margin-top: 0.075in;
-  font-size: 8.4pt;
-  line-height: 1.45;
-  color: var(--muted);
-  padding-bottom: 0.15in;
-  border-bottom: 3px solid var(--accent);
-}
-
-.group { padding: 0.135in 0; border-bottom: 1px solid var(--rule); }
-
-.group h3 {
-  font-size: 7.4pt;
+.inside h4 {
+  font-size: 7.2pt;
   font-weight: 700;
   letter-spacing: 0.075em;
   text-transform: uppercase;
   color: var(--accent);
-  margin-bottom: 0.055in;
+  margin-bottom: 0.06in;
   padding-left: 0.115in;
   position: relative;
 }
-/* A red tick against each section heading, echoing the mark on the front. */
-.group h3::before {
+.inside h4::before {
   content: "";
   position: absolute;
   left: 0;
-  top: 0.012in;
+  top: 0.008in;
   width: 0.055in;
-  height: 0.075in;
+  height: 0.072in;
   background: var(--accent);
   border-radius: 1px;
 }
-.group ul { list-style: none; }
-.group li {
-  font-size: 8.2pt;
-  line-height: 1.4;
-  padding-left: 0.145in;
-  position: relative;
-  margin-bottom: 0.036in;
+.inside dl { display: grid; grid-template-columns: 0.82in 1fr; gap: 0.045in 0.09in; }
+.inside dt {
+  font-size: 7.4pt;
+  font-weight: 700;
+  line-height: 1.34;
+  color: var(--brand);
 }
-.group li::before {
-  content: "";
-  position: absolute;
-  left: 0.028in;
-  top: 0.052in;
-  width: 0.045in;
-  height: 0.045in;
-  border-radius: 50%;
-  background: var(--brand);
-  opacity: 0.55;
+.inside dd {
+  font-size: 7.4pt;
+  line-height: 1.34;
+  color: var(--muted);
 }
-.group li b { font-weight: 700; }
 
 .callout {
-  margin-top: 0.15in;
+  margin-top: 0.07in;
   background: var(--accent-tint);
   border-left: 3px solid var(--accent);
-  padding: 0.11in 0.13in;
-  font-size: 8pt;
-  line-height: 1.42;
+  padding: 0.085in 0.11in;
+  font-size: 7.3pt;
+  line-height: 1.4;
 }
 .callout b { color: var(--accent); }
 
-.back-foot {
-  margin-top: auto;
-  padding-top: 0.16in;
-}
-.back-foot .cta {
+.foot { margin-top: auto; padding-top: 0.1in; }
+
+.foot .cta {
   background: var(--brand);
   color: #fff;
   border-radius: 0.06in;
-  padding: 0.13in 0.15in;
+  padding: 0.12in 0.14in;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.1in;
 }
-.back-foot .cta .u { font-size: 12pt; font-weight: 700; letter-spacing: -0.015em; }
-.back-foot .cta .t { font-size: 7.4pt; line-height: 1.3; text-align: right; color: rgba(255,255,255,0.88); }
+.foot .cta .u { font-size: 12pt; font-weight: 700; letter-spacing: -0.015em; }
+.foot .cta .t { font-size: 7.2pt; line-height: 1.3; text-align: right; color: rgba(255,255,255,0.88); }
 
 .smallprint {
-  margin-top: 0.1in;
-  font-size: 6.4pt;
-  line-height: 1.38;
+  margin-top: 0.06in;
+  font-size: 6.2pt;
+  line-height: 1.36;
   color: var(--muted);
 }
 </style>
 
-<!-- =========================== FRONT =========================== -->
 <section class="page">
   <div class="hero">
     <div class="mark">
@@ -290,115 +233,71 @@ html, body {
       Election Manager
     </div>
 
-    <h1>Run your campaign<br>from the <em>doorstep</em>.</h1>
+    <h1>Municipal campaigns<br>still run on <em>paper</em>.</h1>
     <p class="sub">
-      Canvassing, volunteers, lawn signs and the financial statement — one place,
-      built for Ontario municipal candidates.
+      Yours doesn&rsquo;t have to. Doors, endorsements, signs and dollars captured
+      on your phone at the door — not copied off paper three days later.
     </p>
     <div class="rule"></div>
 
     <div class="strip">
-      <div><b>444</b>Ontario municipalities, wards optional</div>
+      <div><b>Every door</b>in your municipality</div>
       <div><b>0 bars</b>still logs the door</div>
       <div><b>Form 4</b>filled as you go</div>
     </div>
   </div>
 
-  <div class="promises">
+  <div class="body">
     <div class="promise">
       <div class="n">01</div>
       <div>
-        <h3>Works where the signal doesn&rsquo;t</h3>
-        <p>Knock a door on a back concession with no bars. It saves on your phone and uploads itself when you&rsquo;re back in range.</p>
+        <h3>Where you&rsquo;ve been, and where to go next</h3>
+        <p>Every street ranked by doors, electors and how much of it you&rsquo;ve covered — so the next night out goes where the votes are.</p>
       </div>
     </div>
     <div class="promise">
       <div class="n">02</div>
       <div>
-        <h3>Every door in your municipality</h3>
-        <p>Load the whole address file once. Street-by-street counts, walk lists and a map of where you&rsquo;ve been.</p>
+        <h3>Supporters who&rsquo;ll say so publicly</h3>
+        <p>Ask at the door whether they&rsquo;ll be named, and take the photo there — each with its own recorded permission.</p>
       </div>
     </div>
     <div class="promise">
       <div class="n">03</div>
       <div>
-        <h3>The paperwork, as you go</h3>
-        <p>Contributions, expenses and limits tracked against the <i>Municipal Elections Act, 1996</i> — Form 4 ready when you are.</p>
+        <h3>Where you stand against the limits</h3>
+        <p>Every contribution against the $1,200 cap, every dollar against your limit. Filing late costs you the seat until after 2030.</p>
       </div>
     </div>
     <div class="promise">
       <div class="n">04</div>
       <div>
-        <h3>Your data stays yours</h3>
-        <p>Each candidate&rsquo;s support levels, donors and consent records are sealed off — even from others running in the same town.</p>
+        <h3>The doors with no signal</h3>
+        <p>Knock a back concession with no bars and log it anyway. It saves on your phone and uploads when you&rsquo;re back in range.</p>
       </div>
     </div>
 
-    <div class="front-foot">
-      <div class="url">electionmgr.ca</div>
-      <div class="where">Made in Brockton,<br>for Ontario campaigns</div>
-    </div>
-  </div>
-</section>
-
-<!-- ============================ BACK =========================== -->
-<section class="page">
-  <div class="back">
-    <h2>Everything a municipal campaign actually does</h2>
-    <p class="lede">
-      Not a rebadged federal tool. Wards you can switch off, at-large councils,
-      and the forms your clerk is expecting.
-    </p>
-
-    <div class="group">
-      <h3>At the door</h3>
-      <ul>
-        <li>Walk lists by street, with door counts</li>
-        <li>Log a knock in seconds — <b>one tap</b> for nobody home</li>
-        <li>Collect a mobile number with <b>consent recorded</b>, wording and all</li>
-        <li>Ask if they&rsquo;ll endorse publicly — kept apart from support level</li>
-        <li>Take a photo together, with its own permission to publish</li>
-        <li>Flag a follow-up and why; it lands on a worklist</li>
-        <li>Add someone who isn&rsquo;t on the list yet, right at the door</li>
-        <li>Half-finished doors are kept on the phone, not lost</li>
-      </ul>
-    </div>
-
-    <div class="group">
-      <h3>On the map</h3>
-      <ul>
-        <li>Every address, with the doors you&rsquo;ve knocked</li>
-        <li>Turf handed to a canvasser, and routes still to walk</li>
-        <li>Lawn sign locations and a run sheet for install day</li>
-      </ul>
-    </div>
-
-    <div class="group">
-      <h3>Money and compliance</h3>
-      <ul>
-        <li>Contributions against the <b>$1,200</b> per-contributor limit</li>
-        <li>Spending and self-funding limits from your elector count</li>
-        <li>Cash and anonymous rules, appreciation-party cap</li>
-        <li><b>Form 4</b> with Boxes A&ndash;D and Schedules 1 and 2</li>
-      </ul>
-    </div>
-
-    <div class="group">
-      <h3>People and outreach</h3>
-      <ul>
-        <li>Volunteers, shifts and who showed up</li>
-        <li>Bulk text messages — only to voters who said yes</li>
-        <li>Events, sign requests and inventory</li>
-      </ul>
+    <div class="inside">
+      <h4>What&rsquo;s inside</h4>
+      <dl>
+        <dt>At the door</dt>
+        <dd>Walk lists, knocks, endorsements, photos, follow-ups</dd>
+        <dt>On the map</dt>
+        <dd>Doors knocked, turf, lawn-sign run sheet</dd>
+        <dt>Money</dt>
+        <dd>Limits, receipts, Form 4 and its schedules</dd>
+        <dt>People</dt>
+        <dd>Volunteers, shifts, events, consented bulk texts</dd>
+      </dl>
     </div>
 
     <div class="callout">
-      <b>Running more than one candidate?</b> A consultant can hold several
-      campaigns across different municipalities at once, each sealed from the
-      others — and open canvass sharing later if they run as a slate.
+      <b>Several candidates in one town?</b> They share the voters&rsquo; list and
+      nothing else — support, donors and consent stay sealed from every
+      other campaign.
     </div>
 
-    <div class="back-foot">
+    <div class="foot">
       <div class="cta">
         <div class="u">electionmgr.ca</div>
         <div class="t">Ask about a demo<br>for your campaign</div>
@@ -407,7 +306,7 @@ html, body {
         Election Manager helps you keep the records the <i>Municipal Elections
         Act, 1996</i> requires and prepares your financial statement. It is not
         legal or accounting advice; confirm your limits and filing dates with
-        your municipal clerk.
+        your municipal clerk. Made in Brockton, for Ontario campaigns.
       </p>
     </div>
   </div>

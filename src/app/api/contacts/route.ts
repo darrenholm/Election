@@ -85,8 +85,16 @@ export async function POST(request: Request) {
   });
   if (existing) return Response.json({ ok: true, id: existing.id, duplicate: true });
 
-  if (!data.voterId && !data.householdId) {
-    return Response.json({ error: "Need a voter or a household" }, { status: 400 });
+  // A named stranger is identity enough. Meeting someone at the arena or on
+  // the main street is a real contact, and refusing it because there is no
+  // address attached is how those conversations end up on the back of a
+  // receipt and never reach the campaign at all.
+  const namedStranger =
+    !!data.newPerson &&
+    `${data.newPerson.firstName}${data.newPerson.lastName}`.trim() !== "";
+
+  if (!data.voterId && !data.householdId && !namedStranger) {
+    return Response.json({ error: "Need a voter, a household or a name" }, { status: 400 });
   }
 
   // A household id from a phone is not trusted: it has to be in this campaign's
@@ -111,18 +119,15 @@ export async function POST(request: Request) {
     // 404 rather than 5xx: the outbox drops entries it can never deliver, and a
     // voter deleted since the door was knocked is exactly that case.
     if (!voter) return Response.json({ error: "Voter no longer exists" }, { status: 404 });
-  } else if (
-    household &&
-    data.newPerson &&
-    `${data.newPerson.firstName}${data.newPerson.lastName}`.trim() !== ""
-  ) {
-    // Somebody answered a door that had nobody on file. They become an elector
-    // in this municipality, at this address — which is exactly what the
-    // canvasser just learned.
+  } else if (namedStranger && data.newPerson) {
+    // Somebody answered a door that had nobody on file, or was met away from
+    // any door at all. Either way they become an elector in this municipality;
+    // the address is attached when the contact carries one and left off when
+    // it does not, rather than being invented.
     voter = await db.voter.create({
       data: {
         municipalityId: campaign.municipalityId,
-        householdId: household.id,
+        householdId: household?.id ?? null,
         firstName: data.newPerson.firstName.trim(),
         lastName: data.newPerson.lastName.trim(),
         phone: data.phone.trim(),
