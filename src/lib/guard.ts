@@ -27,6 +27,7 @@ export type OwnedRecord =
   | "expense"
   | "shift"
   | "signRequest"
+  | "socialPost"
   | "textCampaign"
   | "turf"
   | "volunteer";
@@ -51,6 +52,8 @@ async function campaignIdOf(kind: OwnedRecord, id: string): Promise<string | nul
       return (await db.shift.findUnique({ where, select: { campaignId: true } }))?.campaignId ?? null;
     case "signRequest":
       return (await db.signRequest.findUnique({ where, select: { campaignId: true } }))?.campaignId ?? null;
+    case "socialPost":
+      return (await db.socialPost.findUnique({ where, select: { campaignId: true } }))?.campaignId ?? null;
     case "textCampaign":
       return (await db.textCampaign.findUnique({ where, select: { campaignId: true } }))?.campaignId ?? null;
     case "turf":
