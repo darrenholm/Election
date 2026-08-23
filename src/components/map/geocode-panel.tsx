@@ -81,10 +81,16 @@ export function GeocodePanel({
   if (!configured) {
     return (
       <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
-        <strong>Geocoding is not configured.</strong> Set{" "}
-        <code>GOOGLE_GEOCODING_API_KEY</code> in <code>.env</code> and restart to
-        turn addresses into map pins. Until then the map can only show addresses
-        you place by hand.
+        <strong>Geocoding is not configured.</strong> Most civic address files
+        already carry coordinates, so doors imported from one appear on the map
+        without this. It is only needed for addresses that arrive without a
+        position — typed in by hand, or from a voters&apos; list that could not
+        be matched to a known door.{" "}
+        <span className="block pt-1">
+          To enable it, set <code>GOOGLE_GEOCODING_API_KEY</code> — in your
+          host&apos;s environment variables when deployed, or in{" "}
+          <code>.env</code> when running locally.
+        </span>
       </div>
     );
   }
