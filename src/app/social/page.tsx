@@ -220,8 +220,8 @@ export default async function SocialPage({
                 runs as a dry run: the plan, the drafts and the schedule all
                 work, and posting records what would have gone out. Set
                 <code className="mx-1">FACEBOOK_APP_ID</code> and
-                <code className="mx-1">FACEBOOK_APP_SECRET</code> once Meta has
-                approved the app.
+                <code className="mx-1">FACEBOOK_APP_SECRET</code> and posting
+                starts working — see below for who can connect a Page.
               </Note>
             )}
           </Card>
@@ -243,10 +243,17 @@ export default async function SocialPage({
           <Card title="Before you connect">
             <Note>
               Posting to a Page needs a Meta developer app with{" "}
-              <strong>pages_manage_posts</strong>, and Meta reviews that before
-              it works for anyone but the app&apos;s own testers. Budget weeks,
-              not days, and start the review early — the plan and the drafts all
-              work in the meantime.
+              <strong>pages_manage_posts</strong>. That does <strong>not</strong>{" "}
+              need App Review for your own Pages: anyone with a role on the app —
+              admin, developer or tester — can grant it and post straight away.
+              <br />
+              <br />
+              So for a handful of candidates, add each of them to the app as a
+              tester and have them accept the invite; they can then connect their
+              own Page and post immediately. App Review is only needed to let
+              people with <em>no</em> role on your app connect theirs, which is
+              what you would want before handing this to candidates you do not
+              administer.
             </Note>
           </Card>
         </div>
