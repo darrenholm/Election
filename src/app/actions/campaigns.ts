@@ -4,6 +4,8 @@ import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { getCurrentUser } from "@/lib/auth";
+import { requireCampaign } from "@/lib/guard";
 import { ACTIVE_CAMPAIGN_COOKIE, nextOntarioVotingDay, slugify } from "@/lib/campaign";
 import { OFFICES } from "@/lib/enums";
 import { bool, centsOrNull, date, int, oneOf, str, strOrNull } from "@/lib/form";
@@ -12,6 +14,11 @@ export type CampaignSaveResult = { error: string } | null;
 
 /** Switch which campaign the app is working on. */
 export async function setActiveCampaign(campaignId: string) {
+  // findActiveCampaign() re-checks this cookie on every read, so an unreachable
+  // id could not leak anything — but it would silently land the user on some
+  // other campaign, which looks like a bug rather than a refusal.
+  if (!(await requireCampaign(campaignId, "VIEWER"))) return;
+
   const campaign = await db.campaign.findUnique({ where: { id: campaignId } });
   if (!campaign) return;
 
@@ -42,6 +49,9 @@ async function resolveMunicipality(name: string, usesWards: boolean): Promise<st
 }
 
 export async function createCampaign(_prev: CampaignSaveResult, formData: FormData): Promise<CampaignSaveResult> {
+  const user = await getCurrentUser();
+  if (!user) return { error: "Sign in first." };
+
   const candidateName = str(formData, "candidateName");
   if (candidateName === "") return { error: "Enter the candidate's name." };
 
@@ -82,6 +92,15 @@ export async function createCampaign(_prev: CampaignSaveResult, formData: FormDa
     },
   });
 
+  // Without this the campaign is invisible to the person who just made it:
+  // access is granted per campaign, and an administrator is the only one who
+  // reaches anything without a row here.
+  if (!user.isAdmin) {
+    await db.campaignAccess.create({
+      data: { userId: user.id, campaignId: campaign.id, role: "OWNER" },
+    });
+  }
+
   const jar = await cookies();
   jar.set(ACTIVE_CAMPAIGN_COOKIE, campaign.id, {
     httpOnly: true,
@@ -100,6 +119,15 @@ export async function updateCampaign(
   _prev: CampaignSaveResult,
   formData: FormData,
 ): Promise<CampaignSaveResult> {
+  // The settings form carries the spending limits and the campaign's Twilio
+  // sending number, so this is not a page a canvasser may post to — and the id
+  // arrives from the client, so the check has to be against that id rather than
+  // against whichever campaign happens to be active.
+  if (!(await requireCampaign(campaignId, "MANAGER"))) {
+    return { error: "You do not have permission to change this campaign." };
+  }
+
+  const user = await getCurrentUser();
   const votingDay = date(formData, "votingDay") ?? new Date();
   const usesWards = bool(formData, "usesWards");
 
@@ -115,6 +143,11 @@ export async function updateCampaign(
   // campaign; it does not rename anything.
   let municipalityId = current.municipalityId;
   const chosen = str(formData, "municipalityChoice");
+
+  const wantsMove = chosen === "__new__" || (chosen !== "" && chosen !== current.municipalityId);
+  if (wantsMove && !user?.isAdmin) {
+    return { error: "Only an administrator can move a campaign to another municipality." };
+  }
 
   if (chosen === "__new__") {
     const name = str(formData, "newMunicipalityName");
@@ -158,6 +191,11 @@ export async function updateCampaign(
   if (rename) {
     const target = await db.municipality.findUnique({ where: { id: municipalityId } });
     if (target && rename !== target.name) {
+      // A town's name is shared by every campaign running there, so one
+      // candidate cannot rename it out from under the others.
+      if (!user?.isAdmin) {
+        return { error: "Only an administrator can rename a municipality." };
+      }
       const clash = await db.municipality.findUnique({ where: { name: rename } });
       if (clash) {
         return {
@@ -203,6 +241,8 @@ export async function updateCampaign(
 }
 
 export async function archiveCampaign(campaignId: string, archived: boolean) {
+  if (!(await requireCampaign(campaignId, "OWNER"))) return;
+
   await db.campaign.update({
     where: { id: campaignId },
     data: { isActive: !archived },
@@ -216,6 +256,10 @@ export async function archiveCampaign(campaignId: string, archived: boolean) {
  * other campaigns are still using them.
  */
 export async function deleteCampaign(campaignId: string) {
+  // MANAGER is "everything except deleting the campaign", so this one is the
+  // candidate's own call.
+  if (!(await requireCampaign(campaignId, "OWNER"))) return;
+
   await db.campaign.delete({ where: { id: campaignId } });
 
   const jar = await cookies();

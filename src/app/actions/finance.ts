@@ -7,6 +7,7 @@ import { CONTRIBUTION_METHODS } from "@/lib/enums";
 import { expenseCategory } from "@/lib/ontario";
 import { bool, cents, date, str, strOrNull } from "@/lib/form";
 import { requireCampaignId } from "@/lib/campaign";
+import { requireCampaign, requireOwned } from "@/lib/guard";
 
 function refreshFinance(extra?: string) {
   revalidatePath("/finance");
@@ -41,6 +42,7 @@ function contributorFields(formData: FormData) {
 
 export async function createContributor(formData: FormData) {
   const campaignId = await requireCampaignId();
+  if (!(await requireCampaign(campaignId, "MANAGER"))) return;
   const contributor = await db.contributor.create({
     data: { ...contributorFields(formData), campaignId },
   });
@@ -49,6 +51,8 @@ export async function createContributor(formData: FormData) {
 }
 
 export async function updateContributor(contributorId: string, formData: FormData) {
+  if (!(await requireOwned("contributor", contributorId, "MANAGER"))) return;
+
   await db.contributor.update({
     where: { id: contributorId },
     data: contributorFields(formData),
@@ -57,6 +61,8 @@ export async function updateContributor(contributorId: string, formData: FormDat
 }
 
 export async function deleteContributor(contributorId: string) {
+  if (!(await requireOwned("contributor", contributorId, "MANAGER"))) return;
+
   // Contributions survive with a null contributor rather than vanishing, so the
   // money still shows up in the totals and nothing quietly leaves the books.
   await db.contributor.delete({ where: { id: contributorId } });
@@ -79,6 +85,8 @@ async function nextReceiptNumber(campaignId: string): Promise<string> {
 
 export async function createContribution(formData: FormData) {
   const campaignId = await requireCampaignId();
+  if (!(await requireCampaign(campaignId, "MANAGER"))) return;
+
   const method = str(formData, "method") in CONTRIBUTION_METHODS
     ? str(formData, "method")
     : "CHEQUE";
@@ -127,6 +135,8 @@ export async function createContribution(formData: FormData) {
 }
 
 export async function issueReceipt(contributionId: string) {
+  if (!(await requireOwned("contribution", contributionId, "MANAGER"))) return;
+
   const existing = await db.contribution.findUnique({ where: { id: contributionId } });
   if (!existing || existing.receiptNumber) return;
 
@@ -147,6 +157,8 @@ export async function issueReceipt(contributionId: string) {
  * ledger.
  */
 export async function returnContribution(contributionId: string, formData: FormData) {
+  if (!(await requireOwned("contribution", contributionId, "MANAGER"))) return;
+
   await db.contribution.update({
     where: { id: contributionId },
     data: {
@@ -158,6 +170,8 @@ export async function returnContribution(contributionId: string, formData: FormD
 }
 
 export async function undoReturn(contributionId: string) {
+  if (!(await requireOwned("contribution", contributionId, "MANAGER"))) return;
+
   await db.contribution.update({
     where: { id: contributionId },
     data: { returnedAt: null, returnReason: "" },
@@ -166,6 +180,8 @@ export async function undoReturn(contributionId: string) {
 }
 
 export async function deleteContribution(contributionId: string) {
+  if (!(await requireOwned("contribution", contributionId, "MANAGER"))) return;
+
   await db.contribution.delete({ where: { id: contributionId } });
   refreshFinance();
 }
@@ -174,6 +190,7 @@ export async function deleteContribution(contributionId: string) {
 
 export async function createExpense(formData: FormData) {
   const campaignId = await requireCampaignId();
+  if (!(await requireCampaign(campaignId, "MANAGER"))) return;
   const categoryKey = str(formData, "category") || "OTHER_SUBJECT";
   const category = expenseCategory(categoryKey);
 
@@ -203,6 +220,8 @@ export async function createExpense(formData: FormData) {
 }
 
 export async function updateExpense(expenseId: string, formData: FormData) {
+  if (!(await requireOwned("expense", expenseId, "MANAGER"))) return;
+
   const categoryKey = str(formData, "category") || "OTHER_SUBJECT";
   const category = expenseCategory(categoryKey);
 
@@ -227,6 +246,8 @@ export async function updateExpense(expenseId: string, formData: FormData) {
 }
 
 export async function deleteExpense(expenseId: string) {
+  if (!(await requireOwned("expense", expenseId, "MANAGER"))) return;
+
   await db.expense.delete({ where: { id: expenseId } });
   refreshFinance();
 }

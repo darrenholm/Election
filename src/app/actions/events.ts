@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { EVENT_TYPES } from "@/lib/enums";
 import { bool, centsOrNull, date, intOrNull, oneOf, str } from "@/lib/form";
 import { requireCampaignId } from "@/lib/campaign";
+import { requireOwned } from "@/lib/guard";
 
 function eventFields(formData: FormData) {
   const startsAt = date(formData, "startsAt") ?? new Date();
@@ -39,6 +40,8 @@ export async function createEvent(formData: FormData) {
 }
 
 export async function updateEvent(eventId: string, formData: FormData) {
+  if (!(await requireOwned("event", eventId))) return;
+
   await db.event.update({ where: { id: eventId }, data: eventFields(formData) });
   revalidatePath("/events");
   revalidatePath(`/events/${eventId}`);
@@ -46,6 +49,8 @@ export async function updateEvent(eventId: string, formData: FormData) {
 }
 
 export async function deleteEvent(eventId: string) {
+  if (!(await requireOwned("event", eventId))) return;
+
   await db.event.delete({ where: { id: eventId } });
   revalidatePath("/events");
   redirect("/events");

@@ -216,9 +216,16 @@ consent records.
   names, the campaign is only served if the account actually has access — so
   editing it cannot reach a rival's data.
 
+- Server actions are treated as public endpoints. Anything handed a record id
+  resolves that record's campaign and re-checks the caller against it, in
+  `src/lib/guard.ts` — hiding a page is not access control, and an id is not a
+  permission.
+
 Passwords are hashed with scrypt from Node's standard library. Sessions are
 signed cookies with no server-side store; rotating `SESSION_SECRET` invalidates
 every session at once, which is the lever to pull if something goes wrong.
+`SESSION_SECRET` must be set in production: the development fallback is in this
+repository, and the app refuses to serve rather than sign cookies with it.
 
 ## Slates
 
@@ -273,7 +280,7 @@ execution caps. Railway gives you that plus Postgres in one place.
    | Variable | Value |
    | --- | --- |
    | `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` — reference it, do not paste it |
-   | `APP_PASSWORD` | a strong shared password. **Set this before any real data goes in.** |
+   | `SESSION_SECRET` | 32+ random characters, e.g. from `openssl rand -hex 32`. **Required — the app refuses to serve without it.** |
    | `APP_URL` | your Railway URL, e.g. `https://campaign.up.railway.app` |
    | `GOOGLE_GEOCODING_API_KEY` | only if your address file has no coordinates |
    | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | only when you are ready to send texts |
@@ -283,7 +290,7 @@ execution caps. Railway gives you that plus Postgres in one place.
    created and kept current on every release — no manual migration step.
 
 Point Twilio's webhooks at `https://your-app/api/sms/webhook` (inbound) and
-`https://your-app/api/sms/status` (delivery). Both sit outside the password gate
+`https://your-app/api/sms/status` (delivery). Both sit outside the sign-in gate
 and verify Twilio's request signature instead.
 
 ## How the code is laid out

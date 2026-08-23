@@ -11,6 +11,7 @@ import {
 } from "@/lib/enums";
 import { bool, date, int, list, oneOf, str, strOrNull } from "@/lib/form";
 import { requireCampaignId } from "@/lib/campaign";
+import { requireAssignment, requireOwned, requireVoterMunicipality } from "@/lib/guard";
 
 /* -------------------------------------------------------------- volunteers */
 
@@ -42,6 +43,8 @@ export async function createVolunteer(formData: FormData) {
 }
 
 export async function updateVolunteer(volunteerId: string, formData: FormData) {
+  if (!(await requireOwned("volunteer", volunteerId))) return;
+
   await db.volunteer.update({
     where: { id: volunteerId },
     data: volunteerFields(formData),
@@ -51,6 +54,8 @@ export async function updateVolunteer(volunteerId: string, formData: FormData) {
 }
 
 export async function deleteVolunteer(volunteerId: string) {
+  if (!(await requireOwned("volunteer", volunteerId))) return;
+
   await db.volunteer.delete({ where: { id: volunteerId } });
   revalidatePath("/volunteers");
   redirect("/volunteers");
@@ -62,6 +67,10 @@ export async function deleteVolunteer(volunteerId: string) {
  */
 export async function recruitVoter(voterId: string) {
   const campaignId = await requireCampaignId();
+  // Copies name, email and phone off the shared list — so the elector has to be
+  // one this user is entitled to see.
+  if (!(await requireVoterMunicipality(voterId))) return;
+
   const voter = await db.voter.findUnique({
     where: { id: voterId },
     include: { volunteers: { where: { campaignId } } },
@@ -120,12 +129,16 @@ export async function createShift(formData: FormData) {
 }
 
 export async function updateShift(shiftId: string, formData: FormData) {
+  if (!(await requireOwned("shift", shiftId))) return;
+
   await db.shift.update({ where: { id: shiftId }, data: shiftFields(formData) });
   revalidatePath("/shifts");
   revalidatePath(`/shifts/${shiftId}`);
 }
 
 export async function deleteShift(shiftId: string) {
+  if (!(await requireOwned("shift", shiftId))) return;
+
   await db.shift.delete({ where: { id: shiftId } });
   revalidatePath("/shifts");
   redirect("/shifts");
@@ -136,6 +149,12 @@ export async function deleteShift(shiftId: string) {
 export async function assignVolunteer(shiftId: string, formData: FormData) {
   const volunteerId = str(formData, "volunteerId");
   if (!volunteerId) return;
+
+  // Both halves are checked: a shift from one campaign must not be able to
+  // borrow a volunteer from another, in either direction.
+  const shiftCampaign = await requireOwned("shift", shiftId);
+  if (!shiftCampaign) return;
+  if ((await requireOwned("volunteer", volunteerId)) !== shiftCampaign) return;
 
   // Signing the same person up twice is a slip, not an error worth showing —
   // upsert leaves the existing assignment (and its check-in) alone.
@@ -151,6 +170,8 @@ export async function assignVolunteer(shiftId: string, formData: FormData) {
 }
 
 export async function setAssignmentStatus(assignmentId: string, formData: FormData) {
+  if (!(await requireAssignment(assignmentId))) return;
+
   const status = oneOf(formData, "status", ASSIGNMENT_STATUSES, "SIGNED_UP");
   const assignment = await db.shiftAssignment.update({
     where: { id: assignmentId },
@@ -167,6 +188,8 @@ export async function setAssignmentStatus(assignmentId: string, formData: FormDa
 }
 
 export async function logHours(assignmentId: string, formData: FormData) {
+  if (!(await requireAssignment(assignmentId))) return;
+
   const hours = Number(str(formData, "hours"));
   const assignment = await db.shiftAssignment.update({
     where: { id: assignmentId },
@@ -181,6 +204,8 @@ export async function logHours(assignmentId: string, formData: FormData) {
 }
 
 export async function removeAssignment(assignmentId: string) {
+  if (!(await requireAssignment(assignmentId))) return;
+
   const assignment = await db.shiftAssignment.delete({ where: { id: assignmentId } });
   revalidatePath(`/shifts/${assignment.shiftId}`);
   revalidatePath("/shifts");
