@@ -6,6 +6,7 @@ import { formatDate, toDateInput } from "@/lib/dates";
 import { nextOntarioVotingDay } from "@/lib/campaign";
 import { archiveCampaign, setActiveCampaign } from "@/app/actions/campaigns";
 import { NewCampaignForm } from "./new-campaign-form";
+import { DeleteCampaign } from "./delete-campaign";
 import { addToSlate, createSlate, deleteSlate, removeFromSlate, setSlateSharing } from "@/app/actions/slate";
 import { getCurrentUser } from "@/lib/auth";
 import { getSlates } from "@/lib/slate";
@@ -134,23 +135,33 @@ export default async function CampaignsPage() {
           </Card>
 
           {archived.length > 0 ? (
-            <Card title="Archived" description="Kept readable — a filed Form 4 has to stand up for years.">
+            <Card
+              title="Archived"
+              description="Kept readable — a filed Form 4 has to stand up for years. Deleting lives here, one step past archiving."
+            >
               <ul className="divide-y divide-line">
                 {archived.map((campaign) => {
                   const restore = archiveCampaign.bind(null, campaign.id, false);
                   return (
-                    <li key={campaign.id} className="flex items-center justify-between gap-3 py-2">
-                      <div>
-                        <p className="text-sm font-medium">{campaign.candidateName}</p>
-                        <p className="text-xs text-muted">
-                          {label(OFFICES, campaign.office)} · {campaign.municipality.name}
-                        </p>
+                    <li key={campaign.id} className="py-2">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium">{campaign.candidateName}</p>
+                          <p className="text-xs text-muted">
+                            {label(OFFICES, campaign.office)} · {campaign.municipality.name}
+                          </p>
+                        </div>
+                        <form action={restore} className="shrink-0">
+                          <button type="submit" className="btn-secondary">
+                            Restore
+                          </button>
+                        </form>
                       </div>
-                      <form action={restore}>
-                        <button type="submit" className="btn-secondary">
-                          Restore
-                        </button>
-                      </form>
+                      <DeleteCampaign
+                        campaignId={campaign.id}
+                        candidateName={campaign.candidateName}
+                        counts={campaign._count}
+                      />
                     </li>
                   );
                 })}

@@ -95,6 +95,16 @@ model Campaign {
   twilioFromNumber          String @default("")
   twilioMessagingServiceSid String @default("")
 
+  /// The Facebook Page this campaign posts to. Same split as texting: the Meta
+  /// app's own credentials live in the environment, while the Page and its
+  /// token are per campaign, because each candidate posts in their own name
+  /// and one candidate revoking access must not silence the others.
+  facebookPageId         String    @default("")
+  facebookPageName       String    @default("")
+  /// Long-lived Page access token. Treated like a password: never rendered.
+  facebookPageToken      String    @default("")
+  facebookTokenExpiresAt DateTime?
+
   /// Archived campaigns stay readable — a filed Form 4 has to be defensible for
   /// years — but drop out of the switcher.
   isActive Boolean @default(true)
@@ -113,6 +123,9 @@ model Campaign {
   textCampaigns TextCampaign[]
   smsOptOuts    SmsOptOut[]
   canvassPhotos CanvassPhoto[]
+
+  postPlan    PostPlan?
+  socialPosts SocialPost[]
 
   access           CampaignAccess[]
   slateMemberships SlateMembership[]
@@ -163,8 +176,8 @@ model Household {
 
   voters    Voter[]
   contacts  ContactAttempt[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
 
   @@index([municipalityId, streetKey, streetNumber])
   @@index([municipalityId, streetName])
@@ -683,8 +696,9 @@ model Event {
   contributions Contribution[]
   expenses      Expense[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  socialPosts SocialPost[]
 
   @@index([campaignId, startsAt])
 }
@@ -869,4 +883,86 @@ model SlateMembership {
 
   @@unique([slateId, campaignId])
   @@index([campaignId])
+}
+
+/// How often a campaign means to post to Facebook, and on which days.
+///
+/// The cadence is planned rather than left to inspiration, because the thing
+/// that actually fails on a small campaign is not the writing — it is nobody
+/// remembering to post for eleven days in the middle of September. One plan
+/// per campaign; it lays out dated slots and the app fills them with drafts.
+model PostPlan {
+  id String @id @default(cuid())
+
+  campaignId String   @unique
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  /// ISO weekday numbers, 1 = Monday, comma separated. The cadence a candidate
+  /// can actually keep is the one worth planning: three posts a week that get
+  /// written beat seven that do not.
+  daysOfWeek String @default("1,3,5")
+  /// Local time of day, "HH:MM". Late afternoon reaches people coming home.
+  timeOfDay  String @default("17:00")
+
+  /// The closing stretch, when posting steps up to daily.
+  rampWeeks      Int    @default(2)
+  rampDaysOfWeek String @default("1,2,3,4,5,6")
+
+  startsOn DateTime
+  endsOn   DateTime
+
+  /// Which kinds of post the schedule draws from, comma separated. The values
+  /// are POST_KINDS in src/lib/enums.ts.
+  mix String @default("INTRODUCTION,DOOR_KNOCKING,POLICY,ENDORSEMENT,EVENT,ASK,GOTV")
+
+  posts SocialPost[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/// One post: a dated slot, a draft the candidate can rewrite, and whatever
+/// Facebook said when it went out.
+model SocialPost {
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  /// Null for a post added by hand. Regenerating a plan only clears the slots
+  /// nobody has touched, so an edited draft survives a change of cadence.
+  planId String?
+  plan   PostPlan? @relation(fields: [planId], references: [id], onDelete: SetNull)
+
+  kind         String   @default("UPDATE")
+  scheduledFor DateTime
+  body         String
+  linkUrl      String   @default("")
+  imageUrl     String   @default("")
+
+  /// SUGGESTED  the plan wrote it and nobody has looked yet
+  /// DRAFT      edited by hand
+  /// APPROVED   cleared to go out
+  /// PUBLISHED / FAILED / SKIPPED
+  status String @default("SUGGESTED")
+
+  /// Facebook's own id for the post, which is also what stops a retry posting
+  /// the same thing twice.
+  providerPostId String  @default("")
+  errorMessage   String  @default("")
+  /// True when it went through the dry run instead of to Facebook — the state
+  /// every campaign is in until the Page is connected and Meta has approved
+  /// the app.
+  dryRun         Boolean @default(false)
+
+  /// A post about something already in the diary.
+  eventId String?
+  event   Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+
+  publishedAt DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([campaignId, scheduledFor])
+  @@index([campaignId, status])
 }

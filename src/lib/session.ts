@@ -75,3 +75,34 @@ export const SESSION_COOKIE_OPTIONS = {
   path: "/",
   maxAge: MAX_AGE_SECONDS,
 };
+
+/**
+ * A signed, short-lived string for anything that has to survive a round trip
+ * through somebody else's website and come back trustworthy — the `state` on
+ * the Facebook OAuth redirect, which is what stops a stranger's callback being
+ * accepted as one of ours.
+ */
+export function createSignedValue(value: string, ttlSeconds = 600): string {
+  const payload = `${Buffer.from(value).toString("base64url")}.${Date.now() + ttlSeconds * 1000}`;
+  return `${payload}.${sign(payload)}`;
+}
+
+export function readSignedValue(token: string | undefined): string | null {
+  if (!token) return null;
+
+  const lastDot = token.lastIndexOf(".");
+  if (lastDot < 0) return null;
+
+  const payload = token.slice(0, lastDot);
+  const signature = token.slice(lastDot + 1);
+
+  const expected = sign(payload);
+  if (signature.length !== expected.length) return null;
+  if (!timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+
+  const [encoded, expiresRaw] = payload.split(".");
+  const expiresAt = Number(expiresRaw);
+  if (!encoded || !Number.isFinite(expiresAt) || expiresAt < Date.now()) return null;
+
+  return Buffer.from(encoded, "base64url").toString();
+}

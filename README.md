@@ -116,6 +116,31 @@ limit formula, the self-funding ceiling and the Form 4 expense taxonomy.
 - With no Twilio credentials the whole pipeline runs in dry-run mode, so a send
   can be rehearsed end to end before an account exists.
 
+### Facebook
+- A **posting plan** rather than a scheduler you have to feed. Set the cadence
+  once — which days, what time, and how much to step it up in the closing weeks
+  — and the app lays out every slot between now and voting day, each one already
+  carrying a draft.
+- The plan says how often, in words, at the top of the page: "3 posts a week —
+  Monday, Wednesday and Friday at 5pm, stepping up to 6 a week for the last 2
+  weeks. That is 34 posts between now and Oct 26, 2026."
+- The drafts are deliberately unfinished. Every one has blanks in square
+  brackets — a street, a name, the reason you are running — because a post that
+  reads like it came out of a machine is worse than no post, and nothing goes
+  out until a human has approved it.
+- The introduction goes first, get-out-the-vote is reserved for the closing
+  week, and the rest rotate through whichever kinds are ticked. Changing the
+  cadence redraws the schedule but never touches a slot that has been edited,
+  approved, posted or skipped.
+- Each candidate connects **their own Page**; the Meta app's credentials live in
+  the environment, the Page and its token per campaign. Posting is
+  manager-and-up, the same bar as texting and the money, because it speaks in
+  the candidate's name.
+- With no Meta app configured the whole pipeline runs in dry-run mode, which is
+  where every install starts: publishing to a Page needs `pages_manage_posts`,
+  and Meta reviews that before it works for anyone but the app's own testers.
+  Budget weeks. The plan and the drafts work throughout.
+
 ### Lawn signs and events
 - Requests move through requested → approved → scheduled → installed → removed,
   with permission tracking and a per-type inventory that shows what is left in
@@ -304,6 +329,8 @@ src/
     ontario.ts         The Act's rules: limits, categories, contribution checks
     consent.ts         Consent wording, phone normalisation, SMS segment counting
     sms.ts             Twilio sending, audience building, the three send-time rules
+    facebook.ts        Graph API: the Page connection and putting a post out
+    post-plan.ts       Cadence to dated slots, and the starter drafts that fill them
     geocode.ts         Google geocoding with precision tracking
     map-data.ts        Every point the map draws
     outbox.ts          The canvasser's offline queue
@@ -314,10 +341,11 @@ src/
     form.ts            FormData readers used by every server action
     money.ts           Cents parsing and formatting
     csv.ts             CSV writing for the exports
-    auth.ts            Shared-password gate
+    auth.ts            Who is signed in, and what they may reach
+    guard.ts           Re-checks the caller against a record handed in by id
   app/
     actions/           Server actions, one module per domain
-    voters/  canvass/  volunteers/  shifts/  finance/  signs/  events/
+    voters/  canvass/  volunteers/  shifts/  finance/  signs/  events/  social/
   components/          Shared UI primitives and forms
 ```
 
@@ -329,6 +357,8 @@ Two conventions worth knowing:
   and the standing audit call the same `checkContribution`, which is why what
   the form warns about at entry is exactly what the finance page flags
   afterwards.
+- **A record id is not a permission.** Any action handed one resolves that
+  record's campaign and re-checks the caller against it, in `src/lib/guard.ts`.
 - **Consent rules live in `src/lib/sms.ts`, not in the UI.** The audience
   builder, the send loop and the opt-out list all enforce them, so a mistake in
   a screen cannot result in an unlawful message.

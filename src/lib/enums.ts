@@ -304,6 +304,51 @@ export const TEXT_MESSAGE_STATUSES = {
 } as const;
 export type TextMessageStatus = keyof typeof TEXT_MESSAGE_STATUSES;
 
+/* -------------------------------------------------------------------- social */
+
+/**
+ * What a post is for.
+ *
+ * A campaign feed that is all "vote for me" is ignored by the third week, so
+ * the plan draws from a mix and the labels are the plain-language version a
+ * candidate would use talking to their sister.
+ */
+export const POST_KINDS = {
+  INTRODUCTION: "Who I am",
+  DOOR_KNOCKING: "At the doors",
+  POLICY: "Where I stand",
+  ENDORSEMENT: "What people are saying",
+  EVENT: "Come and meet me",
+  ASK: "Volunteers and donations",
+  GOTV: "Get out and vote",
+  THANK_YOU: "Thank you",
+  UPDATE: "General update",
+} as const;
+export type PostKind = keyof typeof POST_KINDS;
+export const POST_KIND_OPTIONS = options(POST_KINDS);
+export const POST_KIND_KEYS = Object.keys(POST_KINDS) as PostKind[];
+
+/**
+ * Where a post has got to.
+ *
+ * SUGGESTED is the plan's own writing, untouched. It is kept distinct from
+ * DRAFT so the page can show at a glance how much of the schedule is still
+ * boilerplate nobody has read.
+ */
+export const POST_STATUSES = {
+  SUGGESTED: "Suggested",
+  DRAFT: "Draft",
+  APPROVED: "Ready to post",
+  PUBLISHED: "Posted",
+  FAILED: "Failed",
+  SKIPPED: "Skipped",
+} as const;
+export type PostStatus = keyof typeof POST_STATUSES;
+export const POST_STATUS_OPTIONS = options(POST_STATUSES);
+
+/** Statuses that still expect something to happen. */
+export const OPEN_POST_STATUSES: PostStatus[] = ["SUGGESTED", "DRAFT", "APPROVED"];
+
 /* ------------------------------------------------------------------- helpers */
 
 
