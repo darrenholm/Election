@@ -10,13 +10,14 @@
 @page { size: 4.25in 9.25in; margin: 0; }
 
 :root {
-  --brand:      #2f4fa8;
-  --brand-deep: #1e3164;
-  --brand-tint: #eef1fa;
-  --ink:        #16181d;
+  --brand:      #24499f;  /* the app's blue */
+  --brand-deep: #16295c;
+  --brand-tint: #edf1fb;
+  --accent:     #c9302c;  /* the app's red, held back for emphasis */
+  --accent-tint:#fdeeed;
+  --ink:        #15171c;
   --muted:      #5b6270;
-  --rule:       #d9dde6;
-  --accent:     #c2410c;
+  --rule:       #d8dce5;
   --bleed:      0.125in;
   --safe:       0.375in; /* bleed + 0.25in safety */
 }
@@ -71,7 +72,7 @@ html, body {
   letter-spacing: -0.022em;
   font-weight: 700;
 }
-.hero h1 em { font-style: normal; color: #a9c2ff; }
+.hero h1 em { font-style: normal; color: #ff8a80; }
 
 .hero .sub {
   margin-top: 0.11in;
@@ -85,7 +86,7 @@ html, body {
   margin-top: 0.2in;
   width: 0.62in;
   height: 3px;
-  background: #a9c2ff;
+  background: var(--accent);
 }
 
 /* Fills the lower half of the blue with something worth reading, and gives
@@ -118,6 +119,7 @@ html, body {
 
 /* the four promises */
 .promises {
+  background: linear-gradient(#f4f6fa 0%, #fff 1.1in);
   position: absolute;
   top: 4.6in; left: 0; right: 0; bottom: 0;
   padding: 0.34in var(--safe) var(--safe);
@@ -136,9 +138,9 @@ html, body {
 .promise .n {
   flex: 0 0 auto;
   width: 0.22in;
-  font-size: 8pt;
+  font-size: 8.5pt;
   font-weight: 700;
-  color: var(--brand);
+  color: var(--accent);
   padding-top: 0.012in;
 }
 .promise h3 {
@@ -156,7 +158,7 @@ html, body {
 .front-foot {
   margin-top: auto;
   padding-top: 0.16in;
-  border-top: 2px solid var(--brand);
+  border-top: 3px solid var(--accent);
   display: flex;
   align-items: baseline;
   justify-content: space-between;
@@ -194,7 +196,7 @@ html, body {
   line-height: 1.45;
   color: var(--muted);
   padding-bottom: 0.15in;
-  border-bottom: 2px solid var(--brand);
+  border-bottom: 3px solid var(--accent);
 }
 
 .group { padding: 0.135in 0; border-bottom: 1px solid var(--rule); }
@@ -204,8 +206,21 @@ html, body {
   font-weight: 700;
   letter-spacing: 0.075em;
   text-transform: uppercase;
-  color: var(--brand);
+  color: var(--accent);
   margin-bottom: 0.055in;
+  padding-left: 0.115in;
+  position: relative;
+}
+/* A red tick against each section heading, echoing the mark on the front. */
+.group h3::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.012in;
+  width: 0.055in;
+  height: 0.075in;
+  background: var(--accent);
+  border-radius: 1px;
 }
 .group ul { list-style: none; }
 .group li {
@@ -230,13 +245,13 @@ html, body {
 
 .callout {
   margin-top: 0.15in;
-  background: var(--brand-tint);
-  border-left: 3px solid var(--brand);
+  background: var(--accent-tint);
+  border-left: 3px solid var(--accent);
   padding: 0.11in 0.13in;
   font-size: 8pt;
   line-height: 1.42;
 }
-.callout b { color: var(--brand-deep); }
+.callout b { color: var(--accent); }
 
 .back-foot {
   margin-top: auto;
@@ -268,7 +283,7 @@ html, body {
   <div class="hero">
     <div class="mark">
       <svg width="15" height="15" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <rect x="0.9" y="0.9" width="14.2" height="14.2" rx="3.4" stroke="#a9c2ff" stroke-width="1.6"/>
+        <rect x="0.9" y="0.9" width="14.2" height="14.2" rx="3.4" stroke="#ff8a80" stroke-width="1.6"/>
         <path d="M4.4 8.35 L6.9 10.8 L11.6 5.3" stroke="#fff" stroke-width="1.9"
               stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
