@@ -162,6 +162,7 @@ model Household {
   turfHouseholds TurfHousehold[]
 
   voters    Voter[]
+  contacts  ContactAttempt[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -323,8 +324,17 @@ model ContactAttempt {
   /// zone is recorded exactly once however many times upload is attempted.
   clientId String? @unique
 
-  voterId String
-  voter   Voter  @relation(fields: [voterId], references: [id], onDelete: Cascade)
+  /// Optional, because plenty of doors have nobody on file — a new build, a
+  /// rental, or simply canvassing that started before the clerk's list arrived.
+  /// A knock at such a door is still worth recording, so the contact hangs off
+  /// the household instead and coverage stays honest.
+  voterId String?
+  voter   Voter?  @relation(fields: [voterId], references: [id], onDelete: Cascade)
+
+  /// Always set for a door; a phone call to somebody with no address on file
+  /// has a voter but no household.
+  householdId String?
+  household   Household? @relation(fields: [householdId], references: [id], onDelete: SetNull)
 
   volunteerId String?
   volunteer   Volunteer? @relation(fields: [volunteerId], references: [id], onDelete: SetNull)
@@ -357,6 +367,7 @@ model ContactAttempt {
   @@index([campaignId, occurredAt])
   @@index([campaignId, followUpNeeded, followUpDoneAt])
   @@index([voterId])
+  @@index([householdId])
   @@index([volunteerId])
 }
 

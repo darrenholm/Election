@@ -30,7 +30,7 @@ export default async function VolunteerPage({
       turfs: true,
       assignments: { include: { shift: true }, orderBy: { shift: { startsAt: "desc" } } },
       contacts: {
-        include: { voter: true },
+        include: { voter: true, household: true },
         orderBy: { occurredAt: "desc" },
         take: 15,
       },
@@ -129,9 +129,17 @@ export default async function VolunteerPage({
               <ul className="divide-y divide-line text-sm">
                 {volunteer.contacts.map((c) => (
                   <li key={c.id} className="flex flex-wrap justify-between gap-2 py-2">
-                    <Link href={`/voters/${c.voterId}`} className="font-medium hover:underline">
-                      {titleCase(c.voter.firstName)} {titleCase(c.voter.lastName)}
-                    </Link>
+                    {c.voter ? (
+                      <Link href={`/voters/${c.voterId}`} className="font-medium hover:underline">
+                        {titleCase(c.voter.firstName)} {titleCase(c.voter.lastName)}
+                      </Link>
+                    ) : (
+                      <span className="font-medium">
+                        {c.household
+                          ? `${c.household.streetNumber} ${titleCase(c.household.streetName)}`.trim()
+                          : "Unknown address"}
+                      </span>
+                    )}
                     <span className="text-xs text-muted">{formatDate(c.occurredAt)}</span>
                   </li>
                 ))}

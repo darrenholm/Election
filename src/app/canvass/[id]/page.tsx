@@ -155,7 +155,29 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                       </div>
 
                       {household.voters.length === 0 ? (
-                        <p className="text-sm text-muted">No voters on file at this address.</p>
+                        <>
+                          <p className="text-sm text-muted">
+                            Nobody on file at this address.
+                          </p>
+                          {/* A door with no elector on it is still a door. Before
+                              the clerk's list arrives every address looks like
+                              this, and afterwards new builds and rentals still
+                              do — so it has to be knockable either way. */}
+                          <details className="no-print mt-1.5">
+                            <summary className="cursor-pointer text-xs font-medium text-brand">
+                              Knock this door
+                            </summary>
+                            <div className="mt-2 rounded-lg border border-line bg-canvas p-3">
+                              <ContactForm
+                                householdId={household.id}
+                                askForName
+                                volunteers={volunteers}
+                                defaultVolunteerId={turf.assignedToId}
+                                compact
+                              />
+                            </div>
+                          </details>
+                        </>
                       ) : (
                         <ul className="mt-2 space-y-2">
                           {household.voters.map((voter) => {

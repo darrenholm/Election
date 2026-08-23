@@ -26,6 +26,7 @@ export default async function FollowUpsPage() {
       where: { campaignId, followUpNeeded: true, followUpDoneAt: null },
       include: {
         voter: { include: { household: true } },
+        household: true,
         volunteer: { select: { firstName: true, lastName: true } },
       },
       orderBy: { occurredAt: "asc" },
@@ -33,7 +34,7 @@ export default async function FollowUpsPage() {
     }),
     db.contactAttempt.findMany({
       where: { campaignId, followUpNeeded: true, followUpDoneAt: { not: null } },
-      include: { voter: true },
+      include: { voter: true, household: true },
       orderBy: { followUpDoneAt: "desc" },
       take: 25,
     }),
@@ -76,9 +77,14 @@ export default async function FollowUpsPage() {
               <ul className="divide-y divide-line">
                 {open.map((contact) => {
                   const voter = contact.voter;
-                  const name = `${titleCase(voter.firstName)} ${titleCase(voter.lastName)}`.trim();
-                  const address = voter.household
-                    ? `${voter.household.streetNumber} ${titleCase(voter.household.streetName)}`.trim()
+                  const name = voter
+                    ? `${titleCase(voter.firstName)} ${titleCase(voter.lastName)}`.trim()
+                    : "";
+                  // A follow-up can hang off a door with nobody on file, so the
+                  // address is the identity when there is no name.
+                  const at = voter?.household ?? contact.household;
+                  const address = at
+                    ? `${at.streetNumber} ${titleCase(at.streetName)}`.trim()
                     : "";
                   const age = Math.floor((now - contact.occurredAt.getTime()) / 86_400_000);
                   const close = resolveFollowUp.bind(null, contact.id, true);
@@ -88,10 +94,16 @@ export default async function FollowUpsPage() {
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-medium">
-                            <Link href={`/voters/${voter.id}`} className="hover:underline">
-                              {name || "Unnamed elector"}
-                            </Link>
-                            {address ? <span className="text-muted"> · {address}</span> : null}
+                            {voter ? (
+                              <Link href={`/voters/${voter.id}`} className="hover:underline">
+                                {name || "Unnamed elector"}
+                              </Link>
+                            ) : (
+                              <span>{address || "Address unknown"}</span>
+                            )}
+                            {voter && address ? (
+                              <span className="text-muted"> · {address}</span>
+                            ) : null}
                           </p>
                           <p className="mt-0.5 text-sm">{contact.followUpReason}</p>
                           <p className="mt-0.5 text-xs text-muted">
@@ -99,7 +111,7 @@ export default async function FollowUpsPage() {
                             {contact.volunteer
                               ? ` · ${contact.volunteer.firstName} ${contact.volunteer.lastName}`.trimEnd()
                               : ""}
-                            {voter.phone ? ` · ${voter.phone}` : ""}
+                            {voter?.phone ? ` · ${voter.phone}` : ""}
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
@@ -131,8 +143,12 @@ export default async function FollowUpsPage() {
                     <li key={contact.id} className="flex items-start justify-between gap-2 py-2">
                       <div className="min-w-0">
                         <p className="truncate">
-                          {`${titleCase(contact.voter.firstName)} ${titleCase(contact.voter.lastName)}`.trim() ||
-                            "Unnamed elector"}
+                          {contact.voter
+                            ? `${titleCase(contact.voter.firstName)} ${titleCase(contact.voter.lastName)}`.trim() ||
+                              "Unnamed elector"
+                            : contact.household
+                              ? `${contact.household.streetNumber} ${titleCase(contact.household.streetName)}`.trim()
+                              : "Address unknown"}
                         </p>
                         <p className="truncate text-xs text-muted">{contact.followUpReason}</p>
                       </div>

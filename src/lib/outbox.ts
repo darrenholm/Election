@@ -19,7 +19,11 @@ const KEY = "campaign:outbox:v1";
 export type QueuedContact = {
   /** Generated on the device so a retry can never create the contact twice. */
   clientId: string;
-  voterId: string;
+  /** One of these is always set. A door with nobody on file has only the household. */
+  voterId: string | null;
+  householdId: string | null;
+  /** Somebody met at a door who was not on the list. */
+  newPerson: { firstName: string; lastName: string } | null;
   volunteerId: string | null;
   method: string;
   result: string;

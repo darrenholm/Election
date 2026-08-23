@@ -25,6 +25,8 @@ type Saved = "idle" | "saving" | "saved" | "queued" | "error";
  */
 export function ContactForm({
   voterId,
+  householdId,
+  askForName = false,
   volunteers,
   defaultVolunteerId,
   defaultMethod = "DOOR",
@@ -33,7 +35,13 @@ export function ContactForm({
   knownEmail = "",
   smsConsent = "UNKNOWN",
 }: {
-  voterId: string;
+  /** The person, when there is one on file. */
+  voterId?: string | null;
+  /** The door. Always passed when canvassing; the only identity at an address
+   *  with nobody on file. */
+  householdId?: string | null;
+  /** Show name fields, so somebody met at an empty door can be recorded. */
+  askForName?: boolean;
   volunteers: Volunteer[];
   defaultVolunteerId?: string | null;
   defaultMethod?: string;
@@ -86,9 +94,15 @@ export function ContactForm({
     const data = new FormData(form);
 
     const supportRaw = String(data.get("supportLevel") ?? "");
+    const firstName = String(data.get("newFirstName") ?? "").trim();
+    const lastName = String(data.get("newLastName") ?? "").trim();
+
     const item: QueuedContact = {
       clientId: newClientId(),
-      voterId,
+      voterId: voterId ?? null,
+      householdId: householdId ?? null,
+      newPerson:
+        !voterId && (firstName !== "" || lastName !== "") ? { firstName, lastName } : null,
       volunteerId: (String(data.get("volunteerId") ?? "") || null) as string | null,
       method: String(data.get("method") ?? defaultMethod),
       result: String(data.get("result") ?? "SPOKE"),
@@ -130,7 +144,7 @@ export function ContactForm({
     if (held) {
       await queuePhoto({
         clientId: item.clientId,
-        voterId,
+        voterId: voterId ?? null,
         blob: held.blob,
         width: held.width,
         height: held.height,
@@ -177,6 +191,24 @@ export function ContactForm({
 
   return (
     <form onSubmit={onSubmit} className="space-y-3">
+      {askForName ? (
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="block">
+            <span className="field-label">First name</span>
+            <input name="newFirstName" className="field" autoComplete="off" placeholder="Who answered?" />
+          </label>
+          <label className="block">
+            <span className="field-label">Last name</span>
+            <input name="newLastName" className="field" autoComplete="off" />
+          </label>
+          <p className="text-xs text-muted sm:col-span-2">
+            Nobody is on file at this address. Fill these in and they are added
+            to the list here; leave them blank to record only that the door was
+            knocked.
+          </p>
+        </div>
+      ) : null}
+
       <div className={compact ? "grid gap-3 sm:grid-cols-2" : "grid gap-3 sm:grid-cols-3"}>
         <label className="block">
           <span className="field-label">Result</span>

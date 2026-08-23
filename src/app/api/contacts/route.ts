@@ -21,7 +21,20 @@ export const dynamic = "force-dynamic";
  */
 const Payload = z.object({
   clientId: z.string().min(1).max(100),
-  voterId: z.string().min(1),
+  /// One of voterId or householdId is required. A door with nobody on file is
+  /// logged against the household; a phone call to somebody with no address is
+  /// logged against the voter.
+  voterId: z.string().min(1).nullable().optional(),
+  householdId: z.string().min(1).nullable().optional(),
+  /// Somebody met at the door who was not on the list. Creating them here is
+  /// the whole point of canvassing before the clerk's list arrives.
+  newPerson: z
+    .object({
+      firstName: z.string().max(100).default(""),
+      lastName: z.string().max(100).default(""),
+    })
+    .nullable()
+    .optional(),
   volunteerId: z.string().nullable().optional(),
   method: z.enum(Object.keys(CONTACT_METHODS) as [string, ...string[]]).default("DOOR"),
   result: z.enum(Object.keys(CONTACT_RESULTS) as [string, ...string[]]).default("SPOKE"),
@@ -72,13 +85,52 @@ export async function POST(request: Request) {
   });
   if (existing) return Response.json({ ok: true, id: existing.id, duplicate: true });
 
-  const voter = await db.voter.findUnique({
-    where: { id: data.voterId },
-    select: { id: true, phone: true, email: true },
-  });
-  // 404 rather than 5xx: the outbox drops entries it can never deliver, and a
-  // voter deleted since the door was knocked is exactly that case.
-  if (!voter) return Response.json({ error: "Voter no longer exists" }, { status: 404 });
+  if (!data.voterId && !data.householdId) {
+    return Response.json({ error: "Need a voter or a household" }, { status: 400 });
+  }
+
+  // A household id from a phone is not trusted: it has to be in this campaign's
+  // municipality, or a crafted request could log doors in another town.
+  let household: { id: string } | null = null;
+  if (data.householdId) {
+    household = await db.household.findFirst({
+      where: { id: data.householdId, municipalityId: campaign.municipalityId },
+      select: { id: true },
+    });
+    if (!household) {
+      return Response.json({ error: "Address no longer exists" }, { status: 404 });
+    }
+  }
+
+  let voter: { id: string; phone: string; email: string } | null = null;
+  if (data.voterId) {
+    voter = await db.voter.findUnique({
+      where: { id: data.voterId },
+      select: { id: true, phone: true, email: true },
+    });
+    // 404 rather than 5xx: the outbox drops entries it can never deliver, and a
+    // voter deleted since the door was knocked is exactly that case.
+    if (!voter) return Response.json({ error: "Voter no longer exists" }, { status: 404 });
+  } else if (
+    household &&
+    data.newPerson &&
+    `${data.newPerson.firstName}${data.newPerson.lastName}`.trim() !== ""
+  ) {
+    // Somebody answered a door that had nobody on file. They become an elector
+    // in this municipality, at this address — which is exactly what the
+    // canvasser just learned.
+    voter = await db.voter.create({
+      data: {
+        municipalityId: campaign.municipalityId,
+        householdId: household.id,
+        firstName: data.newPerson.firstName.trim(),
+        lastName: data.newPerson.lastName.trim(),
+        phone: data.phone.trim(),
+        email: data.email.trim(),
+      },
+      select: { id: true, phone: true, email: true },
+    });
+  }
 
   const occurredAt = data.occurredAt ? new Date(data.occurredAt) : new Date();
 
@@ -86,7 +138,8 @@ export async function POST(request: Request) {
     data: {
       campaignId: campaign.id,
       clientId: data.clientId,
-      voterId: data.voterId,
+      voterId: voter?.id ?? null,
+      householdId: household?.id ?? null,
       volunteerId: data.volunteerId ?? null,
       method: data.method,
       result: data.result,
@@ -105,6 +158,11 @@ export async function POST(request: Request) {
     where: { clientId: data.clientId, campaignId: campaign.id, contactAttemptId: null },
     data: { contactAttemptId: contact.id },
   });
+
+  // Everything below is about a person. A knock at a door where nobody was home
+  // and nobody is on file is a complete record on its own — there is no one to
+  // hold a support level or a consent.
+  if (!voter) return Response.json({ ok: true, id: contact.id });
 
   // What this campaign learned about the voter.
   const state: Record<string, unknown> = {};
@@ -147,7 +205,7 @@ export async function POST(request: Request) {
   }
 
   if (Object.keys(state).length > 0) {
-    await upsertVoterState(campaign.id, data.voterId, state);
+    await upsertVoterState(campaign.id, voter.id, state);
   }
 
   // Facts about the person, true for every campaign in the municipality.
@@ -160,10 +218,10 @@ export async function POST(request: Request) {
   if (data.email.trim() && !voter.email.trim()) person.email = data.email.trim();
 
   if (Object.keys(person).length > 0) {
-    await db.voter.update({ where: { id: data.voterId }, data: person });
+    await db.voter.update({ where: { id: voter.id }, data: person });
   }
 
-  if (data.wantsSign) await createSignRequestForVoter(campaign.id, data.voterId);
+  if (data.wantsSign) await createSignRequestForVoter(campaign.id, voter.id);
 
   return Response.json({ ok: true, id: contact.id });
 }
