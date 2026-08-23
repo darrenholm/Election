@@ -255,10 +255,32 @@ export async function archiveCampaign(campaignId: string, archived: boolean) {
  * electors are untouched — they belong to the town, not the candidate, and
  * other campaigns are still using them.
  */
-export async function deleteCampaign(campaignId: string) {
+export async function deleteCampaign(
+  campaignId: string,
+  _prev: CampaignSaveResult,
+  formData: FormData,
+): Promise<CampaignSaveResult> {
   // MANAGER is "everything except deleting the campaign", so this one is the
   // candidate's own call.
-  if (!(await requireCampaign(campaignId, "OWNER"))) return;
+  if (!(await requireCampaign(campaignId, "OWNER"))) {
+    return { error: "Only the candidate or an administrator can delete a campaign." };
+  }
+
+  const campaign = await db.campaign.findUnique({
+    where: { id: campaignId },
+    select: { candidateName: true },
+  });
+  // Already gone, most likely from another tab. Nothing to say about it.
+  if (!campaign) return null;
+
+  // The typed name is checked here rather than in the browser. This is the one
+  // action in the app with nothing behind it — no archive, no undo — so the
+  // confirmation has to be part of the action itself and not a dialog that a
+  // posted form can skip.
+  const typed = str(formData, "confirmName").trim();
+  if (typed.toLowerCase() !== campaign.candidateName.trim().toLowerCase()) {
+    return { error: `Type ${campaign.candidateName} exactly as it appears to confirm.` };
+  }
 
   await db.campaign.delete({ where: { id: campaignId } });
 
