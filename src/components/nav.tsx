@@ -18,6 +18,7 @@ const ITEMS: Item[] = [
   { href: "/finance", label: "Finance", icon: "$" },
   { href: "/signs", label: "Lawn signs", icon: "▤" },
   { href: "/texting", label: "Texting", icon: "✉" },
+  { href: "/social", label: "Facebook", icon: "◐" },
   { href: "/events", label: "Events", icon: "★" },
   { href: "/campaigns", label: "Campaigns", icon: "◫" },
   { href: "/municipalities", label: "Municipalities", icon: "⌂" },
