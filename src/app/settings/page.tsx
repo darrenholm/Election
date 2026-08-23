@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getActiveCampaign } from "@/lib/campaign";
+import { db } from "@/lib/db";
 import {
   computeLimits,
   describeSelfFundingFormula,
@@ -15,13 +16,25 @@ import { smsConfig } from "@/lib/sms";
 import { SettingsForm } from "./settings-form";
 import { signOut } from "@/app/actions/auth";
 import { Card, Field, Note, PageHeader, Select } from "@/components/ui";
-import { WardSetting } from "./ward-setting";
+import { MunicipalitySetting } from "./municipality-setting";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const [campaign, user] = await Promise.all([getActiveCampaign(), getCurrentUser()]);
   if (!campaign) redirect("/campaigns");
+
+  const [municipalities, contacts, states, turfs] = await Promise.all([
+    db.municipality.findMany({
+      include: { _count: { select: { campaigns: true } } },
+      orderBy: { name: "asc" },
+    }),
+    db.contactAttempt.count({ where: { campaignId: campaign.id } }),
+    db.voterCampaignState.count({ where: { campaignId: campaign.id } }),
+    db.turf.count({ where: { campaignId: campaign.id } }),
+  ]);
+  // A campaign with canvassing data cannot be moved without stranding it.
+  const canMove = contacts + states + turfs === 0;
 
   const limits = computeLimits(campaign);
   const twilio = smsConfig();
@@ -62,19 +75,18 @@ export default async function SettingsPage() {
             <Field label="Office sought" hint="Head of council has a higher base limit.">
               <Select name="office" options={OFFICE_OPTIONS} defaultValue={campaign.office} />
             </Field>
-            <Field
-              label="Municipality"
-              hint="Shared by every campaign in this town — renaming it here renames it for all of them. To move this candidate to a different municipality, create the campaign again from the campaigns page."
-            >
-              <input
-                name="municipalityName"
-                defaultValue={campaign.municipality.name}
-                className="field"
-                placeholder="Municipality of West Grey"
-              />
-            </Field>
-            <div />
-            <WardSetting usesWards={campaign.municipality.usesWards} ward={campaign.ward} />
+            <MunicipalitySetting
+              currentId={campaign.municipalityId}
+              currentName={campaign.municipality.name}
+              municipalities={municipalities.map((m) => ({
+                id: m.id,
+                name: m.name,
+                campaigns: m._count.campaigns,
+              }))}
+              usesWards={campaign.municipality.usesWards}
+              ward={campaign.ward}
+              canMove={canMove}
+            />
             <Field label="Campaign email">
               <input name="contactEmail" type="email" defaultValue={campaign.contactEmail} className="field" />
             </Field>

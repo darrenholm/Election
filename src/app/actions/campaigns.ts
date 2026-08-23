@@ -103,11 +103,77 @@ export async function updateCampaign(
   const votingDay = date(formData, "votingDay") ?? new Date();
   const usesWards = bool(formData, "usesWards");
 
-  const campaign = await db.campaign.update({
+  const current = await db.campaign.findUnique({
+    where: { id: campaignId },
+    select: { municipalityId: true },
+  });
+  if (!current) return { error: "That campaign no longer exists." };
+
+  /* ---------------------------------------------------- move, if asked ---- */
+
+  // Which municipality the candidate is running in. Changing it moves the
+  // campaign; it does not rename anything.
+  let municipalityId = current.municipalityId;
+  const chosen = str(formData, "municipalityChoice");
+
+  if (chosen === "__new__") {
+    const name = str(formData, "newMunicipalityName");
+    if (name === "") return { error: "Name the new municipality." };
+    const clash = await db.municipality.findUnique({ where: { name } });
+    if (clash) {
+      municipalityId = clash.id;
+    } else {
+      const created = await db.municipality.create({ data: { name, usesWards } });
+      municipalityId = created.id;
+    }
+  } else if (chosen && chosen !== current.municipalityId) {
+    municipalityId = chosen;
+  }
+
+  if (municipalityId !== current.municipalityId) {
+    // Everything this campaign has learned points at the old municipality's
+    // doors and electors. Moving it would leave that data describing people in
+    // a town the candidate is no longer running in, so refuse rather than
+    // quietly strand it.
+    const [contacts, states, turfs] = await Promise.all([
+      db.contactAttempt.count({ where: { campaignId } }),
+      db.voterCampaignState.count({ where: { campaignId } }),
+      db.turf.count({ where: { campaignId } }),
+    ]);
+
+    if (contacts + states + turfs > 0) {
+      return {
+        error:
+          `This campaign already has canvassing data for its current municipality — ${contacts} contacts, ${states} identified voters, ${turfs} turf. ` +
+          "Moving it would leave that describing the wrong town. Create a fresh campaign in the right municipality instead.",
+      };
+    }
+  }
+
+  /* ------------------------------------------------------------- rename --- */
+
+  // Renaming is a separate act from moving: it changes the town's name for
+  // every campaign running there.
+  const rename = str(formData, "renameMunicipality");
+  if (rename) {
+    const target = await db.municipality.findUnique({ where: { id: municipalityId } });
+    if (target && rename !== target.name) {
+      const clash = await db.municipality.findUnique({ where: { name: rename } });
+      if (clash) {
+        return {
+          error: `A municipality named "${rename}" already exists. To put this candidate there, choose it from the Municipality list instead of renaming this one.`,
+        };
+      }
+      await db.municipality.update({ where: { id: municipalityId }, data: { name: rename } });
+    }
+  }
+
+  await db.campaign.update({
     where: { id: campaignId },
     data: {
       candidateName: str(formData, "candidateName"),
       office: oneOf(formData, "office", OFFICES, "COUNCILLOR"),
+      municipalityId,
       // Clear any stored ward when wards are switched off, so a value entered
       // earlier cannot resurface if they are switched back on later.
       ward: usesWards ? str(formData, "ward") : "",
@@ -126,32 +192,11 @@ export async function updateCampaign(
     },
   });
 
-  // Wards and the municipality's name are facts about the town, shared by every
-  // campaign running there — so renaming it here renames it for all of them.
-  // That is the correct behaviour, and the form says so.
-  const municipalityName = str(formData, "municipalityName");
-  try {
-    await db.municipality.update({
-      where: { id: campaign.municipalityId },
-      data: {
-        usesWards,
-        ...(municipalityName ? { name: municipalityName } : {}),
-      },
-    });
-  } catch {
-    // The name is unique. Colliding with another municipality almost always
-    // means two towns were created that should have been one, and silently
-    // merging them would move doors and electors between campaigns — so say so
-    // and let a human decide.
-    await db.municipality.update({
-      where: { id: campaign.municipalityId },
-      data: { usesWards },
-    });
-    revalidatePath("/", "layout");
-    return {
-      error: `A municipality named "${municipalityName}" already exists. Other settings were saved. To put this campaign in that municipality, change it from the campaigns page.`,
-    };
-  }
+  // Wards are a fact about the town, shared by every campaign there.
+  await db.municipality.update({
+    where: { id: municipalityId },
+    data: { usesWards },
+  });
 
   revalidatePath("/", "layout");
   return null;
