@@ -321,6 +321,40 @@ Point Twilio's webhooks at `https://your-app/api/sms/webhook` (inbound) and
 `https://your-app/api/sms/status` (delivery). Both sit outside the sign-in gate
 and verify Twilio's request signature instead.
 
+### Turning on Facebook posting
+
+Until this is done the Facebook section runs as a dry run: the plan, the drafts
+and the schedule all work, and publishing records what would have gone out.
+
+No App Review is needed for this. `pages_manage_posts` works straight away for
+anyone holding a role on the Meta app who administers the Page they are
+connecting — review is only what lets people with *no* role on your app connect
+theirs.
+
+1. **Make a Meta app**, or reuse one you already have, at
+   [developers.facebook.com/apps](https://developers.facebook.com/apps). Add the
+   **Facebook Login** product to it.
+2. **Add each candidate under App roles → Testers.** They have to accept the
+   invitation before they can connect a Page, and they must be an admin of the
+   Page itself.
+3. **Set the variables** on the Railway app service:
+
+   | Variable | Value |
+   | --- | --- |
+   | `FACEBOOK_APP_ID` | from the Meta app's Settings → Basic |
+   | `FACEBOOK_APP_SECRET` | the same page, behind *Show* |
+   | `APP_URL` | must already be set and correct — the redirect URI is built from it |
+
+4. **Add the redirect URI.** In the Meta app, under *Facebook Login → Settings*,
+   put `https://your-app/api/facebook/callback` in **Valid OAuth Redirect URIs**.
+   It has to match what the app sends to the character, and forgetting it is the
+   usual reason the connect flow dies on the way back.
+5. **Connect.** Each candidate opens the Facebook section and presses *Connect a
+   Facebook Page*. If they administer more than one Page they get to pick.
+
+Posting goes out over the candidate's own name, so the section is manager-and-up
+— the same bar as texting and the money.
+
 ## How the code is laid out
 
 ```
