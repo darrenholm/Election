@@ -147,12 +147,16 @@ export function AddressWizard({
           .sort((a, b) => a.name.localeCompare(b.name));
         setPlaces(list);
 
-        // Pre-select anything whose name looks like the campaign's municipality,
-        // which is nearly always what they are here to load.
+        // Pre-select the campaign's own municipality, which is nearly always
+        // what they are here to load.
+        //
+        // Matched whole, never as a substring. A substring test looks helpful
+        // and is actively dangerous here: "brockton".includes("brock") is true,
+        // so a campaign in Brockton would silently arrive with Brock's 5,624
+        // addresses ticked alongside its own — a township two hundred
+        // kilometres away, and no obvious sign it had happened.
         const target = simplifyPlace(targetMunicipality);
-        const guess = list.filter(
-          (p) => simplifyPlace(p.name) === target || target.includes(simplifyPlace(p.name)),
-        );
+        const guess = list.filter((p) => simplifyPlace(p.name) === target);
         setChosen(new Set(guess.map((g) => g.name)));
         setPhase("ready");
       },

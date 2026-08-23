@@ -114,3 +114,62 @@ export async function deleteEmptyMunicipality(municipalityId: string): Promise<H
   revalidatePath("/", "layout");
   return { created: 0, alreadyOnFile: 0, skipped: 0 };
 }
+
+export type ClearResult = { removed: number } | { error: string };
+
+/**
+ * Delete every address on file for a municipality.
+ *
+ * A bulk import is easy to get wrong — the wrong town ticked, the wrong file,
+ * the wrong column — and without this there is no way back except editing the
+ * database by hand. The doors belong to the town rather than to any campaign,
+ * so this is deliberately blocked once a campaign has knocked on any of them:
+ * at that point the canvassing record is what would be lost, not just a bad
+ * import.
+ */
+export async function clearMunicipalityAddresses(municipalityId: string): Promise<ClearResult> {
+  const user = await getCurrentUser();
+  if (!user?.isAdmin) return { error: "Administrators only." };
+
+  const municipality = await db.municipality.findUnique({
+    where: { id: municipalityId },
+    select: { name: true },
+  });
+  if (!municipality) return { error: "That municipality no longer exists." };
+
+  // Deleting a household cascades the turf it belongs to and detaches any
+  // elector standing at that door, so anything built on these addresses has to
+  // be gone first.
+  const [contacts, voters, turfDoors] = await Promise.all([
+    db.contactAttempt.count({ where: { voter: { municipalityId } } }),
+    db.voter.count({ where: { municipalityId } }),
+    db.turfHousehold.count({ where: { household: { municipalityId } } }),
+  ]);
+
+  if (contacts > 0) {
+    return {
+      error:
+        `${municipality.name} has ${contacts} canvassing contacts recorded at its doors. ` +
+        "Removing the addresses would take those with them, so this is blocked.",
+    };
+  }
+  if (voters > 0) {
+    return {
+      error:
+        `${municipality.name} has ${voters} electors attached to its doors from a voters' list. ` +
+        "Remove those first if you really mean to start the addresses over.",
+    };
+  }
+  if (turfDoors > 0) {
+    return {
+      error:
+        `${municipality.name} has ${turfDoors} of its doors assigned to turf. ` +
+        "Clear the turf first, or those routes would quietly empty out.",
+    };
+  }
+
+  const { count } = await db.household.deleteMany({ where: { municipalityId } });
+
+  revalidatePath("/", "layout");
+  return { removed: count };
+}

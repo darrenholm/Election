@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { Card, EmptyState, Note, PageHeader, StatTile, Table, Td, Th } from "@/components/ui";
 import { HarvestWizard } from "./harvest-wizard";
+import { ClearAddresses } from "./clear-addresses";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +68,7 @@ export default async function MunicipalitiesPage() {
                     <Th className="text-right">Campaigns</Th>
                     <Th className="text-right">Doors</Th>
                     <Th className="text-right">Electors</Th>
+                    <Th />
                   </tr>
                 </thead>
                 <tbody>
@@ -76,6 +78,15 @@ export default async function MunicipalitiesPage() {
                       <Td className="text-right tabular-nums">{m._count.campaigns.toLocaleString("en-CA")}</Td>
                       <Td className="text-right tabular-nums">{m._count.households.toLocaleString("en-CA")}</Td>
                       <Td className="text-right tabular-nums">{m._count.voters.toLocaleString("en-CA")}</Td>
+                      <Td>
+                        {me.isAdmin ? (
+                          <ClearAddresses
+                            municipalityId={m.id}
+                            name={m.name}
+                            doors={m._count.households}
+                          />
+                        ) : null}
+                      </Td>
                     </tr>
                   ))}
                 </tbody>
