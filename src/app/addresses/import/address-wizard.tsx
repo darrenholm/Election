@@ -4,6 +4,7 @@ import Papa, { type ParseResult, type Parser } from "papaparse";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { importAddresses, type AddressImportResult, type AddressRow } from "@/app/actions/voters";
+import { guessMunicipalityColumn, simplifyPlace } from "@/lib/address";
 
 /** The household fields a civic address file can populate. */
 const TARGETS = [
@@ -20,9 +21,6 @@ const TARGETS = [
 
 type TargetKey = (typeof TARGETS)[number]["key"];
 type Mapping = Partial<Record<TargetKey, string>>;
-
-/** Columns that usually name the municipality in an address-point file. */
-const MUNICIPALITY_HINTS = ["csdname", "csd", "municipality", "municipalname", "city", "town"];
 
 /** Rows sent to the server per call. */
 const BATCH = 400;
@@ -134,9 +132,9 @@ export function AddressWizard({
 
         // Pre-select anything whose name looks like the campaign's municipality,
         // which is nearly always what they are here to load.
-        const target = simplify(targetMunicipality);
+        const target = simplifyPlace(targetMunicipality);
         const guess = list.filter(
-          (p) => simplify(p.name) === target || target.includes(simplify(p.name)),
+          (p) => simplifyPlace(p.name) === target || target.includes(simplifyPlace(p.name)),
         );
         setChosen(new Set(guess.map((g) => g.name)));
         setPhase("ready");
@@ -501,17 +499,6 @@ export function AddressWizard({
   );
 }
 
-function simplify(value: string): string {
-  // "Municipality of West Grey" and "West Grey" should be recognised as the
-  // same place; the prefixes are how the province writes them, not part of the
-  // name anyone uses.
-  return value
-    .toLowerCase()
-    .replace(/\b(municipality|township|town|city|village|county|corporation)\b/g, "")
-    .replace(/\bof\b/g, "")
-    .replace(/[^a-z]/g, "");
-}
-
 function guessMapping(headers: string[]): Mapping {
   const mapping: Mapping = {};
   const taken = new Set<string>();
@@ -538,10 +525,3 @@ function guessMapping(headers: string[]): Mapping {
   return mapping;
 }
 
-function guessMunicipalityColumn(headers: string[]): string {
-  for (const hint of MUNICIPALITY_HINTS) {
-    const match = headers.find((h) => h.toLowerCase().replace(/[^a-z]/g, "") === hint);
-    if (match) return match;
-  }
-  return "";
-}

@@ -35,6 +35,11 @@ export default async function CampaignsPage() {
     municipalities.map(async (m) => ({ municipality: m, slates: await getSlates(m.id) })),
   );
 
+  // Harvesting the province leaves hundreds of towns on file, so this page
+  // shows only the ones actually being worked in. The rest live on
+  // /municipalities.
+  const inUse = municipalities.filter((m) => m._count.campaigns > 0 || m._count.households > 0);
+
   const live = campaigns.filter((c) => c.isActive);
   const archived = campaigns.filter((c) => !c.isActive);
 
@@ -287,13 +292,13 @@ export default async function CampaignsPage() {
             </Card>
           ) : null}
 
-          {municipalities.length > 0 ? (
+          {inUse.length > 0 ? (
             <Card
               title="Municipalities"
               description="Doors and electors are loaded once and shared by every campaign in the town."
             >
               <ul className="divide-y divide-line">
-                {municipalities.map((m) => (
+                {inUse.map((m) => (
                   <li key={m.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                     <div>
                       <p className="text-sm font-medium">{m.name}</p>
@@ -309,9 +314,14 @@ export default async function CampaignsPage() {
                   </li>
                 ))}
               </ul>
-              <Link href="/addresses/import" className="mt-3 inline-block text-sm underline">
-                Load a municipality&apos;s address file
-              </Link>
+              <div className="mt-3 flex flex-wrap gap-4 text-sm">
+                <Link href="/addresses/import" className="underline">
+                  Load a municipality&apos;s address file
+                </Link>
+                <Link href="/municipalities" className="underline">
+                  All {municipalities.length.toLocaleString("en-CA")} municipalities
+                </Link>
+              </div>
             </Card>
           ) : null}
         </div>
