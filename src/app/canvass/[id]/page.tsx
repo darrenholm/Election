@@ -14,6 +14,7 @@ import {
 import { Badge, Card, EmptyState, Field, Note, PageHeader, Select } from "@/components/ui";
 import { SupportBadge, titleCase } from "@/components/voter";
 import { ContactForm } from "@/components/contact-form";
+import { NobodyHome } from "@/components/door-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -155,29 +156,7 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                       </div>
 
                       {household.voters.length === 0 ? (
-                        <>
-                          <p className="text-sm text-muted">
-                            Nobody on file at this address.
-                          </p>
-                          {/* A door with no elector on it is still a door. Before
-                              the clerk's list arrives every address looks like
-                              this, and afterwards new builds and rentals still
-                              do — so it has to be knockable either way. */}
-                          <details className="no-print mt-1.5">
-                            <summary className="cursor-pointer text-xs font-medium text-brand">
-                              Knock this door
-                            </summary>
-                            <div className="mt-2 rounded-lg border border-line bg-canvas p-3">
-                              <ContactForm
-                                householdId={household.id}
-                                askForName
-                                volunteers={volunteers}
-                                defaultVolunteerId={turf.assignedToId}
-                                compact
-                              />
-                            </div>
-                          </details>
-                        </>
+                        <p className="text-sm text-muted">Nobody on file at this address.</p>
                       ) : (
                         <ul className="mt-2 space-y-2">
                           {household.voters.map((voter) => {
@@ -227,6 +206,36 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                           })}
                         </ul>
                       )}
+
+                      {/* Door-level actions, which belong to the address rather
+                          than to anyone living at it. Nobody home is the
+                          commonest outcome of a knock and is one tap. The form
+                          below it is for whoever answers who is not on the
+                          list — an adult child, a new partner, a tenant, or
+                          everybody at the door before the clerk's list has
+                          arrived. */}
+                      <div className="no-print mt-2 flex flex-wrap items-center gap-3">
+                        <NobodyHome
+                          householdId={household.id}
+                          defaultVolunteerId={turf.assignedToId}
+                        />
+                        <details>
+                          <summary className="cursor-pointer text-xs font-medium text-brand">
+                            {household.voters.length === 0
+                              ? "Someone answered"
+                              : "Someone else lives here"}
+                          </summary>
+                          <div className="mt-2 rounded-lg border border-line bg-canvas p-3">
+                            <ContactForm
+                              householdId={household.id}
+                              askForName
+                              volunteers={volunteers}
+                              defaultVolunteerId={turf.assignedToId}
+                              compact
+                            />
+                          </div>
+                        </details>
+                      </div>
                     </li>
                   );
                 })}
