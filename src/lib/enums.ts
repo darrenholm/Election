@@ -97,6 +97,7 @@ export const CONTACT_RESULTS = {
   NOT_HOME: "Not home",
   REFUSED: "Refused / not interested",
   LEFT_LITERATURE: "Left literature",
+  DOOR_HANGER: "Dropped a door hanger",
   MOVED: "Moved away",
   DECEASED: "Deceased",
   LANGUAGE_BARRIER: "Language barrier",

@@ -14,7 +14,7 @@ import {
 import { Badge, Card, EmptyState, Field, Note, PageHeader, Select } from "@/components/ui";
 import { SupportBadge, titleCase } from "@/components/voter";
 import { ContactForm } from "@/components/contact-form";
-import { NobodyHome } from "@/components/door-actions";
+import { DoorHanger, NobodyHome } from "@/components/door-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +34,15 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
           include: {
             household: {
               include: {
+                // Doors carry contacts of their own — "nobody home" is logged
+                // against the address rather than against a named resident,
+                // because saying it about one person claims something the
+                // canvasser cannot know.
+                contacts: {
+                  where: { campaignId },
+                  orderBy: { occurredAt: "desc" },
+                  take: 1,
+                },
                 voters: {
                   include: {
                     campaignStates: { where: { campaignId } },
@@ -71,9 +80,14 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
   const identified = allVoters.filter(
     (v) => stateOf(v.campaignStates[0]).supportLevel !== null,
   ).length;
-  const knocked = turf.households.filter((h) =>
-    h.voters.some((v) => v.contacts.length > 0),
-  ).length;
+  // A door counts as knocked if anything was logged there at all. Counting
+  // only contacts attached to a named voter missed every "nobody home", which
+  // is the commonest outcome of a knock — so a half-walked street read as
+  // untouched and got walked again.
+  const doorKnocked = (h: (typeof turf.households)[number]) =>
+    h.contacts.length > 0 || h.voters.some((v) => v.contacts.length > 0);
+
+  const knocked = turf.households.filter(doorKnocked).length;
 
   const saveTurf = updateTurf.bind(null, turf.id);
   const removeTurf = deleteTurf.bind(null, turf.id);
@@ -142,6 +156,11 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                           <span className="font-normal text-muted">
                             {titleCase(household.streetName)}
                           </span>
+                          {doorKnocked(household) ? (
+                            <Badge tone="good" className="ml-2">
+                              Knocked
+                            </Badge>
+                          ) : null}
                         </p>
                         {/* Turf management, not canvassing — kept reachable but
                             visually out of the way of the walk list itself. */}
@@ -217,6 +236,10 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                           arrived. */}
                       <div className="no-print mt-2 flex flex-wrap items-center gap-3">
                         <NobodyHome
+                          householdId={household.id}
+                          defaultVolunteerId={turf.assignedToId}
+                        />
+                        <DoorHanger
                           householdId={household.id}
                           defaultVolunteerId={turf.assignedToId}
                         />

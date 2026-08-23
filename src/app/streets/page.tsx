@@ -34,6 +34,9 @@ export default async function StreetsPage({
       ...(q ? { streetName: { contains: q.toUpperCase() } } : {}),
     },
     include: {
+      // Same reason as the walk list: a door with nobody on file, or one where
+      // nobody answered, still counts as covered.
+      _count: { select: { contacts: { where: { campaignId } } } },
       turfHouseholds: {
         where: { turf: { campaignId } },
         select: { turf: { select: { id: true, name: true } } },
@@ -85,7 +88,9 @@ export default async function StreetsPage({
 
     row.doors++;
     row.voters += household.voters.length;
-    if (household.voters.some((v) => v._count.contacts > 0)) row.knockedDoors++;
+    if (household._count.contacts > 0 || household.voters.some((v) => v._count.contacts > 0)) {
+      row.knockedDoors++;
+    }
     for (const th of household.turfHouseholds) row.turfs.add(th.turf.name);
     if (household.ward) row.wards.add(household.ward);
 
