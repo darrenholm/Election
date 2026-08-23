@@ -9,6 +9,7 @@ import {
 } from "@/lib/enums";
 import { DOOR_CONSENT_SCRIPT, ENDORSEMENT_SCRIPT, PHOTO_SCRIPT, isTextableNumber } from "@/lib/consent";
 import { flushPhotos, preparePhoto, queuePhoto } from "@/lib/photo";
+import { useUnsavedGuard } from "@/lib/use-unsaved-guard";
 import { enqueue, flushOutbox, newClientId, type QueuedContact } from "@/lib/outbox";
 
 type Volunteer = { id: string; firstName: string; lastName: string };
@@ -60,6 +61,12 @@ export function ContactForm({
   const [photo, setPhoto] = useState<{ dataUrl: string; width: number; height: number } | null>(null);
   const [photoMayPublish, setPhotoMayPublish] = useState(false);
   const [photoError, setPhotoError] = useState("");
+  const [dirty, setDirty] = useState(false);
+
+  useUnsavedGuard(
+    dirty,
+    "This door has not been saved yet. Leave and everything typed here is lost.",
+  );
   const pendingPhoto = useRef<{ blob: Blob; width: number; height: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
@@ -70,6 +77,7 @@ export function ContactForm({
       const prepared = await preparePhoto(file);
       pendingPhoto.current = { blob: prepared.blob, width: prepared.width, height: prepared.height };
       setPhoto({ dataUrl: prepared.dataUrl, width: prepared.width, height: prepared.height });
+      setDirty(true);
     } catch (error) {
       setPhotoError(error instanceof Error ? error.message : "Could not read that photo.");
     }
@@ -170,6 +178,7 @@ export function ContactForm({
         setEndorse("UNKNOWN");
         setFollowUp(false);
         clearPhoto();
+        setDirty(false);
         router.refresh();
       } else {
         setState("queued");
@@ -182,6 +191,7 @@ export function ContactForm({
         setEndorse("UNKNOWN");
         setFollowUp(false);
         clearPhoto();
+        setDirty(false);
       }
     } catch {
       setState("queued");
@@ -190,7 +200,12 @@ export function ContactForm({
   }
 
   return (
-    <form onSubmit={onSubmit} className="space-y-3">
+    <form
+      onSubmit={onSubmit}
+      onChange={() => setDirty(true)}
+      onInput={() => setDirty(true)}
+      className="space-y-3"
+    >
       {askForName ? (
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
@@ -306,14 +321,20 @@ export function ContactForm({
                 active={consent === "GRANTED"}
                 disabled={!consentUsable}
                 tone="good"
-                onClick={() => setConsent(consent === "GRANTED" ? "UNKNOWN" : "GRANTED")}
+                onClick={() => {
+                  setDirty(true);
+                  setConsent(consent === "GRANTED" ? "UNKNOWN" : "GRANTED");
+                }}
               >
                 Said yes
               </ConsentButton>
               <ConsentButton
                 active={consent === "DECLINED"}
                 tone="bad"
-                onClick={() => setConsent(consent === "DECLINED" ? "UNKNOWN" : "DECLINED")}
+                onClick={() => {
+                  setDirty(true);
+                  setConsent(consent === "DECLINED" ? "UNKNOWN" : "DECLINED");
+                }}
               >
                 Said no
               </ConsentButton>
@@ -339,14 +360,20 @@ export function ContactForm({
           <ConsentButton
             active={endorse === "YES"}
             tone="good"
-            onClick={() => setEndorse(endorse === "YES" ? "UNKNOWN" : "YES")}
+            onClick={() => {
+              setDirty(true);
+              setEndorse(endorse === "YES" ? "UNKNOWN" : "YES");
+            }}
           >
             Happy to be named
           </ConsentButton>
           <ConsentButton
             active={endorse === "NO"}
             tone="bad"
-            onClick={() => setEndorse(endorse === "NO" ? "UNKNOWN" : "NO")}
+            onClick={() => {
+              setDirty(true);
+              setEndorse(endorse === "NO" ? "UNKNOWN" : "NO");
+            }}
           >
             Rather not
           </ConsentButton>
