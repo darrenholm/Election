@@ -22,7 +22,7 @@ export function SettingsForm({
       {children}
 
       {result?.error ? (
-        <p className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">
+        <p className="rounded-lg border border-accent/40 bg-accent-soft px-3 py-2 text-sm text-accent-ink">
           {result.error}
         </p>
       ) : null}

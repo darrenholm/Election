@@ -58,7 +58,7 @@ export default async function RootLayout({
           <div className="min-w-0 flex-1">
             <OutboxStatus />
             {user?.mustChangePassword ? (
-              <div className="no-print bg-amber-100 px-4 py-1.5 text-center text-xs font-medium text-amber-900 dark:bg-amber-950 dark:text-amber-200">
+              <div className="no-print bg-accent-soft px-4 py-1.5 text-center text-xs font-medium text-accent-ink">
                 You are using a temporary password.{" "}
                 <a href="/account/password" className="underline">
                   Choose your own

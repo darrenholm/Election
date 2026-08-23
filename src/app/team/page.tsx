@@ -136,7 +136,7 @@ export default async function TeamPage() {
                       ) : (
                         <div className="mt-2">
                           {user.access.length === 0 ? (
-                            <p className="text-xs text-amber-700 dark:text-amber-300">
+                            <p className="text-xs text-accent-ink">
                               No campaign access — grant one below.
                             </p>
                           ) : (

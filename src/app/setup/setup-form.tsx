@@ -31,7 +31,7 @@ export function SetupForm() {
         </span>
       </label>
       {error ? (
-        <p className="text-sm font-medium text-rose-600 dark:text-rose-400">{error}</p>
+        <p className="text-sm font-medium text-accent-ink">{error}</p>
       ) : null}
       <button type="submit" disabled={pending} className="btn-primary w-full">
         {pending ? "Creating…" : "Create administrator account"}

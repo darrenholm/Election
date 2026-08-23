@@ -96,8 +96,8 @@ export function StatTile({
 }) {
   const toneClass = {
     neutral: "text-ink",
-    good: "text-emerald-600 dark:text-emerald-400",
-    warn: "text-amber-600 dark:text-amber-400",
+    good: "text-brand",
+    warn: "text-accent",
     bad: "text-accent",
   }[tone];
 
@@ -105,8 +105,8 @@ export function StatTile({
   // that needs attention is findable without reading every label.
   const edge = {
     neutral: "before:bg-brand/45",
-    good: "before:bg-emerald-500",
-    warn: "before:bg-amber-500",
+    good: "before:bg-brand",
+    warn: "before:bg-accent/55",
     bad: "before:bg-accent",
   }[tone];
 
@@ -148,9 +148,11 @@ export function Badge({
   const tones = {
     neutral: "bg-raise text-muted ring-line",
     brand: "bg-brand-soft text-brand-ink ring-brand/30",
-    good: "bg-emerald-50 text-emerald-700 ring-emerald-600/30 dark:bg-emerald-950 dark:text-emerald-300",
-    warn: "bg-amber-50 text-amber-700 ring-amber-600/30 dark:bg-amber-950 dark:text-amber-300",
-    bad: "bg-accent-soft text-accent-ink ring-accent/35",
+    good: "bg-brand-soft text-brand-ink ring-brand/30",
+    warn: "bg-accent-soft text-accent-ink ring-accent/30",
+    // Over a limit is the one badge that should stop someone, so it is solid
+    // rather than tinted — the same red, carrying more weight.
+    bad: "bg-accent text-white ring-accent/60",
   }[tone];
 
   return (
@@ -182,18 +184,17 @@ export function LimitBar({
 }) {
   const pct = limit > 0 ? (value / limit) * 100 : 0;
   const over = value > limit;
-  const tone = over
-    ? "bg-rose-600"
-    : pct >= 80
-      ? "bg-amber-500"
-      : "bg-emerald-600";
+  // One hue, three weights: comfortably inside is blue, close to the limit is
+  // a muted red, over it is full strength. The figures beside the bar say which
+  // is which in words, so the weight is a cue and never the only signal.
+  const tone = over ? "bg-accent" : pct >= 80 ? "bg-accent/55" : "bg-brand";
 
   return (
     <div>
       <div className="flex items-baseline justify-between gap-3 text-sm">
         <span className="font-medium">{label}</span>
         <span className="tabular-nums text-muted">
-          <span className={over ? "font-semibold text-rose-600 dark:text-rose-400" : "font-semibold text-ink"}>
+          <span className={over ? "font-semibold text-accent-ink" : "font-semibold text-ink"}>
             {valueLabel}
           </span>{" "}
           of {limitLabel}
@@ -343,8 +344,8 @@ export function Note({
 }) {
   const tones = {
     info: "border-line bg-raise text-muted",
-    warn: "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200",
-    bad: "border-rose-300 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200",
+    warn: "border-accent/40 bg-accent-soft text-accent-ink",
+    bad: "border-accent/40 bg-accent-soft text-accent-ink",
   }[tone];
 
   return (

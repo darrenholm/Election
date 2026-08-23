@@ -102,7 +102,7 @@ export default async function CampaignsPage() {
                             {campaign._count.signRequests} signs
                           </p>
                           {campaign.electorCount === 0 ? (
-                            <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
+                            <p className="mt-1 text-xs text-accent-ink">
                               No elector count set — spending limits cannot be calculated.
                             </p>
                           ) : null}

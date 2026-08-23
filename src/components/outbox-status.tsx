@@ -83,7 +83,7 @@ export function OutboxStatus() {
     <div
       className={`no-print sticky top-0 z-30 px-4 py-1.5 text-center text-xs font-medium ${
         pending > 0
-          ? "bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200"
+          ? "bg-accent-soft text-accent-ink"
           : "bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200"
       }`}
     >

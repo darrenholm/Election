@@ -270,11 +270,11 @@ export function AddressWizard({
   if (phase === "done" && result) {
     return (
       <div className="space-y-4">
-        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950">
-          <p className="font-semibold text-emerald-900 dark:text-emerald-200">
+        <div className="rounded-lg border border-brand/40 bg-brand-soft p-4">
+          <p className="font-semibold text-brand-ink">
             Loaded into {targetMunicipality}
           </p>
-          <ul className="mt-2 space-y-0.5 text-sm text-emerald-900 dark:text-emerald-200">
+          <ul className="mt-2 space-y-0.5 text-sm text-brand-ink">
             <li>{result.created.toLocaleString("en-CA")} new doors added</li>
             <li>{result.updated.toLocaleString("en-CA")} existing doors updated</li>
             <li>
@@ -374,7 +374,7 @@ export function AddressWizard({
           </p>
         ) : null}
         {error ? (
-          <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{error}</p>
+          <p className="mt-2 text-sm text-accent-ink">{error}</p>
         ) : null}
       </div>
 
@@ -406,7 +406,7 @@ export function AddressWizard({
           </div>
 
           {hasCoords ? (
-            <p className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+            <p className="rounded-lg border border-brand/40 bg-brand-soft px-3 py-2 text-xs text-brand-ink">
               This file has coordinates, so these doors go straight onto the map.
               No geocoding, and no cost.
             </p>
@@ -489,7 +489,7 @@ export function AddressWizard({
                       .join(", ")}
                   </p>
                 ) : (
-                  <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
+                  <p className="mt-2 text-xs text-accent-ink">
                     Nothing ticked — the whole file would be loaded.
                   </p>
                 )}

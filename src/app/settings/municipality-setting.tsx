@@ -68,14 +68,14 @@ export function MunicipalitySetting({
       ) : null}
 
       {moving && canMove ? (
-        <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 sm:col-span-2 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+        <p className="rounded-lg border border-accent/40 bg-accent-soft px-3 py-2 text-xs text-accent-ink sm:col-span-2">
           This moves the campaign. Its doors and electors will come from the new
           municipality instead.
         </p>
       ) : null}
 
       {moving && !canMove ? (
-        <p className="rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-xs text-rose-900 sm:col-span-2 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">
+        <p className="rounded-lg border border-accent/40 bg-accent-soft px-3 py-2 text-xs text-accent-ink sm:col-span-2">
           This campaign already has canvassing data for {currentName}. Moving it
           would leave that describing the wrong town, so the save will be
           refused — create a fresh campaign in the right municipality instead.

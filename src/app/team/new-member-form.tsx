@@ -25,17 +25,17 @@ export function NewMemberForm({
   return (
     <div className="space-y-4">
       {created ? (
-        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-3 dark:border-emerald-900 dark:bg-emerald-950">
-          <p className="text-sm font-semibold text-emerald-900 dark:text-emerald-200">
+        <div className="rounded-lg border border-brand/40 bg-brand-soft p-3">
+          <p className="text-sm font-semibold text-brand-ink">
             Account created for {created.email}
           </p>
-          <p className="mt-2 text-xs text-emerald-900 dark:text-emerald-200">
+          <p className="mt-2 text-xs text-brand-ink">
             Temporary password — copy it now, it is not shown again:
           </p>
           <code className="mt-1 block rounded bg-surface px-2 py-1.5 text-sm font-bold tracking-wider">
             {created.password}
           </code>
-          <p className="mt-2 text-xs text-emerald-900 dark:text-emerald-200">
+          <p className="mt-2 text-xs text-brand-ink">
             They will be asked to choose their own password when they sign in.
           </p>
         </div>
@@ -83,7 +83,7 @@ export function NewMemberForm({
         </label>
 
         {error ? (
-          <p className="text-sm font-medium text-rose-600 dark:text-rose-400">{error}</p>
+          <p className="text-sm font-medium text-accent-ink">{error}</p>
         ) : null}
 
         <button type="submit" disabled={pending} className="btn-primary w-full">

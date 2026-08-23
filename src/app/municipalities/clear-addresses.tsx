@@ -39,7 +39,7 @@ export function ClearAddresses({
         >
           Remove addresses
         </button>
-        {message ? <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{message}</p> : null}
+        {message ? <p className="mt-1 text-xs text-accent-ink">{message}</p> : null}
       </div>
     );
   }
@@ -52,7 +52,7 @@ export function ClearAddresses({
       <div className="mt-1 flex justify-end gap-2">
         <button
           type="button"
-          className="text-xs font-semibold text-rose-600 underline disabled:opacity-50 dark:text-rose-400"
+          className="text-xs font-semibold text-accent-ink underline disabled:opacity-50"
           disabled={pending}
           onClick={() =>
             start(async () => {

@@ -168,7 +168,7 @@ export function HarvestWizard({ existingNames }: { existingNames: string[] }) {
   return (
     <div className="space-y-4">
       {error ? (
-        <p className="text-sm text-rose-600 dark:text-rose-400">{error}</p>
+        <p className="text-sm text-accent-ink">{error}</p>
       ) : null}
 
       {phase === "choose" ? (
@@ -264,7 +264,7 @@ export function HarvestWizard({ existingNames }: { existingNames: string[] }) {
           </div>
 
           {result && !result.error ? (
-            <p className="rounded-lg border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+            <p className="rounded-lg border border-brand/40 bg-brand-soft px-3 py-2 text-sm text-brand-ink">
               Added {result.created.toLocaleString("en-CA")} municipalities.
               {result.alreadyOnFile > 0
                 ? ` ${result.alreadyOnFile.toLocaleString("en-CA")} were already on file.`

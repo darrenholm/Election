@@ -580,7 +580,7 @@ export function ContactForm({
             </div>
           )}
           {photoError ? (
-            <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{photoError}</p>
+            <p className="mt-1 text-xs text-accent-ink">{photoError}</p>
           ) : null}
         </div>
       </fieldset>
@@ -679,10 +679,10 @@ export function ContactForm({
         <p
           className={`text-sm ${
             state === "queued"
-              ? "text-amber-700 dark:text-amber-300"
+              ? "text-accent-ink"
               : state === "error"
-                ? "text-rose-600 dark:text-rose-400"
-                : "text-emerald-700 dark:text-emerald-300"
+                ? "text-accent-ink"
+                : "text-brand-ink"
           }`}
         >
           {message}
@@ -716,8 +716,8 @@ function ConsentButton({
 }) {
   const activeClass =
     tone === "good"
-      ? "border-emerald-500 bg-emerald-50 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-200"
-      : "border-rose-500 bg-rose-50 text-rose-800 dark:bg-rose-950 dark:text-rose-200";
+      ? "border-brand/40 bg-brand-soft text-brand-ink"
+      : "border-accent/40 bg-accent-soft text-accent-ink";
 
   return (
     <button

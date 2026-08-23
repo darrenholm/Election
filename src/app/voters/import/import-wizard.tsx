@@ -101,9 +101,9 @@ export function ImportWizard({ showWards = false }: { showWards?: boolean }) {
   if (result) {
     return (
       <div className="space-y-4">
-        <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 dark:border-emerald-900 dark:bg-emerald-950">
-          <p className="font-semibold text-emerald-900 dark:text-emerald-200">Import finished</p>
-          <ul className="mt-2 space-y-0.5 text-sm text-emerald-900 dark:text-emerald-200">
+        <div className="rounded-lg border border-brand/40 bg-brand-soft p-4">
+          <p className="font-semibold text-brand-ink">Import finished</p>
+          <ul className="mt-2 space-y-0.5 text-sm text-brand-ink">
             <li>{result.created.toLocaleString("en-CA")} voters added</li>
             <li>{result.updated.toLocaleString("en-CA")} existing voters updated</li>
             <li>{result.households.toLocaleString("en-CA")} households created</li>
@@ -159,7 +159,7 @@ export function ImportWizard({ showWards = false }: { showWards?: boolean }) {
           }}
         />
         {parseError ? (
-          <p className="mt-2 text-sm text-rose-600 dark:text-rose-400">{parseError}</p>
+          <p className="mt-2 text-sm text-accent-ink">{parseError}</p>
         ) : null}
       </div>
 

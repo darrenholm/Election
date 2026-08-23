@@ -192,7 +192,7 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
                               className="h-28 w-auto rounded-lg border border-line"
                             />
                             {!photo.mayPublish ? (
-                              <figcaption className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">
+                              <figcaption className="mt-0.5 text-xs text-accent-ink">
                                 Not cleared for publication
                               </figcaption>
                             ) : null}

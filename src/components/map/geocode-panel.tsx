@@ -80,7 +80,7 @@ export function GeocodePanel({
 
   if (!configured) {
     return (
-      <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-relaxed text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+      <div className="rounded-lg border border-accent/40 bg-accent-soft px-3 py-2 text-xs leading-relaxed text-accent-ink">
         <strong>Geocoding is not configured.</strong> Most civic address files
         already carry coordinates, so doors imported from one appear on the map
         without this. It is only needed for addresses that arrive without a
@@ -186,8 +186,8 @@ function Stat({
 }) {
   const colour = {
     neutral: "text-ink",
-    good: "text-emerald-600 dark:text-emerald-400",
-    bad: "text-rose-600 dark:text-rose-400",
+    good: "text-brand-ink",
+    bad: "text-accent-ink",
   }[tone];
   return (
     <div className="rounded-lg border border-line bg-surface px-2 py-1.5">

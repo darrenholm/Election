@@ -126,7 +126,7 @@ export default async function RunSheetPage({
                       <p className="text-sm">
                         {sign.quantity} × {label(SIGN_TYPES, sign.signType)}
                         {!sign.permissionConfirmed ? (
-                          <span className="font-semibold text-amber-700 dark:text-amber-300">
+                          <span className="font-semibold text-accent-ink">
                             {" "}
                             — confirm permission before installing
                           </span>

@@ -257,7 +257,7 @@ export default async function Dashboard() {
                   </p>
                   <p
                     className={`mt-0.5 text-xl font-bold tabular-nums ${
-                      finance.balanceCents < 0 ? "text-rose-600 dark:text-rose-400" : ""
+                      finance.balanceCents < 0 ? "text-accent-ink" : ""
                     }`}
                   >
                     {formatCentsShort(finance.balanceCents)}
@@ -286,8 +286,8 @@ export default async function Dashboard() {
                   href="/finance"
                   className={`block rounded-lg border px-3 py-2 text-xs ${
                     errorCount > 0
-                      ? "border-rose-300 bg-rose-50 text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
-                      : "border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
+                      ? "border-accent/40 bg-accent-soft text-accent-ink"
+                      : "border-accent/40 bg-accent-soft text-accent-ink"
                   }`}
                 >
                   {errorCount > 0 ? (

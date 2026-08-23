@@ -157,7 +157,7 @@ export function Composer({
           </div>
 
           {preview.encoding === "UCS-2" ? (
-            <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200">
+            <p className="rounded-lg border border-accent/40 bg-accent-soft px-3 py-2 text-xs text-accent-ink">
               These characters put the message into the expensive encoding, which
               cuts each segment from 160 characters to 70:{" "}
               <strong>{preview.offenders.join(" ")}</strong>. Curly quotes and
@@ -174,7 +174,7 @@ export function Composer({
           ) : null}
 
           {preview.recipients === 0 ? (
-            <p className="text-xs text-rose-600 dark:text-rose-400">
+            <p className="text-xs text-accent-ink">
               Nobody matches. Only voters who have agreed to texts, have a usable
               number and have not opted out are ever included.
             </p>

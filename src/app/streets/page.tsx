@@ -285,7 +285,7 @@ function Meter({ value }: { value: number }) {
   return (
     <div className="mb-0.5 h-1.5 w-20 overflow-hidden rounded-full bg-raise">
       <div
-        className={`h-full ${value >= 80 ? "bg-emerald-600" : value >= 40 ? "bg-amber-500" : "bg-rose-500"}`}
+        className={`h-full ${value >= 80 ? "bg-brand" : value >= 40 ? "bg-accent" : "bg-accent"}`}
         style={{ width: `${Math.min(100, value)}%` }}
       />
     </div>

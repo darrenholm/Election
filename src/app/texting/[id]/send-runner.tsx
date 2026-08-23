@@ -154,8 +154,8 @@ function Figure({
 }) {
   const colour = {
     neutral: "text-ink",
-    good: "text-emerald-600 dark:text-emerald-400",
-    bad: "text-rose-600 dark:text-rose-400",
+    good: "text-brand-ink",
+    bad: "text-accent-ink",
   }[tone];
   return (
     <div className="rounded-lg border border-line bg-surface px-2 py-1.5">

@@ -99,7 +99,7 @@ export default async function ContributionsPage() {
                           ) : c.isAnonymous ? (
                             <span className="text-muted">Anonymous</span>
                           ) : (
-                            <span className="text-rose-600 dark:text-rose-400">
+                            <span className="text-accent-ink">
                               No contributor recorded
                             </span>
                           )}

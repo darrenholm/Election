@@ -236,7 +236,7 @@ export default async function Form4Page() {
                     <Td
                       className={
                         contributor.addressLine.trim() === ""
-                          ? "text-rose-600 dark:text-rose-400"
+                          ? "text-accent-ink"
                           : "text-muted"
                       }
                     >

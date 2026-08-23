@@ -96,7 +96,7 @@ export default async function SignsPage() {
       </div>
 
       {totalOwned > 0 && shortfall > 0 ? (
-        <div className="mb-6 rounded-lg border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200">
+        <div className="mb-6 rounded-lg border border-accent/40 bg-accent-soft px-4 py-3 text-sm text-accent-ink">
           You have promised {shortfall} more sign{shortfall === 1 ? "" : "s"} than you
           have on hand. Order more, or work through the queue before taking new
           requests.

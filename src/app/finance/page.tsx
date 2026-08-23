@@ -147,8 +147,8 @@ export default async function FinanceOverview() {
                           key={flag.code}
                           className={`text-sm ${
                             flag.level === "error"
-                              ? "text-rose-700 dark:text-rose-300"
-                              : "text-amber-700 dark:text-amber-300"
+                              ? "text-accent-ink"
+                              : "text-accent-ink"
                           }`}
                         >
                           {flag.message}
@@ -222,7 +222,7 @@ export default async function FinanceOverview() {
                       {!selfFunded ? (
                         <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-raise">
                           <div
-                            className={`h-full ${pct >= 100 ? "bg-rose-600" : pct >= 90 ? "bg-amber-500" : "bg-brand"}`}
+                            className={`h-full ${pct >= 100 ? "bg-accent" : pct >= 90 ? "bg-accent" : "bg-brand"}`}
                             style={{ width: `${pct}%` }}
                           />
                         </div>
