@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { SIGN_STATUSES, SIGN_TYPES } from "@/lib/enums";
 import { bool, date, int, oneOf, str, strOrNull } from "@/lib/form";
 import { requireCampaignId } from "@/lib/campaign";
+import { requireOwned } from "@/lib/guard";
 
 function refreshSigns() {
   revalidatePath("/signs");
@@ -40,6 +41,8 @@ export async function createSignRequest(formData: FormData) {
  * board can answer "how long has this been waiting" without a separate log.
  */
 export async function setSignStatus(signId: string, formData: FormData) {
+  if (!(await requireOwned("signRequest", signId))) return;
+
   const status = oneOf(formData, "status", SIGN_STATUSES, "REQUESTED");
   const now = new Date();
 
@@ -59,6 +62,8 @@ export async function setSignStatus(signId: string, formData: FormData) {
 }
 
 export async function updateSignRequest(signId: string, formData: FormData) {
+  if (!(await requireOwned("signRequest", signId))) return;
+
   await db.signRequest.update({
     where: { id: signId },
     data: {
@@ -80,6 +85,8 @@ export async function updateSignRequest(signId: string, formData: FormData) {
 }
 
 export async function deleteSignRequest(signId: string) {
+  if (!(await requireOwned("signRequest", signId))) return;
+
   await db.signRequest.delete({ where: { id: signId } });
   refreshSigns();
 }

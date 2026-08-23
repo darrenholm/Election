@@ -7,6 +7,7 @@ import { CONTACT_METHODS, CONTACT_RESULTS, joinList } from "@/lib/enums";
 import { bool, date, intOrNull, list, oneOf, str, strOrNull } from "@/lib/form";
 import { canonicalStreet, normalisePostal, normaliseStreet } from "@/lib/address";
 import { getActiveCampaign, requireCampaignId } from "@/lib/campaign";
+import { requireCampaign, requireOwned, requireVoterMunicipality } from "@/lib/guard";
 import { createSignRequestForVoter } from "@/lib/sign-requests";
 import { upsertVoterState } from "@/lib/voter-state";
 
@@ -20,7 +21,7 @@ import { upsertVoterState } from "@/lib/voter-state";
  * list does, and keying on it would give every door two records. Later imports
  * fill gaps but never overwrite.
  */
-export async function upsertHousehold(input: {
+async function upsertHousehold(input: {
   municipalityId: string;
   streetNumber: string;
   streetName: string;
@@ -162,6 +163,11 @@ export async function updateVoter(voterId: string, formData: FormData) {
   const campaign = await getActiveCampaign();
   if (!campaign) redirect("/campaigns");
 
+  // The address written below is built from the active campaign's
+  // municipality, so a voter from another town would be quietly relocated.
+  const municipalityId = await requireVoterMunicipality(voterId);
+  if (municipalityId !== campaign.municipalityId) return;
+
   const householdId = await upsertHousehold({
     municipalityId: campaign.municipalityId,
     streetNumber: str(formData, "streetNumber"),
@@ -189,6 +195,10 @@ export async function updateVoter(voterId: string, formData: FormData) {
  * in the town, not just the active one — which is why the page says so.
  */
 export async function deleteVoter(voterId: string) {
+  // This removes the person from the shared municipal file, so every candidate
+  // in the town loses them. Manager-and-up, and only in a town this user works.
+  if (!(await requireVoterMunicipality(voterId, "MANAGER"))) return;
+
   await db.voter.delete({ where: { id: voterId } });
   revalidatePath("/voters");
   redirect("/voters");
@@ -197,6 +207,8 @@ export async function deleteVoter(voterId: string) {
 /** Marks a voter as having voted, as observed by this campaign's scrutineers. */
 export async function toggleVoted(voterId: string, voted: boolean) {
   const campaignId = await requireCampaignId();
+  if (!(await requireVoterMunicipality(voterId))) return;
+
   await upsertVoterState(campaignId, voterId, { votedAt: voted ? new Date() : null });
   revalidatePath(`/voters/${voterId}`);
 }
@@ -212,6 +224,7 @@ export async function recordContact(formData: FormData) {
   const campaignId = await requireCampaignId();
   const voterId = str(formData, "voterId");
   if (!voterId) return;
+  if (!(await requireVoterMunicipality(voterId))) return;
 
   const result = oneOf(formData, "result", CONTACT_RESULTS, "SPOKE");
   const supportLevel = clampSupport(intOrNull(formData, "supportLevel"));
@@ -319,6 +332,8 @@ async function addHouseholdsByStreet(
 }
 
 export async function updateTurf(turfId: string, formData: FormData) {
+  if (!(await requireOwned("turf", turfId))) return;
+
   const assignedToId = strOrNull(formData, "assignedToId");
   await db.turf.update({
     where: { id: turfId },
@@ -335,12 +350,16 @@ export async function updateTurf(turfId: string, formData: FormData) {
 }
 
 export async function deleteTurf(turfId: string) {
+  if (!(await requireOwned("turf", turfId))) return;
+
   await db.turf.delete({ where: { id: turfId } });
   revalidatePath("/canvass");
   redirect("/canvass");
 }
 
 export async function addStreetToTurf(turfId: string, formData: FormData) {
+  if (!(await requireOwned("turf", turfId))) return;
+
   const campaign = await getActiveCampaign();
   if (!campaign) return;
 
@@ -352,6 +371,8 @@ export async function addStreetToTurf(turfId: string, formData: FormData) {
 }
 
 export async function removeHouseholdFromTurf(turfId: string, householdId: string) {
+  if (!(await requireOwned("turf", turfId))) return;
+
   await db.turfHousehold.deleteMany({ where: { turfId, householdId } });
   revalidatePath(`/canvass/${turfId}`);
 }
@@ -393,6 +414,10 @@ export async function importVoters(rows: ImportRow[]): Promise<ImportResult> {
   const campaign = await getActiveCampaign();
   if (!campaign) {
     return { created: 0, updated: 0, skipped: rows.length, households: 0, errors: ["No campaign selected"] };
+  }
+  // A bulk load rewrites the record every campaign in the town reads from.
+  if (!(await requireCampaign(campaign.id, "MANAGER"))) {
+    return { created: 0, updated: 0, skipped: rows.length, households: 0, errors: ["Manager access required"] };
   }
   const municipalityId = campaign.municipalityId;
 
@@ -515,6 +540,15 @@ export async function importAddresses(rows: AddressRow[]): Promise<AddressImport
       skipped: rows.length,
       withCoordinates: 0,
       errors: ["No campaign selected"],
+    };
+  }
+  if (!(await requireCampaign(campaign.id, "MANAGER"))) {
+    return {
+      created: 0,
+      updated: 0,
+      skipped: rows.length,
+      withCoordinates: 0,
+      errors: ["Manager access required"],
     };
   }
   const municipalityId = campaign.municipalityId;

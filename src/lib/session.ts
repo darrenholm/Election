@@ -15,12 +15,24 @@ const MAX_AGE_SECONDS = 60 * 60 * 24 * 14;
 export const SESSION_COOKIE = "campaign_session";
 
 function secret(): string {
-  const configured = process.env.SESSION_SECRET;
+  // APP_PASSWORD is accepted for deployments set up before accounts existed,
+  // when it was the whole of the app's security. SESSION_SECRET is the one to
+  // set now.
+  const configured = process.env.SESSION_SECRET || process.env.APP_PASSWORD;
   if (configured && configured.length >= 16) return configured;
-  // Falling back to APP_PASSWORD keeps a single-secret deployment working;
-  // the literal is only ever reached in local development, where the app also
-  // warns that it is unprotected.
-  return process.env.APP_PASSWORD || "campaign-manager-development-secret";
+
+  // The development literal is published in this repository. Signing real
+  // cookies with it would let anyone who reads the source mint one, so a
+  // deployment missing the variable fails loudly instead of running wide open.
+  if (process.env.NODE_ENV === "production") {
+    throw new Error(
+      "SESSION_SECRET is not set, or is shorter than 16 characters. Set it on " +
+        "the deployment and restart — without it, session cookies would be " +
+        "signed with a value published in this repository.",
+    );
+  }
+
+  return "campaign-manager-development-secret";
 }
 
 function sign(payload: string): string {

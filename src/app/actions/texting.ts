@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getActiveCampaign, requireCampaignId } from "@/lib/campaign";
+import { requireCampaign, requireOwned, requireVoterMunicipality } from "@/lib/guard";
 import { countSegments, normalisePhone } from "@/lib/consent";
 import {
   buildAudience,
@@ -47,7 +48,9 @@ export async function previewAudience(formData: FormData) {
   const body = str(formData, "body");
   const campaign = await getActiveCampaign();
   const config = smsConfig();
-  if (!campaign) {
+  // Same empty answer for "no campaign" and "not your campaign": the composer
+  // is manager-and-up like the rest of texting.
+  if (!campaign || !(await requireCampaign(campaign.id, "MANAGER"))) {
     return {
       recipients: 0, segments: 0, encoding: "GSM-7" as const, offenders: [] as string[],
       sample: "", estimatedCostCents: 0, configured: config.configured,
@@ -81,6 +84,9 @@ export async function createTextCampaign(formData: FormData) {
   const filter = readFilter(formData);
   const campaign = await getActiveCampaign();
   if (!campaign) return;
+  // Texting goes out over the candidate's own number and against consent given
+  // to them by name, so it is manager-and-up like the money is.
+  if (!(await requireCampaign(campaign.id, "MANAGER"))) return;
   const config = smsConfig();
 
   const audience = await buildAudience(filter, campaign.id);
@@ -121,6 +127,8 @@ export async function createTextCampaign(formData: FormData) {
 
 /** Move a draft into the queue so it can be sent. */
 export async function queueCampaign(campaignId: string) {
+  if (!(await requireOwned("textCampaign", campaignId, "MANAGER"))) return;
+
   await db.textCampaign.update({
     where: { id: campaignId },
     data: { status: "QUEUED" },
@@ -129,6 +137,8 @@ export async function queueCampaign(campaignId: string) {
 }
 
 export async function cancelCampaign(campaignId: string) {
+  if (!(await requireOwned("textCampaign", campaignId, "MANAGER"))) return;
+
   // Only untouched messages are cancelled; anything already sent has gone.
   await db.textMessage.updateMany({
     where: { textCampaignId: campaignId, status: "QUEUED" },
@@ -142,6 +152,8 @@ export async function cancelCampaign(campaignId: string) {
 }
 
 export async function deleteCampaign(campaignId: string) {
+  if (!(await requireOwned("textCampaign", campaignId, "MANAGER"))) return;
+
   await db.textCampaign.delete({ where: { id: campaignId } });
   revalidatePath("/texting");
   redirect("/texting");
@@ -149,6 +161,19 @@ export async function deleteCampaign(campaignId: string) {
 
 /** Send one batch. The campaign page calls this in a loop with a stop button. */
 export async function sendBatch(campaignId: string, limit = 25): Promise<SendBatchResult> {
+  // The one that spends real money and speaks in the candidate's name.
+  if (!(await requireOwned("textCampaign", campaignId, "MANAGER"))) {
+    return {
+      attempted: 0,
+      sent: 0,
+      failed: 0,
+      skipped: 0,
+      remaining: 0,
+      dryRun: true,
+      errors: ["You do not have permission to send for this campaign"],
+    };
+  }
+
   const campaign = await db.textCampaign.findUnique({ where: { id: campaignId } });
   if (!campaign) {
     return {
@@ -185,6 +210,11 @@ export async function sendBatch(campaignId: string, limit = 25): Promise<SendBat
 /** Record consent from somewhere other than the door — a form, a phone call. */
 export async function setVoterConsent(voterId: string, formData: FormData) {
   const campaignId = await requireCampaignId();
+  if (!(await requireCampaign(campaignId, "MANAGER"))) return;
+  // A voter from another town has no business being given a consent record on
+  // this campaign.
+  if (!(await requireVoterMunicipality(voterId))) return;
+
   const state = str(formData, "smsConsent");
   if (!["UNKNOWN", "GRANTED", "DECLINED", "REVOKED"].includes(state)) return;
 
@@ -206,6 +236,7 @@ export async function setVoterConsent(voterId: string, formData: FormData) {
 export async function addOptOut(formData: FormData) {
   const campaign = await getActiveCampaign();
   if (!campaign) return;
+  if (!(await requireCampaign(campaign.id, "MANAGER"))) return;
 
   const e164 = normalisePhone(str(formData, "phone"));
   if (!e164) return;
@@ -235,6 +266,8 @@ export async function addOptOut(formData: FormData) {
 
 export async function removeOptOut(phone: string) {
   const campaignId = await requireCampaignId();
+  if (!(await requireCampaign(campaignId, "MANAGER"))) return;
+
   await db.smsOptOut.deleteMany({ where: { campaignId, phone } });
   revalidatePath("/texting/consent");
 }
