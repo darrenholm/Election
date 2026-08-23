@@ -51,9 +51,11 @@ export function SideNav({
               <li key={item.href}>
                 <Link
                   href={item.href}
-                  className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                  className={`relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
                     isActive(pathname, item.href)
-                      ? "bg-brand-soft text-brand-ink"
+                      // A red marker on the live page: the one place in the nav
+                      // the eye should land without hunting.
+                      ? "bg-brand-soft font-semibold text-brand-ink before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r before:bg-accent before:content-['']"
                       : "text-muted hover:bg-raise hover:text-ink"
                   }`}
                 >

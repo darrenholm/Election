@@ -15,8 +15,13 @@ export function PageHeader({
   return (
     <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
       <div className="min-w-0">
-        <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-        {subtitle ? <p className="mt-1 text-sm text-muted">{subtitle}</p> : null}
+        <h1 className="text-[1.75rem] font-extrabold leading-tight tracking-[-0.02em]">
+          {title}
+        </h1>
+        {/* Small, deliberate, and on every page: it is what makes the app look
+            like one thing rather than a stack of forms. */}
+        <span className="mt-2 block h-[3px] w-10 rounded-full bg-accent" />
+        {subtitle ? <p className="mt-2 max-w-2xl text-sm text-muted">{subtitle}</p> : null}
       </div>
       {actions ? <div className="flex flex-wrap gap-2 no-print">{actions}</div> : null}
     </header>
@@ -41,9 +46,9 @@ export function Card({
       className={`rounded-xl border border-line bg-surface shadow-sm ${className}`}
     >
       {title || actions ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-t-xl border-b border-line bg-raise/60 px-4 py-3">
           <div className="min-w-0">
-            <h2 className="text-sm font-semibold">{title}</h2>
+            <h2 className="text-sm font-bold tracking-tight">{title}</h2>
             {description ? (
               <p className="mt-0.5 text-xs text-muted">{description}</p>
             ) : null}
@@ -93,19 +98,34 @@ export function StatTile({
     neutral: "text-ink",
     good: "text-emerald-600 dark:text-emerald-400",
     warn: "text-amber-600 dark:text-amber-400",
-    bad: "text-rose-600 dark:text-rose-400",
+    bad: "text-accent",
+  }[tone];
+
+  // A coloured edge along the top, so a wall of tiles has a rhythm and the one
+  // that needs attention is findable without reading every label.
+  const edge = {
+    neutral: "before:bg-brand/45",
+    good: "before:bg-emerald-500",
+    warn: "before:bg-amber-500",
+    bad: "before:bg-accent",
   }[tone];
 
   const body = (
     <>
-      <p className="text-xs font-semibold uppercase tracking-wide text-muted">{label}</p>
-      <p className={`mt-1 text-2xl font-bold tabular-nums ${toneClass}`}>{value}</p>
-      {hint ? <p className="mt-1 text-xs text-muted">{hint}</p> : null}
+      <p className="text-[0.65rem] font-bold uppercase tracking-[0.09em] text-muted">
+        {label}
+      </p>
+      <p className={`mt-1.5 text-[1.75rem] font-extrabold leading-none tabular-nums tracking-tight ${toneClass}`}>
+        {value}
+      </p>
+      {hint ? <p className="mt-1.5 text-xs text-muted">{hint}</p> : null}
     </>
   );
 
   const shell =
-    "rounded-xl border border-line bg-surface p-4 shadow-sm transition-colors";
+    "relative overflow-hidden rounded-xl border border-line bg-surface p-4 shadow-sm transition-colors " +
+    "before:absolute before:inset-x-0 before:top-0 before:h-[3px] before:content-[''] " +
+    edge;
 
   return href ? (
     <Link href={href} className={`${shell} block hover:border-brand/50 hover:bg-raise`}>
@@ -130,12 +150,12 @@ export function Badge({
     brand: "bg-brand-soft text-brand-ink ring-brand/30",
     good: "bg-emerald-50 text-emerald-700 ring-emerald-600/30 dark:bg-emerald-950 dark:text-emerald-300",
     warn: "bg-amber-50 text-amber-700 ring-amber-600/30 dark:bg-amber-950 dark:text-amber-300",
-    bad: "bg-rose-50 text-rose-700 ring-rose-600/30 dark:bg-rose-950 dark:text-rose-300",
+    bad: "bg-accent-soft text-accent-ink ring-accent/35",
   }[tone];
 
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ring-1 ring-inset ${tones} ${className}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-[0.7rem] font-semibold ring-1 ring-inset ${tones} ${className}`}
     >
       {children}
     </span>

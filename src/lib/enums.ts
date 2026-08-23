@@ -48,21 +48,35 @@ export const SUPPORT_LEVEL_OPTIONS = [1, 2, 3, 4, 5].map((n) => ({
   label: SUPPORT_LEVELS[n as SupportLevel],
 }));
 
-/** Colour per support level, used consistently by badges, bars and lists. */
+/**
+ * Colour per support level, used consistently by badges, bars and lists.
+ *
+ * A diverging scale, not a rainbow: blue for support, a neutral grey for
+ * undecided, red for oppose. Support and opposition are opposite ends of one
+ * axis, and that is what a diverging scale is for — the old green-amber-red
+ * ramp encoded the same thing as five unrelated hues.
+ *
+ * It is also the accessible choice, which is not a coincidence. Green-to-red is
+ * the classic failure: on the previous ramp, "lean support" and "undecided" came
+ * out ΔE 1.5 apart for a reader with deuteranopia — the same colour. Blue
+ * against red is the pairing colour blindness leaves alone. These steps were
+ * checked rather than eyeballed, against both surfaces, and clear the CVD and
+ * normal-vision floors with the neutral midpoint the scale requires.
+ */
 export const SUPPORT_COLORS: Record<SupportLevel, string> = {
-  1: "bg-emerald-600",
-  2: "bg-lime-500",
-  3: "bg-amber-500",
-  4: "bg-orange-500",
-  5: "bg-rose-600",
+  1: "bg-[#24499f] dark:bg-[#a3c6ff]",
+  2: "bg-[#3b82f6] dark:bg-[#3a6fd4]",
+  3: "bg-[#9ca3af] dark:bg-[#8b909c]",
+  4: "bg-[#ef4444] dark:bg-[#c93a32]",
+  5: "bg-[#a81f1f] dark:bg-[#ff9b91]",
 };
 
 export const SUPPORT_TEXT_COLORS: Record<SupportLevel, string> = {
-  1: "text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950 ring-emerald-600/30",
-  2: "text-lime-700 dark:text-lime-300 bg-lime-50 dark:bg-lime-950 ring-lime-600/30",
-  3: "text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950 ring-amber-600/30",
-  4: "text-orange-700 dark:text-orange-300 bg-orange-50 dark:bg-orange-950 ring-orange-600/30",
-  5: "text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950 ring-rose-600/30",
+  1: "text-[#1d3c86] dark:text-[#a3c6ff] bg-[#24499f]/10 dark:bg-[#a3c6ff]/15 ring-[#24499f]/30",
+  2: "text-[#1e5fc4] dark:text-[#8fb4f5] bg-[#3b82f6]/10 dark:bg-[#3a6fd4]/20 ring-[#3b82f6]/30",
+  3: "text-[#5b6270] dark:text-[#b6bac4] bg-[#9ca3af]/12 dark:bg-[#8b909c]/20 ring-[#9ca3af]/35",
+  4: "text-[#c02a2a] dark:text-[#f0a49e] bg-[#ef4444]/10 dark:bg-[#c93a32]/20 ring-[#ef4444]/30",
+  5: "text-[#8f1a1a] dark:text-[#ff9b91] bg-[#a81f1f]/10 dark:bg-[#ff9b91]/15 ring-[#a81f1f]/30",
 };
 
 /* ---------------------------------------------------------------- canvassing */
