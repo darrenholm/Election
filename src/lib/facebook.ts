@@ -6,11 +6,15 @@
  * access token are stored per campaign. Each candidate posts in their own
  * name, and one of them disconnecting must not silence the rest.
  *
- * With no app configured — which is every install until Meta has reviewed it —
- * the whole pipeline still runs and marks posts as a dry run. A campaign can
- * plan its entire feed, write every draft and see exactly what would go out
- * before anyone opens a developer account. That is deliberate: app review
- * takes weeks, and an election does not wait for it.
+ * With no app configured the whole pipeline still runs and marks posts as a dry
+ * run. A campaign can plan its entire feed, write every draft and see exactly
+ * what would go out before anyone opens a developer account.
+ *
+ * pages_manage_posts does not need App Review to post to your own Page: anyone
+ * holding a role on the Meta app — admin, developer or tester — can grant it
+ * and post straight away. Review is what lets people with no role on the app
+ * connect their Pages, so it is needed to hand this to candidates you do not
+ * administer, and not before.
  */
 
 /** Short-lived cookie that carries a half-finished connection to the picker. */

@@ -136,10 +136,13 @@ limit formula, the self-funding ceiling and the Form 4 expense taxonomy.
   the environment, the Page and its token per campaign. Posting is
   manager-and-up, the same bar as texting and the money, because it speaks in
   the candidate's name.
-- With no Meta app configured the whole pipeline runs in dry-run mode, which is
-  where every install starts: publishing to a Page needs `pages_manage_posts`,
-  and Meta reviews that before it works for anyone but the app's own testers.
-  Budget weeks. The plan and the drafts work throughout.
+- With no Meta app configured the whole pipeline runs in dry-run mode, so the
+  plan and the drafts work before any developer account exists.
+- **App Review is not the gate people expect.** `pages_manage_posts` works
+  without review for anyone holding a role on the Meta app — admin, developer or
+  tester — posting to a Page they administer. For a slate of candidates, add
+  each to the app as a tester and they can connect their own Page immediately.
+  Review is what lets people with *no* role on the app connect theirs.
 
 ### Lawn signs and events
 - Requests move through requested → approved → scheduled → installed → removed,
