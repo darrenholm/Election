@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CONTACT_METHOD_OPTIONS,
@@ -9,7 +9,17 @@ import {
 } from "@/lib/enums";
 import { DOOR_CONSENT_SCRIPT, ENDORSEMENT_SCRIPT, PHOTO_SCRIPT, isTextableNumber } from "@/lib/consent";
 import { flushPhotos, preparePhoto, queuePhoto } from "@/lib/photo";
-import { useUnsavedGuard } from "@/lib/use-unsaved-guard";
+import {
+  clearDraft,
+  draftHasContent,
+  draftKey,
+  readDraft,
+  readDraftPhoto,
+  writeDraft,
+  writeDraftPhoto,
+  type Draft,
+  type DraftPhoto,
+} from "@/lib/draft";
 import { enqueue, flushOutbox, newClientId, type QueuedContact } from "@/lib/outbox";
 
 type Volunteer = { id: string; firstName: string; lastName: string };
@@ -28,6 +38,7 @@ export function ContactForm({
   voterId,
   householdId,
   askForName = false,
+  draftScope = "",
   volunteers,
   defaultVolunteerId,
   defaultMethod = "DOOR",
@@ -43,6 +54,8 @@ export function ContactForm({
   householdId?: string | null;
   /** Show name fields, so somebody met at an empty door can be recorded. */
   askForName?: boolean;
+  /** The active campaign, so one candidate's draft never shows in another's form. */
+  draftScope?: string;
   volunteers: Volunteer[];
   defaultVolunteerId?: string | null;
   defaultMethod?: string;
@@ -61,14 +74,136 @@ export function ContactForm({
   const [photo, setPhoto] = useState<{ dataUrl: string; width: number; height: number } | null>(null);
   const [photoMayPublish, setPhotoMayPublish] = useState(false);
   const [photoError, setPhotoError] = useState("");
-  const [dirty, setDirty] = useState(false);
+  const [drafted, setDrafted] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
+  const saveTimer = useRef<number | null>(null);
+  const pendingFields = useRef<Draft["fields"] | null>(null);
 
-  useUnsavedGuard(
-    dirty,
-    "This door has not been saved yet. Leave and everything typed here is lost.",
-  );
+  const key = draftKey(draftScope, voterId, householdId);
   const pendingPhoto = useRef<{ blob: Blob; width: number; height: number } | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  /** Read every named control out of the form, checkboxes included. */
+  function snapshot(): Draft["fields"] {
+    const fields: Draft["fields"] = {};
+    const form = formRef.current;
+    if (!form) return fields;
+    for (const element of Array.from(form.elements)) {
+      if (
+        !(element instanceof HTMLInputElement) &&
+        !(element instanceof HTMLSelectElement) &&
+        !(element instanceof HTMLTextAreaElement)
+      ) {
+        continue;
+      }
+      if (!element.name || element.type === "file" || element.type === "submit") continue;
+      fields[element.name] =
+        element instanceof HTMLInputElement && element.type === "checkbox"
+          ? element.checked
+          : element.value;
+    }
+    return fields;
+  }
+
+  /**
+   * Keep the door on the phone. Debounced, because this runs on every
+   * keystroke and localStorage is synchronous — writing on each one would be
+   * felt on an older handset.
+   */
+  function scheduleDraft() {
+    if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
+    saveTimer.current = window.setTimeout(() => {
+      const draft: Draft = {
+        fields: snapshot(),
+        consent,
+        endorse,
+        followUp,
+        photoMayPublish,
+        savedAt: new Date().toISOString(),
+      };
+      if (draftHasContent(draft)) {
+        writeDraft(key, draft);
+        setDrafted(true);
+      } else {
+        clearDraft(key);
+        setDrafted(false);
+      }
+    }, 400);
+  }
+
+  function forgetDraft() {
+    if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
+    clearDraft(key);
+    setDrafted(false);
+  }
+
+  function applyFields(fields: Draft["fields"]) {
+    const form = formRef.current;
+    if (!form) return;
+    for (const [name, value] of Object.entries(fields)) {
+      const element = form.elements.namedItem(name);
+      if (element instanceof HTMLInputElement && element.type === "checkbox") {
+        element.checked = Boolean(value);
+      } else if (
+        element instanceof HTMLInputElement ||
+        element instanceof HTMLSelectElement ||
+        element instanceof HTMLTextAreaElement
+      ) {
+        element.value = String(value);
+      }
+    }
+  }
+
+  /**
+   * Put a kept draft back on screen.
+   *
+   * State first, fields second, and the two cannot be swapped: the follow-up
+   * reason is only in the document when the follow-up box is ticked, so writing
+   * field values before React has re-rendered silently drops it — and a
+   * follow-up with no reason is then refused on save, stranding the draft.
+   */
+  function restore(draft: Draft, photo: DraftPhoto | null) {
+    setConsent(draft.consent as typeof consent);
+    setEndorse(draft.endorse as typeof endorse);
+    setFollowUp(draft.followUp);
+    setPhotoMayPublish(draft.photoMayPublish);
+    // The phone field is controlled, so it needs state as well as a value.
+    const phoneValue = draft.fields.phone;
+    if (typeof phoneValue === "string") setPhone(phoneValue);
+    if (photo) {
+      pendingPhoto.current = { blob: photo.blob, width: photo.width, height: photo.height };
+      setPhoto({ dataUrl: photo.dataUrl, width: photo.width, height: photo.height });
+    }
+    setDrafted(true);
+    // Applied after the commit, not on a timer: a timer fires before React has
+    // rendered the controls those states reveal.
+    pendingFields.current = draft.fields;
+  }
+
+  // Runs after every commit, and does nothing until a restore has queued work.
+  useEffect(() => {
+    if (!pendingFields.current) return;
+    applyFields(pendingFields.current);
+    pendingFields.current = null;
+  });
+
+  useEffect(() => {
+    const draft = readDraft(key);
+    if (!draft || !draftHasContent(draft)) return;
+    let cancelled = false;
+    // Deferred off the effect body so the restored state never lands
+    // synchronously inside it, and so the photo read can be awaited.
+    const timer = window.setTimeout(async () => {
+      const photo = await readDraftPhoto(key);
+      if (!cancelled) restore(draft, photo);
+    }, 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+    // Only ever on mount, or when the form is pointed at a different door.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
 
   /** Shrink the camera image on the phone, and hold it until the door is saved. */
   async function onPhotoChosen(file: File) {
@@ -77,7 +212,13 @@ export function ContactForm({
       const prepared = await preparePhoto(file);
       pendingPhoto.current = { blob: prepared.blob, width: prepared.width, height: prepared.height };
       setPhoto({ dataUrl: prepared.dataUrl, width: prepared.width, height: prepared.height });
-      setDirty(true);
+      void writeDraftPhoto(key, {
+        blob: prepared.blob,
+        dataUrl: prepared.dataUrl,
+        width: prepared.width,
+        height: prepared.height,
+      });
+      scheduleDraft();
     } catch (error) {
       setPhotoError(error instanceof Error ? error.message : "Could not read that photo.");
     }
@@ -178,7 +319,7 @@ export function ContactForm({
         setEndorse("UNKNOWN");
         setFollowUp(false);
         clearPhoto();
-        setDirty(false);
+        forgetDraft();
         router.refresh();
       } else {
         setState("queued");
@@ -191,7 +332,7 @@ export function ContactForm({
         setEndorse("UNKNOWN");
         setFollowUp(false);
         clearPhoto();
-        setDirty(false);
+        forgetDraft();
       }
     } catch {
       setState("queued");
@@ -201,9 +342,10 @@ export function ContactForm({
 
   return (
     <form
+      ref={formRef}
       onSubmit={onSubmit}
-      onChange={() => setDirty(true)}
-      onInput={() => setDirty(true)}
+      onChange={scheduleDraft}
+      onInput={scheduleDraft}
       className="space-y-3"
     >
       {askForName ? (
@@ -322,7 +464,7 @@ export function ContactForm({
                 disabled={!consentUsable}
                 tone="good"
                 onClick={() => {
-                  setDirty(true);
+                  scheduleDraft();
                   setConsent(consent === "GRANTED" ? "UNKNOWN" : "GRANTED");
                 }}
               >
@@ -332,7 +474,7 @@ export function ContactForm({
                 active={consent === "DECLINED"}
                 tone="bad"
                 onClick={() => {
-                  setDirty(true);
+                  scheduleDraft();
                   setConsent(consent === "DECLINED" ? "UNKNOWN" : "DECLINED");
                 }}
               >
@@ -361,7 +503,7 @@ export function ContactForm({
             active={endorse === "YES"}
             tone="good"
             onClick={() => {
-              setDirty(true);
+              scheduleDraft();
               setEndorse(endorse === "YES" ? "UNKNOWN" : "YES");
             }}
           >
@@ -371,7 +513,7 @@ export function ContactForm({
             active={endorse === "NO"}
             tone="bad"
             onClick={() => {
-              setDirty(true);
+              scheduleDraft();
               setEndorse(endorse === "NO" ? "UNKNOWN" : "NO");
             }}
           >
@@ -511,6 +653,27 @@ export function ContactForm({
           Also mark do-not-contact
         </label>
       </div>
+
+      {drafted ? (
+        <p className="flex flex-wrap items-center gap-2 text-xs text-muted">
+          <span>Kept on this phone — come back to it any time.</span>
+          <button
+            type="button"
+            className="underline hover:text-ink"
+            onClick={() => {
+              formRef.current?.reset();
+              setPhone("");
+              setConsent("UNKNOWN");
+              setEndorse("UNKNOWN");
+              setFollowUp(false);
+              clearPhoto();
+              forgetDraft();
+            }}
+          >
+            Discard
+          </button>
+        </p>
+      ) : null}
 
       {message ? (
         <p

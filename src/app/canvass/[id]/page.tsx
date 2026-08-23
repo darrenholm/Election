@@ -192,6 +192,7 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                                       <ContactForm
                                         voterId={voter.id}
                                         volunteers={volunteers}
+                                        draftScope={campaignId}
                                         defaultVolunteerId={turf.assignedToId}
                                         knownPhone={voter.phone}
                                         knownEmail={voter.email}
@@ -230,6 +231,7 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                               householdId={household.id}
                               askForName
                               volunteers={volunteers}
+                              draftScope={campaignId}
                               defaultVolunteerId={turf.assignedToId}
                               compact
                             />

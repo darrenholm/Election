@@ -1,5 +1,7 @@
 "use client";
 
+import { withStore } from "./idb";
+
 /**
  * Selfies taken at a door, on the way to the database.
  *
@@ -69,48 +71,21 @@ export type QueuedPhoto = {
   attempts: number;
 };
 
-function open(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore(STORE, { keyPath: "clientId" });
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function withStore<T>(
-  mode: IDBTransactionMode,
-  run: (store: IDBObjectStore) => IDBRequest<T>,
-): Promise<T> {
-  const db = await open();
-  try {
-    return await new Promise<T>((resolve, reject) => {
-      const request = run(db.transaction(STORE, mode).objectStore(STORE));
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-  } finally {
-    db.close();
-  }
-}
-
 export async function queuePhoto(photo: QueuedPhoto): Promise<void> {
-  await withStore("readwrite", (s) => s.put(photo));
+  await withStore<IDBValidKey>(DB_NAME, STORE, "readwrite", (s) => s.put(photo, photo.clientId));
   announce();
 }
 
 export async function pendingPhotos(): Promise<QueuedPhoto[]> {
   try {
-    return await withStore<QueuedPhoto[]>("readonly", (s) => s.getAll() as IDBRequest<QueuedPhoto[]>);
+    return await withStore<QueuedPhoto[]>(DB_NAME, STORE, "readonly", (s) => s.getAll() as IDBRequest<QueuedPhoto[]>);
   } catch {
     return [];
   }
 }
 
 async function forget(clientId: string): Promise<void> {
-  await withStore("readwrite", (s) => s.delete(clientId));
+  await withStore<undefined>(DB_NAME, STORE, "readwrite", (s) => s.delete(clientId));
   announce();
 }
 

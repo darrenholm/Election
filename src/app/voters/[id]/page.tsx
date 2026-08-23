@@ -106,6 +106,7 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
             <ContactForm
               voterId={voter.id}
               volunteers={volunteers}
+              draftScope={campaignId}
               knownPhone={voter.phone}
               knownEmail={voter.email}
               smsConsent={state.smsConsent}
