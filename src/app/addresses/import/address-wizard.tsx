@@ -22,6 +22,23 @@ const TARGETS = [
 type TargetKey = (typeof TARGETS)[number]["key"];
 type Mapping = Partial<Record<TargetKey, string>>;
 
+/**
+ * Bytes read to learn the column names.
+ *
+ * PapaParse only streams a local file when it is given a chunk callback;
+ * without one it reads the whole file into a single JavaScript string. That is
+ * wasteful at any size and outright broken past 512 MB, which is V8's maximum
+ * string length — Chrome returns an empty string with no error, and the column
+ * list comes back blank. Ontario's address file is 659 MB, so the header pass
+ * is handed a slice off the front rather than the file itself.
+ */
+const HEADER_BYTES = 1024 * 1024;
+
+/** The first HEADER_BYTES of a file, still typed as a File for PapaParse. */
+function headSlice(file: File): File {
+  return new File([file.slice(0, HEADER_BYTES)], file.name, { type: file.type });
+}
+
 /** Rows sent to the server per call. */
 const BATCH = 400;
 /** Bytes of file handed to the parser at a time. */
@@ -74,7 +91,7 @@ export function AddressWizard({
   function handleFile(picked: File) {
     setError(null);
     setFile(picked);
-    Papa.parse<Record<string, string>>(picked, {
+    Papa.parse<Record<string, string>>(headSlice(picked), {
       header: true,
       preview: 20,
       skipEmptyLines: "greedy",

@@ -6,6 +6,23 @@ import { guessMunicipalityColumn, simplifyPlace, tidyPlaceName } from "@/lib/add
 import { harvestMunicipalities, type HarvestResult } from "@/app/actions/municipalities";
 import { Note } from "@/components/ui";
 
+/**
+ * Bytes read to learn the column names.
+ *
+ * PapaParse only streams a local file when it is given a chunk callback;
+ * without one it reads the whole file into a single JavaScript string. That is
+ * wasteful at any size and outright broken past 512 MB, which is V8's maximum
+ * string length — Chrome returns an empty string with no error, and the column
+ * list comes back blank. Ontario's address file is 659 MB, so the header pass
+ * is handed a slice off the front rather than the file itself.
+ */
+const HEADER_BYTES = 1024 * 1024;
+
+/** The first HEADER_BYTES of a file, still typed as a File for PapaParse. */
+function headSlice(file: File): File {
+  return new File([file.slice(0, HEADER_BYTES)], file.name, { type: file.type });
+}
+
 /** Bytes of file handed to the parser at a time. */
 const CHUNK_BYTES = 4 * 1024 * 1024;
 
@@ -58,13 +75,17 @@ export function HarvestWizard({ existingNames }: { existingNames: string[] }) {
     setResult(null);
     setPlaces([]);
 
-    Papa.parse<Record<string, string>>(next, {
+    Papa.parse<Record<string, string>>(headSlice(next), {
       header: true,
       preview: 5,
       skipEmptyLines: "greedy",
       transformHeader: (h) => h.trim(),
       complete: (results) => {
         const fields = results.meta.fields ?? [];
+        if (fields.length === 0) {
+          setError("No column headers found. The first row of the file must name the columns.");
+          return;
+        }
         setHeaders(fields);
         setColumn(guessMunicipalityColumn(fields));
         setPhase("column");
