@@ -18,7 +18,7 @@ export default async function CanvassPage() {
   if (!campaign) redirect("/campaigns");
   const campaignId = campaign.id;
 
-  const [turfs, volunteers, unassignedStreets, recentContacts, weekStats] = await Promise.all([
+  const [turfs, volunteers, unassignedStreets, recentContacts, weekStats, openFollowUps] = await Promise.all([
     db.turf.findMany({
       where: { campaignId },
       include: {
@@ -65,6 +65,9 @@ export default async function CanvassPage() {
       where: { campaignId, occurredAt: { gte: weekAgo } },
       _count: true,
     }),
+    db.contactAttempt.count({
+      where: { campaignId, followUpNeeded: true, followUpDoneAt: null },
+    }),
   ]);
 
   const weekTotal = weekStats.reduce((n, r) => n + r._count, 0);
@@ -75,6 +78,11 @@ export default async function CanvassPage() {
       <PageHeader
         title="Canvassing"
         subtitle="Turf is a bundle of streets handed to one canvasser. Build it once, hand it out all campaign."
+        actions={
+          <Link href="/canvass/follow-ups" className="btn-secondary">
+            Follow-ups{openFollowUps > 0 ? ` (${openFollowUps})` : ""}
+          </Link>
+        }
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">

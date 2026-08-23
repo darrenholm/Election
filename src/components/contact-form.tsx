@@ -1,13 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CONTACT_METHOD_OPTIONS,
   CONTACT_RESULT_OPTIONS,
   SUPPORT_LEVEL_OPTIONS,
 } from "@/lib/enums";
-import { DOOR_CONSENT_SCRIPT, isTextableNumber } from "@/lib/consent";
+import { DOOR_CONSENT_SCRIPT, ENDORSEMENT_SCRIPT, PHOTO_SCRIPT, isTextableNumber } from "@/lib/consent";
+import { flushPhotos, preparePhoto, queuePhoto } from "@/lib/photo";
 import { enqueue, flushOutbox, newClientId, type QueuedContact } from "@/lib/outbox";
 
 type Volunteer = { id: string; firstName: string; lastName: string };
@@ -46,6 +47,33 @@ export function ContactForm({
   const [message, setMessage] = useState("");
   const [phone, setPhone] = useState("");
   const [consent, setConsent] = useState<"UNKNOWN" | "GRANTED" | "DECLINED">("UNKNOWN");
+  const [endorse, setEndorse] = useState<"UNKNOWN" | "YES" | "NO">("UNKNOWN");
+  const [followUp, setFollowUp] = useState(false);
+  const [photo, setPhoto] = useState<{ dataUrl: string; width: number; height: number } | null>(null);
+  const [photoMayPublish, setPhotoMayPublish] = useState(false);
+  const [photoError, setPhotoError] = useState("");
+  const pendingPhoto = useRef<{ blob: Blob; width: number; height: number } | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  /** Shrink the camera image on the phone, and hold it until the door is saved. */
+  async function onPhotoChosen(file: File) {
+    setPhotoError("");
+    try {
+      const prepared = await preparePhoto(file);
+      pendingPhoto.current = { blob: prepared.blob, width: prepared.width, height: prepared.height };
+      setPhoto({ dataUrl: prepared.dataUrl, width: prepared.width, height: prepared.height });
+    } catch (error) {
+      setPhotoError(error instanceof Error ? error.message : "Could not read that photo.");
+    }
+  }
+
+  function clearPhoto() {
+    pendingPhoto.current = null;
+    setPhoto(null);
+    setPhotoMayPublish(false);
+    setPhotoError("");
+    if (fileInput.current) fileInput.current.value = "";
+  }
 
   const alreadyAsked = smsConsent === "GRANTED" || smsConsent === "DECLINED";
   const phoneOnFile = knownPhone.trim() !== "";
@@ -74,11 +102,20 @@ export function ContactForm({
       smsConsent: consent,
       smsConsentWording: consent === "UNKNOWN" ? "" : DOOR_CONSENT_SCRIPT,
       notes: String(data.get("notes") ?? ""),
+      willEndorsePublicly: endorse === "UNKNOWN" ? null : endorse === "YES",
+      followUpNeeded: followUp,
+      followUpReason: followUp ? String(data.get("followUpReason") ?? "").trim() : "",
       occurredAt: new Date().toISOString(),
       queuedAt: new Date().toISOString(),
       attempts: 0,
       lastError: "",
     };
+
+    if (followUp && item.followUpReason === "") {
+      setState("error");
+      setMessage("Say what the follow-up is for — a week later nobody will remember.");
+      return;
+    }
 
     setState("saving");
     setMessage("");
@@ -87,14 +124,38 @@ export function ContactForm({
     // already safe on the device.
     enqueue(item);
 
+    // The photo goes into its own queue, keyed by the same clientId, so a lost
+    // signal holds the picture as safely as it holds the door.
+    const held = pendingPhoto.current;
+    if (held) {
+      await queuePhoto({
+        clientId: item.clientId,
+        voterId,
+        blob: held.blob,
+        width: held.width,
+        height: held.height,
+        mayPublish: photoMayPublish,
+        permissionWording: photoMayPublish ? PHOTO_SCRIPT : "",
+        caption: "",
+        queuedAt: new Date().toISOString(),
+        attempts: 0,
+      }).catch(() => {
+        // A phone with no room for the photo must not lose the door.
+      });
+    }
+
     try {
       const result = await flushOutbox();
+      void flushPhotos();
       if (result.remaining === 0) {
         setState("saved");
         setMessage("Saved.");
         form.reset();
         setPhone("");
         setConsent("UNKNOWN");
+        setEndorse("UNKNOWN");
+        setFollowUp(false);
+        clearPhoto();
         router.refresh();
       } else {
         setState("queued");
@@ -104,6 +165,9 @@ export function ContactForm({
         form.reset();
         setPhone("");
         setConsent("UNKNOWN");
+        setEndorse("UNKNOWN");
+        setFollowUp(false);
+        clearPhoto();
       }
     } catch {
       setState("queued");
@@ -231,6 +295,121 @@ export function ContactForm({
           </div>
         )}
       </fieldset>
+
+      <fieldset className="rounded-lg border border-line bg-canvas p-3">
+        <legend className="px-1 text-xs font-semibold uppercase tracking-wide text-muted">
+          Public endorsement
+        </legend>
+        <p className="rounded-lg bg-raise px-2.5 py-2 text-sm italic">
+          &ldquo;{ENDORSEMENT_SCRIPT}&rdquo;
+        </p>
+        <div className="mt-2 flex gap-2">
+          <ConsentButton
+            active={endorse === "YES"}
+            tone="good"
+            onClick={() => setEndorse(endorse === "YES" ? "UNKNOWN" : "YES")}
+          >
+            Happy to be named
+          </ConsentButton>
+          <ConsentButton
+            active={endorse === "NO"}
+            tone="bad"
+            onClick={() => setEndorse(endorse === "NO" ? "UNKNOWN" : "NO")}
+          >
+            Rather not
+          </ConsentButton>
+        </div>
+        <p className="mt-1.5 text-xs text-muted">
+          Leave both untouched if it did not come up. A recorded &ldquo;rather
+          not&rdquo; is worth having — it stops them being asked again next time.
+        </p>
+
+        <div className="mt-3 border-t border-line pt-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted">
+            Photo together
+          </p>
+          <p className="mt-1 rounded-lg bg-raise px-2.5 py-2 text-sm italic">
+            &ldquo;{PHOTO_SCRIPT}&rdquo;
+          </p>
+
+          {photo ? (
+            <div className="mt-2 space-y-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={photo.dataUrl}
+                alt="Photo taken at this door"
+                className="max-h-48 w-auto rounded-lg border border-line"
+              />
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={photoMayPublish}
+                  onChange={(e) => setPhotoMayPublish(e.target.checked)}
+                  className="mt-0.5 size-4 rounded border-line accent-[var(--color-brand)]"
+                />
+                <span>
+                  They said the campaign may post it publicly
+                  <span className="block text-xs text-muted">
+                    Leave unticked and the photo is still kept, but marked
+                    not for publication wherever it is shown.
+                  </span>
+                </span>
+              </label>
+              <button type="button" className="text-xs text-muted underline" onClick={clearPhoto}>
+                Remove photo
+              </button>
+            </div>
+          ) : (
+            <div className="mt-2">
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/*"
+                capture="environment"
+                className="field"
+                onChange={(e) => {
+                  const chosen = e.target.files?.[0];
+                  if (chosen) void onPhotoChosen(chosen);
+                }}
+              />
+              <p className="mt-1 text-xs text-muted">
+                Optional. Shrunk on this phone before it is sent, and held here
+                with the door if there is no signal.
+              </p>
+            </div>
+          )}
+          {photoError ? (
+            <p className="mt-1 text-xs text-rose-600 dark:text-rose-400">{photoError}</p>
+          ) : null}
+        </div>
+      </fieldset>
+
+      <div className="rounded-lg border border-line bg-canvas p-3">
+        <label className="flex items-center gap-2 text-sm font-medium">
+          <input
+            type="checkbox"
+            checked={followUp}
+            onChange={(e) => setFollowUp(e.target.checked)}
+            className="size-4 rounded border-line accent-[var(--color-brand)]"
+          />
+          Needs a follow-up
+        </label>
+        {followUp ? (
+          <label className="mt-2 block">
+            <span className="field-label">What for?</span>
+            <input
+              name="followUpReason"
+              className="field"
+              autoFocus
+              placeholder="Drop a sign Saturday · wants the tax figures · come back for her husband"
+            />
+            <span className="mt-1 block text-xs text-muted">
+              Required. This is what someone else reads off the follow-ups list
+              next week.
+            </span>
+          </label>
+        ) : null}
+      </div>
 
       <label className="block">
         <span className="field-label">Notes</span>

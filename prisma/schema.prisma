@@ -112,6 +112,7 @@ model Campaign {
   events        Event[]
   textCampaigns TextCampaign[]
   smsOptOuts    SmsOptOut[]
+  canvassPhotos CanvassPhoto[]
 
   access           CampaignAccess[]
   slateMemberships SlateMembership[]
@@ -202,6 +203,7 @@ model Voter {
   signRequests   SignRequest[]
   volunteers     Volunteer[]
   textMessages   TextMessage[]
+  canvassPhotos  CanvassPhoto[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -237,6 +239,16 @@ model VoterCampaignState {
 
   /// Recorded as voted, from this campaign's own scrutineers.
   votedAt DateTime?
+
+  /// This elector has said the campaign may name them publicly as a supporter.
+  /// Kept apart from supportLevel: plenty of people will vote for you and want
+  /// no part of a lawn sign or a quote in the paper, and using a 1 as though it
+  /// were permission is how a campaign loses a supporter.
+  willEndorsePublicly Boolean   @default(false)
+  endorsementAt       DateTime?
+  /// What they were actually asked, kept with the answer for the same reason
+  /// the texting consent wording is.
+  endorsementWording  String    @default("")
 
   /// Consent to receive text messages from THIS campaign: UNKNOWN, GRANTED,
   /// DECLINED or REVOKED. Only GRANTED is ever sent to. The wording actually
@@ -325,12 +337,74 @@ model ContactAttempt {
   issues       String @default("")
   notes        String @default("")
 
+  /// Something was promised or left unresolved at this door — a sign to drop,
+  /// a question to answer, a spouse to come back for. The reason is required
+  /// in the form, because "follow up" with no why is not actionable a week
+  /// later by someone who was not there.
+  followUpNeeded Boolean   @default(false)
+  followUpReason String    @default("")
+  followUpDoneAt DateTime?
+
+  /// Whether they agreed to be named publicly, as answered at this door. The
+  /// voter's current position is on VoterCampaignState.
+  willEndorsePublicly Boolean?
+
+  photos CanvassPhoto[]
+
   occurredAt DateTime @default(now())
   createdAt  DateTime @default(now())
 
   @@index([campaignId, occurredAt])
+  @@index([campaignId, followUpNeeded, followUpDoneAt])
   @@index([voterId])
   @@index([volunteerId])
+}
+
+/// A photo taken at a door — in practice a canvasser and a supporter, for the
+/// campaign's social media.
+///
+/// The image lives in the database rather than on disk or in object storage.
+/// Downscaled on the phone before it is sent, a campaign's whole run of these
+/// is tens of megabytes, and keeping them in Postgres means they are covered by
+/// the same backup and the same access rules as everything else, with no bucket
+/// to configure or leave world-readable by accident.
+model CanvassPhoto {
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  voterId String?
+  voter   Voter?  @relation(fields: [voterId], references: [id], onDelete: SetNull)
+
+  contactAttemptId String?
+  contactAttempt   ContactAttempt? @relation(fields: [contactAttemptId], references: [id], onDelete: SetNull)
+
+  /// Generated on the phone, so a retry from the offline queue cannot store the
+  /// same photo twice.
+  clientId String @unique
+
+  mimeType String @default("image/jpeg")
+  bytes    Bytes
+  width    Int    @default(0)
+  height   Int    @default(0)
+  byteSize Int    @default(0)
+
+  /// Whether the person in the photo agreed it may be published, and the words
+  /// they agreed to. A photo without this is kept but must not be posted, and
+  /// the app says so wherever it is shown.
+  mayPublish        Boolean @default(false)
+  permissionWording String  @default("")
+
+  caption String @default("")
+
+  takenById String?
+  takenBy   Volunteer? @relation(fields: [takenById], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([campaignId, createdAt])
+  @@index([voterId])
 }
 
 model Volunteer {
@@ -358,6 +432,7 @@ model Volunteer {
   contacts       ContactAttempt[]
   turfs          Turf[]
   signsInstalled SignRequest[]
+  canvassPhotos  CanvassPhoto[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

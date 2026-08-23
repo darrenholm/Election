@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { CONTACT_METHODS, CONTACT_RESULTS, SMS_CONSENT_STATES } from "@/lib/enums";
-import { normalisePhone } from "@/lib/consent";
+import { ENDORSEMENT_SCRIPT, normalisePhone } from "@/lib/consent";
 import { createSignRequestForVoter } from "@/lib/sign-requests";
 import { getActiveCampaign } from "@/lib/campaign";
 import { upsertVoterState } from "@/lib/voter-state";
@@ -35,6 +35,11 @@ const Payload = z.object({
   smsConsent: z.enum(Object.keys(SMS_CONSENT_STATES) as [string, ...string[]]).default("UNKNOWN"),
   smsConsentWording: z.string().max(1000).default(""),
   notes: z.string().max(4000).default(""),
+  /// Tri-state on purpose. False is "they were asked and said no", which is
+  /// worth knowing; null is "it never came up", which is not the same thing.
+  willEndorsePublicly: z.boolean().nullable().optional(),
+  followUpNeeded: z.boolean().default(false),
+  followUpReason: z.string().max(500).default(""),
   occurredAt: z.string().optional(),
 });
 
@@ -87,8 +92,18 @@ export async function POST(request: Request) {
       result: data.result,
       supportLevel: data.supportLevel ?? null,
       notes: data.notes,
+      willEndorsePublicly: data.willEndorsePublicly ?? null,
+      followUpNeeded: data.followUpNeeded,
+      followUpReason: data.followUpNeeded ? data.followUpReason : "",
       occurredAt: Number.isNaN(occurredAt.getTime()) ? new Date() : occurredAt,
     },
+  });
+
+  // A photo taken at this door may already be here: the phone queues the two
+  // separately, so on a bad signal the picture can arrive before the door does.
+  await db.canvassPhoto.updateMany({
+    where: { clientId: data.clientId, campaignId: campaign.id, contactAttemptId: null },
+    data: { contactAttemptId: contact.id },
   });
 
   // What this campaign learned about the voter.
@@ -98,6 +113,16 @@ export async function POST(request: Request) {
   if (data.wantsToVolunteer) state.wantsToVolunteer = true;
   if (data.isDonorProspect) state.isDonorProspect = true;
   if (data.result === "REFUSED" && data.markDoNotContact) state.doNotContact = true;
+
+  // Permission to be named publicly, recorded like any other consent: with the
+  // words they agreed to and the moment they agreed. A later "no" overrides an
+  // earlier "yes" — withdrawing permission has to be as easy to record as
+  // giving it, or the campaign ends up quoting somebody who asked it not to.
+  if (data.willEndorsePublicly != null) {
+    state.willEndorsePublicly = data.willEndorsePublicly;
+    state.endorsementAt = new Date();
+    state.endorsementWording = data.willEndorsePublicly ? ENDORSEMENT_SCRIPT : "";
+  }
 
   // Consent is recorded with its wording and the moment it was given, and
   // belongs to this campaign alone — agreeing to hear from one candidate says

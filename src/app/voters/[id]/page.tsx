@@ -34,7 +34,10 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
         },
         contacts: {
           where: { campaignId },
-          include: { volunteer: true },
+          include: {
+            volunteer: true,
+            photos: { select: { id: true, mayPublish: true }, orderBy: { createdAt: "asc" } },
+          },
           orderBy: { occurredAt: "desc" },
         },
         signRequests: { where: { campaignId }, orderBy: { requestedAt: "desc" } },
@@ -87,6 +90,11 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
         {state.wantsSign ? <Badge tone="brand">Wants a sign</Badge> : null}
         {state.wantsToVolunteer ? <Badge tone="good">Will volunteer</Badge> : null}
         {state.isDonorProspect ? <Badge tone="brand">Donor prospect</Badge> : null}
+        {state.willEndorsePublicly ? (
+          <Badge tone="good">Will endorse publicly</Badge>
+        ) : state.endorsementAt ? (
+          <Badge tone="neutral">Asked — not publicly</Badge>
+        ) : null}
         {splitList(state.tags).map((tag) => (
           <Badge key={tag}>{tag}</Badge>
         ))}
@@ -163,6 +171,33 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
                     </p>
                     {contact.notes ? (
                       <p className="mt-1 whitespace-pre-wrap text-sm">{contact.notes}</p>
+                    ) : null}
+                    {contact.followUpNeeded ? (
+                      <p className="mt-1 text-sm">
+                        <Badge tone={contact.followUpDoneAt ? "good" : "warn"}>
+                          {contact.followUpDoneAt ? "Followed up" : "Follow-up needed"}
+                        </Badge>{" "}
+                        <span className="text-muted">{contact.followUpReason}</span>
+                      </p>
+                    ) : null}
+                    {contact.photos.length > 0 ? (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {contact.photos.map((photo) => (
+                          <figure key={photo.id}>
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={`/api/photos/${photo.id}`}
+                              alt="Taken at this door"
+                              className="h-28 w-auto rounded-lg border border-line"
+                            />
+                            {!photo.mayPublish ? (
+                              <figcaption className="mt-0.5 text-xs text-amber-700 dark:text-amber-300">
+                                Not cleared for publication
+                              </figcaption>
+                            ) : null}
+                          </figure>
+                        ))}
+                      </div>
                     ) : null}
                   </li>
                 ))}

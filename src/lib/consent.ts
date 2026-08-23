@@ -20,6 +20,21 @@ export const DOOR_CONSENT_SCRIPT =
 export const WEB_CONSENT_SCRIPT =
   "I agree to receive text messages from this campaign about the municipal election. I can reply STOP at any time to opt out.";
 
+/**
+ * Asked before naming somebody publicly as a supporter, and before a photo of
+ * them is taken.
+ *
+ * These are separate questions and separate scripts. Someone may be perfectly
+ * happy to be quoted and want no photograph of them on Facebook, and the answer
+ * to one is not permission for the other. Both are stored with the answer so
+ * the campaign can say what was actually asked.
+ */
+export const ENDORSEMENT_SCRIPT =
+  "Would you be comfortable with the campaign naming you publicly as a supporter — on our website, literature or social media?";
+
+export const PHOTO_SCRIPT =
+  "May I take a photo with you, and would you be alright with the campaign posting it publicly?";
+
 /** Appended to every outgoing message; the carriers require a way out in-message. */
 export const OPT_OUT_SUFFIX = "Reply STOP to opt out.";
 

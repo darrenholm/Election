@@ -33,6 +33,10 @@ export type QueuedContact = {
   smsConsent: string;
   smsConsentWording: string;
   notes: string;
+  /** null when it never came up; false is a recorded "no". */
+  willEndorsePublicly: boolean | null;
+  followUpNeeded: boolean;
+  followUpReason: string;
   occurredAt: string;
   /** Local bookkeeping, never sent. */
   queuedAt: string;

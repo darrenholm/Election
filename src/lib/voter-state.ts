@@ -32,6 +32,9 @@ export const EMPTY_VOTER_STATE = {
   smsConsentAt: null as Date | null,
   smsConsentSource: "",
   smsConsentWording: "",
+  willEndorsePublicly: false,
+  endorsementAt: null as Date | null,
+  endorsementWording: "",
   tags: "",
   notes: "",
 };
