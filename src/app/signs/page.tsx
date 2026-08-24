@@ -5,13 +5,16 @@ import { redirect } from "next/navigation";
 import {
   DEPLOYED_SIGN_STATUSES,
   PENDING_SIGN_STATUSES,
+  SIGN_PLACEMENTS,
+  SIGN_PLACEMENT_OPTIONS,
   SIGN_STATUSES,
   SIGN_STATUS_OPTIONS,
   SIGN_TYPES,
   SIGN_TYPE_OPTIONS,
   label,
 } from "@/lib/enums";
-import { formatDate, toDateInput } from "@/lib/dates";
+import { formatDate, formatDateTime, toDateInput } from "@/lib/dates";
+import { removalUrgency } from "@/lib/sign-placement";
 import {
   createSignRequest,
   deleteSignRequest,
@@ -66,15 +69,31 @@ export default async function SignsPage() {
   const inGarage = totalOwned - deployed;
   const shortfall = pending - inGarage;
 
+  // Signs still standing whose deadline has arrived or passed. Once this is
+  // above zero it displaces the "promised at the door" tile: after voting day
+  // nobody is taking new requests, and getting the signs back is the only job
+  // left on this page.
+  const needRemoval = signs.filter(
+    (s) =>
+      DEPLOYED_SIGN_STATUSES.includes(s.status as never)
+      && (removalUrgency(s.removalDueAt) === "due"
+        || removalUrgency(s.removalDueAt) === "overdue"),
+  ).length;
+
   return (
     <>
       <PageHeader
         title="Lawn signs"
         subtitle={`${deployed} up · ${pending} waiting on the crew`}
         actions={
-          <Link href="/signs/run-sheet" className="btn-primary">
-            Install run sheet
-          </Link>
+          <>
+            <Link href="/signs/roadside" className="btn-secondary">
+              Roadside signs
+            </Link>
+            <Link href="/signs/run-sheet" className="btn-primary">
+              Install run sheet
+            </Link>
+          </>
         }
       />
 
@@ -87,12 +106,22 @@ export default async function SignsPage() {
           hint={totalOwned > 0 ? `${totalOwned} owned in total` : "Set your inventory below"}
           tone={totalOwned > 0 && shortfall > 0 ? "bad" : "neutral"}
         />
-        <StatTile
-          label="Promised at the door"
-          value={wantsSign}
-          hint="Voters flagged as wanting a sign"
-          href="/voters?flag=signs"
-        />
+        {needRemoval > 0 ? (
+          <StatTile
+            label="Need taking down"
+            value={needRemoval}
+            hint="Past or near the removal deadline"
+            tone="bad"
+            href="/signs/run-sheet?mode=retrieve"
+          />
+        ) : (
+          <StatTile
+            label="Promised at the door"
+            value={wantsSign}
+            hint="Voters flagged as wanting a sign"
+            href="/voters?flag=signs"
+          />
+        )}
       </div>
 
       {totalOwned > 0 && shortfall > 0 ? (
@@ -143,6 +172,14 @@ export default async function SignsPage() {
                             </div>
                             <div className="flex flex-wrap items-center gap-1">
                               <Badge tone={column.tone}>{label(SIGN_TYPES, sign.signType)}</Badge>
+                              {sign.placement !== "PRIVATE_LAWN" ? (
+                                <Badge tone="neutral">
+                                  {label(SIGN_PLACEMENTS, sign.placement)}
+                                </Badge>
+                              ) : null}
+                              {sign.signNumber ? (
+                                <Badge tone="neutral">#{sign.signNumber}</Badge>
+                              ) : null}
                               {!sign.permissionConfirmed ? (
                                 <Badge tone="warn">Permission unconfirmed</Badge>
                               ) : null}
@@ -153,6 +190,20 @@ export default async function SignsPage() {
                               ) : null}
                             </div>
                           </div>
+
+                          {/* A sign that is up and past its deadline is the one
+                              thing on this board that cannot wait, so it says so
+                              on the card rather than only on the run sheet. */}
+                          {(() => {
+                            const urgency = removalUrgency(sign.removalDueAt);
+                            if (urgency !== "due" && urgency !== "overdue") return null;
+                            return (
+                              <p className="mt-1 text-xs font-semibold text-accent-ink">
+                                {urgency === "overdue" ? "Overdue for removal — " : "Due for removal — "}
+                                {formatDateTime(sign.removalDueAt)}
+                              </p>
+                            );
+                          })()}
 
                           {sign.installedAt ? (
                             <p className="mt-1 text-xs text-muted">
@@ -256,6 +307,42 @@ export default async function SignsPage() {
                                       className="field text-xs"
                                     />
                                   ) : null}
+                                </div>
+                                {/* Changing this re-dates the removal deadline —
+                                    see updateSignRequest. */}
+                                <Select
+                                  name="placement"
+                                  options={SIGN_PLACEMENT_OPTIONS}
+                                  defaultValue={sign.placement}
+                                  className="text-xs"
+                                />
+                                <div className="grid grid-cols-2 gap-2">
+                                  <input
+                                    name="signNumber"
+                                    defaultValue={sign.signNumber}
+                                    placeholder="Sign #"
+                                    className="field text-xs"
+                                  />
+                                  <input
+                                    name="landmark"
+                                    defaultValue={sign.landmark}
+                                    placeholder="Landmark"
+                                    className="field text-xs"
+                                  />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <input
+                                    name="permissionFrom"
+                                    defaultValue={sign.permissionFrom}
+                                    placeholder="Permission from"
+                                    className="field text-xs"
+                                  />
+                                  <input
+                                    name="permissionPhone"
+                                    defaultValue={sign.permissionPhone}
+                                    placeholder="Their phone"
+                                    className="field text-xs"
+                                  />
                                 </div>
                                 <input
                                   name="email"

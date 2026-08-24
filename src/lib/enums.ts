@@ -218,6 +218,45 @@ export const DEPLOYED_SIGN_STATUSES: SignStatus[] = ["INSTALLED", "NEEDS_REPAIR"
 /** Statuses still waiting on the sign crew. */
 export const PENDING_SIGN_STATUSES: SignStatus[] = ["REQUESTED", "APPROVED", "SCHEDULED"];
 
+/**
+ * Where a sign physically stands.
+ *
+ * This is not decoration. Each of these carries a different removal deadline
+ * and a different set of placement rules, and getting it wrong is what leaves a
+ * campaign explaining itself to a by-law officer. The consequences live in
+ * src/lib/sign-placement.ts; this is only the vocabulary.
+ */
+export const SIGN_PLACEMENTS = {
+  PRIVATE_LAWN: "Private property — lawn",
+  PRIVATE_COMMERCIAL: "Private property — business or farm",
+  MUNICIPAL_ROW: "Municipal road allowance / boulevard",
+  MTO_HIGHWAY: "Provincial highway right-of-way (MTO)",
+  OTHER_PUBLIC: "Other public property",
+} as const;
+export type SignPlacement = keyof typeof SIGN_PLACEMENTS;
+export const SIGN_PLACEMENT_OPTIONS = options(SIGN_PLACEMENTS);
+
+/**
+ * Placements with no civic address, where the run sheet has to fall back to a
+ * landmark and a set of coordinates.
+ *
+ * A readonly tuple rather than a plain array so the member type is the three
+ * placements themselves, not the whole SignPlacement union — anything keyed by
+ * "a roadside placement" should fail to compile if it forgets one.
+ */
+export const ROADSIDE_PLACEMENTS = [
+  "MUNICIPAL_ROW",
+  "MTO_HIGHWAY",
+  "OTHER_PUBLIC",
+] as const satisfies readonly SignPlacement[];
+
+export type RoadsidePlacement = (typeof ROADSIDE_PLACEMENTS)[number];
+
+/** Narrows the String column off a SignRequest row to a roadside placement. */
+export function isRoadside(placement: string): placement is RoadsidePlacement {
+  return (ROADSIDE_PLACEMENTS as readonly string[]).includes(placement);
+}
+
 /* -------------------------------------------------------------------- events */
 
 export const EVENT_TYPES = {

@@ -119,6 +119,7 @@ model Campaign {
   expenses      Expense[]
   signRequests  SignRequest[]
   signInventory SignInventory[]
+  signPhotos    SignPhoto[]
   events        Event[]
   textCampaigns TextCampaign[]
   smsOptOuts    SmsOptOut[]
@@ -456,7 +457,8 @@ model Volunteer {
   assignments    ShiftAssignment[]
   contacts       ContactAttempt[]
   turfs          Turf[]
-  signsInstalled SignRequest[]
+  signsInstalled SignRequest[] @relation("SignInstalledBy")
+  signsRemoved   SignRequest[] @relation("SignRemovedBy")
   canvassPhotos  CanvassPhoto[]
 
   createdAt DateTime @default(now())
@@ -641,13 +643,45 @@ model SignRequest {
   /// Property owner has confirmed permission to place the sign.
   permissionConfirmed Boolean @default(false)
 
+  /// Where the sign physically stands. This is the field that decides how long
+  /// the campaign has to take it down: municipal by-laws typically allow 48–72
+  /// hours after voting day, while a sign on a provincial highway right-of-way
+  /// must be retrieved within three working days or the Ministry collects it.
+  /// See src/lib/sign-placement.ts.
+  placement String @default("PRIVATE_LAWN")
+
+  /// Where the sign is, when there is no civic address to put on a run sheet —
+  /// "Hwy 6 southbound at Concession 4, NE corner". Roadside signs live and die
+  /// by this field and the coordinates beside it.
+  landmark String @default("")
+
+  /// Number stencilled or stickered on the back of the physical sign. Lets a
+  /// campaign reconcile what went out against what came back rather than
+  /// guessing at how many are still in a ditch somewhere.
+  signNumber String @default("")
+
+  /// Who gave permission, where that is not the person who requested the sign —
+  /// a business owner, a farmer whose field fronts the road. Kept so the crew
+  /// can ring them if a sign is damaged or challenged.
+  permissionFrom  String @default("")
+  permissionPhone String @default("")
+
   requestedAt  DateTime  @default(now())
   scheduledFor DateTime?
   installedAt  DateTime?
   removedAt    DateTime?
 
+  /// Stamped at install from the placement and the campaign's voting day, so
+  /// the board can sort by what has to come down first.
+  removalDueAt DateTime?
+
   installedById String?
-  installedBy   Volunteer? @relation(fields: [installedById], references: [id], onDelete: SetNull)
+  installedBy   Volunteer? @relation("SignInstalledBy", fields: [installedById], references: [id], onDelete: SetNull)
+
+  removedById String?
+  removedBy   Volunteer? @relation("SignRemovedBy", fields: [removedById], references: [id], onDelete: SetNull)
+
+  photos SignPhoto[]
 
   notes     String   @default("")
   createdAt DateTime @default(now())
@@ -655,6 +689,50 @@ model SignRequest {
 
   @@index([campaignId, status])
   @@index([campaignId, signType])
+  @@index([campaignId, placement])
+  @@index([campaignId, removalDueAt])
+}
+
+/// A photograph of a sign where it stands.
+///
+/// Two jobs. It proves the sign was placed compliantly — the right distance
+/// from the pavement, off the sight triangle — if a by-law officer or a rival
+/// campaign says otherwise. And it shows the retrieval crew what they are
+/// looking for, which matters at dusk in November on a rural concession road.
+///
+/// Bytes in the database, like CanvassPhoto: the volumes are small (a few
+/// hundred signs at ~200 KB each) and it keeps deployment to one Postgres URL
+/// with no object store to configure.
+model SignPhoto {
+  id String @id @default(cuid())
+
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  signRequestId String
+  signRequest   SignRequest @relation(fields: [signRequestId], references: [id], onDelete: Cascade)
+
+  /// Generated on the phone so a retried upload is recognised rather than
+  /// stored twice.
+  clientId String @unique
+
+  mimeType String @default("image/jpeg")
+  bytes    Bytes
+  byteSize Int    @default(0)
+  width    Int    @default(0)
+  height   Int    @default(0)
+
+  /// Coordinates the phone reported when the shutter fired. Kept separately
+  /// from the sign's own position: the sign may be moved later, but this is
+  /// where the photograph was actually taken.
+  latitude  Float?
+  longitude Float?
+
+  caption   String   @default("")
+  takenAt   DateTime @default(now())
+  createdAt DateTime @default(now())
+
+  @@index([campaignId, signRequestId])
 }
 
 /// How many signs of each type a campaign owns, so the board can show what is
