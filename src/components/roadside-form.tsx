@@ -8,7 +8,8 @@ import {
   type SignPlacement,
 } from "@/lib/enums";
 import { PLACEMENT_CAUTIONS, removalWindowLabel } from "@/lib/sign-placement";
-import { preparePhoto } from "@/lib/photo";
+import { type PreparedPhoto } from "@/lib/photo";
+import { PhotoCapture } from "@/components/camera";
 import { Card, Check, Field, Note, Select } from "@/components/ui";
 import { createRoadsideSign } from "@/app/actions/signs";
 
@@ -38,7 +39,7 @@ export function RoadsideForm({
   const [coords, setCoords] = useState<{ lat: number; lon: number; accuracy: number } | null>(null);
   const [locating, setLocating] = useState(false);
   const [locateError, setLocateError] = useState("");
-  const [photo, setPhoto] = useState<{ dataUrl: string; blob: Blob; width: number; height: number } | null>(null);
+  const [photo, setPhoto] = useState<PreparedPhoto | null>(null);
   const [message, setMessage] = useState("");
 
   function locate() {
@@ -69,17 +70,6 @@ export function RoadsideForm({
       // the last town over is worse than none.
       { enableHighAccuracy: true, timeout: 15_000, maximumAge: 0 },
     );
-  }
-
-  async function onPhoto(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try {
-      const prepared = await preparePhoto(file);
-      setPhoto(prepared);
-    } catch {
-      setMessage("Could not read that photo. The sign will still be recorded without it.");
-    }
   }
 
   function onSubmit(formData: FormData) {
@@ -228,20 +218,27 @@ export function RoadsideForm({
             placed properly.
           </p>
           {photo ? (
-            /* eslint-disable-next-line @next/next/no-img-element */
-            <img
-              src={photo.dataUrl}
-              alt="The sign where it stands"
-              className="mb-2 max-h-40 rounded-lg border border-line object-cover"
+            <div className="space-y-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={photo.dataUrl}
+                alt="The sign where it stands"
+                className="max-h-40 rounded-lg border border-line object-cover"
+              />
+              <button
+                type="button"
+                onClick={() => setPhoto(null)}
+                className="text-xs text-muted underline"
+              >
+                Retake
+              </button>
+            </div>
+          ) : (
+            <PhotoCapture
+              onCapture={setPhoto}
+              hint="Frame the sign with the road behind it, so the setback is visible."
             />
-          ) : null}
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={onPhoto}
-            className="block w-full text-sm"
-          />
+          )}
         </div>
 
         <div className="grid gap-3 sm:grid-cols-2">

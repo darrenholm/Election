@@ -30,27 +30,60 @@ export type PreparedPhoto = {
   height: number;
 };
 
-/** Redraw a camera image down to something sendable. */
-export async function preparePhoto(file: File): Promise<PreparedPhoto> {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
-  const width = Math.round(bitmap.width * scale);
-  const height = Math.round(bitmap.height * scale);
+/**
+ * Draw any image source down to a sendable JPEG.
+ *
+ * Shared by both ways a photo gets taken — the OS camera handing back a file,
+ * and the in-app camera handing over a live video frame — so the two produce
+ * byte-for-byte comparable output and nothing downstream has to care which was
+ * used.
+ */
+function redraw(
+  source: CanvasImageSource,
+  sourceWidth: number,
+  sourceHeight: number,
+): Promise<PreparedPhoto> {
+  const scale = Math.min(1, MAX_EDGE / Math.max(sourceWidth, sourceHeight));
+  const width = Math.round(sourceWidth * scale);
+  const height = Math.round(sourceHeight * scale);
 
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("This browser cannot resize the photo.");
-  ctx.drawImage(bitmap, 0, 0, width, height);
-  bitmap.close();
+  ctx.drawImage(source, 0, 0, width, height);
 
-  const blob = await new Promise<Blob | null>((resolve) =>
+  return new Promise<Blob | null>((resolve) =>
     canvas.toBlob(resolve, "image/jpeg", QUALITY),
-  );
-  if (!blob) throw new Error("Could not read the photo.");
+  ).then((blob) => {
+    if (!blob) throw new Error("Could not read the photo.");
+    return { blob, dataUrl: canvas.toDataURL("image/jpeg", 0.5), width, height };
+  });
+}
 
-  return { blob, dataUrl: canvas.toDataURL("image/jpeg", 0.5), width, height };
+/** Redraw a camera image down to something sendable. */
+export async function preparePhoto(file: File): Promise<PreparedPhoto> {
+  const bitmap = await createImageBitmap(file);
+  try {
+    return await redraw(bitmap, bitmap.width, bitmap.height);
+  } finally {
+    bitmap.close();
+  }
+}
+
+/**
+ * Freeze the current frame of a live camera preview.
+ *
+ * The intrinsic video dimensions are used rather than the element's rendered
+ * size: the preview is letterboxed to fit whatever space the layout gave it,
+ * and capturing at display size would throw away most of the sensor.
+ */
+export async function captureFromVideo(video: HTMLVideoElement): Promise<PreparedPhoto> {
+  const width = video.videoWidth;
+  const height = video.videoHeight;
+  if (!width || !height) throw new Error("The camera is not ready yet.");
+  return redraw(video, width, height);
 }
 
 /* ------------------------------------------------------------- the queue --- */

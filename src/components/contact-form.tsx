@@ -8,7 +8,8 @@ import {
   SUPPORT_LEVEL_OPTIONS,
 } from "@/lib/enums";
 import { DOOR_CONSENT_SCRIPT, ENDORSEMENT_SCRIPT, PHOTO_SCRIPT, isTextableNumber } from "@/lib/consent";
-import { flushPhotos, preparePhoto, queuePhoto } from "@/lib/photo";
+import { flushPhotos, queuePhoto, type PreparedPhoto } from "@/lib/photo";
+import { PhotoCapture } from "@/components/camera";
 import {
   clearDraft,
   draftHasContent,
@@ -81,7 +82,6 @@ export function ContactForm({
 
   const key = draftKey(draftScope, voterId, householdId);
   const pendingPhoto = useRef<{ blob: Blob; width: number; height: number } | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
 
   /** Read every named control out of the form, checkboxes included. */
   function snapshot(): Draft["fields"] {
@@ -205,23 +205,22 @@ export function ContactForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  /** Shrink the camera image on the phone, and hold it until the door is saved. */
-  async function onPhotoChosen(file: File) {
+  /**
+   * Hold a photo with the door until it is saved. Already shrunk by the time it
+   * arrives — PhotoCapture does that, whether it came from the in-app camera or
+   * from a file the canvasser picked.
+   */
+  function onPhotoPrepared(prepared: PreparedPhoto) {
     setPhotoError("");
-    try {
-      const prepared = await preparePhoto(file);
-      pendingPhoto.current = { blob: prepared.blob, width: prepared.width, height: prepared.height };
-      setPhoto({ dataUrl: prepared.dataUrl, width: prepared.width, height: prepared.height });
-      void writeDraftPhoto(key, {
-        blob: prepared.blob,
-        dataUrl: prepared.dataUrl,
-        width: prepared.width,
-        height: prepared.height,
-      });
-      scheduleDraft();
-    } catch (error) {
-      setPhotoError(error instanceof Error ? error.message : "Could not read that photo.");
-    }
+    pendingPhoto.current = { blob: prepared.blob, width: prepared.width, height: prepared.height };
+    setPhoto({ dataUrl: prepared.dataUrl, width: prepared.width, height: prepared.height });
+    void writeDraftPhoto(key, {
+      blob: prepared.blob,
+      dataUrl: prepared.dataUrl,
+      width: prepared.width,
+      height: prepared.height,
+    });
+    scheduleDraft();
   }
 
   function clearPhoto() {
@@ -229,7 +228,6 @@ export function ContactForm({
     setPhoto(null);
     setPhotoMayPublish(false);
     setPhotoError("");
-    if (fileInput.current) fileInput.current.value = "";
   }
 
   const alreadyAsked = smsConsent === "GRANTED" || smsConsent === "DECLINED";
@@ -562,21 +560,10 @@ export function ContactForm({
             </div>
           ) : (
             <div className="mt-2">
-              <input
-                ref={fileInput}
-                type="file"
-                accept="image/*"
-                capture="environment"
-                className="field"
-                onChange={(e) => {
-                  const chosen = e.target.files?.[0];
-                  if (chosen) void onPhotoChosen(chosen);
-                }}
+              <PhotoCapture
+                onCapture={onPhotoPrepared}
+                hint="Optional. Shrunk on this phone before it is sent, and held here with the door if there is no signal."
               />
-              <p className="mt-1 text-xs text-muted">
-                Optional. Shrunk on this phone before it is sent, and held here
-                with the door if there is no signal.
-              </p>
             </div>
           )}
           {photoError ? (
