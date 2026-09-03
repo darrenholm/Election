@@ -97,15 +97,20 @@ export default async function VotersPage({
   const and = where.AND as Prisma.VoterWhereInput[];
 
   if (q) {
-    // SQLite's LIKE is case-insensitive for ASCII, which covers name search
-    // without needing a separate normalised column.
+    // Postgres LIKE is case-sensitive, and the clerk's list arrives in capitals
+    // (HOLM, DARREN), so every text comparison here has to say so explicitly.
     and.push({
       OR: [
-        { firstName: { contains: q } },
-        { lastName: { contains: q } },
+        { firstName: { contains: q, mode: "insensitive" } },
+        { middleName: { contains: q, mode: "insensitive" } },
+        { lastName: { contains: q, mode: "insensitive" } },
         { phone: { contains: q } },
-        { email: { contains: q } },
-        { household: { is: { streetName: { contains: normaliseStreet(q) } } } },
+        { email: { contains: q, mode: "insensitive" } },
+        {
+          household: {
+            is: { streetName: { contains: normaliseStreet(q), mode: "insensitive" } },
+          },
+        },
       ],
     });
   }
