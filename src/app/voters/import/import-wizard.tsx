@@ -7,10 +7,11 @@ import { importVoters, type ImportResult, type ImportRow } from "@/app/actions/v
 
 /** The voter fields an import can populate, in the order they are mapped. */
 const TARGETS = [
-  { key: "externalId", label: "List ID", hints: ["voterid", "electorid", "id", "sequence"] },
-  { key: "firstName", label: "First name", hints: ["first", "given", "firstname"] },
-  { key: "lastName", label: "Last name", hints: ["last", "surname", "lastname", "family"] },
-  { key: "streetNumber", label: "Street number", hints: ["streetnumber", "housenumber", "civic", "number", "stno"] },
+  { key: "lastName", label: "Last name", hints: ["lastname", "last", "surname", "family"] },
+  { key: "firstName", label: "First name", hints: ["firstname", "first", "given", "givenname"] },
+  { key: "middleName", label: "Middle name", hints: ["middlename", "middle", "middleinitial", "initial"] },
+  { key: "externalId", label: "List ID", hints: ["voterid", "electorid", "listid", "sequence", "id"] },
+  { key: "streetNumber", label: "Street number", hints: ["streetnumber", "streetno", "housenumber", "houseno", "civicnumber", "civicno", "civic", "number", "stno", "no"] },
   { key: "streetName", label: "Street name", hints: ["street", "streetname", "road", "address"] },
   { key: "unit", label: "Unit / apt", hints: ["unit", "apt", "apartment", "suite"] },
   { key: "city", label: "City", hints: ["city", "municipality", "town"] },
@@ -97,6 +98,21 @@ export function ImportWizard({ showWards = false }: { showWards?: boolean }) {
   }
 
   const namesMapped = Boolean(mapping.firstName || mapping.lastName);
+
+  // A list ID has digits in it. If the column mapped to List ID is all letters
+  // it is almost certainly a name column, and importing it that way is quietly
+  // destructive: externalId is unique per municipality and a match is treated
+  // as "already on file", so the second Marie would overwrite the first.
+  const idColumnLooksLikeNames = (() => {
+    const source = mapping.externalId;
+    if (!source) return false;
+    const sample = rows
+      .slice(0, 200)
+      .map((r) => (r[source] ?? "").trim())
+      .filter((v) => v !== "");
+    if (sample.length < 5) return false;
+    return sample.every((v) => /[A-Za-z]/.test(v) && !/[0-9]/.test(v));
+  })();
 
   if (result) {
     return (
@@ -244,11 +260,20 @@ export function ImportWizard({ showWards = false }: { showWards?: boolean }) {
             </div>
           ) : null}
 
+          {idColumnLooksLikeNames ? (
+            <p className="rounded-lg border border-accent/40 bg-accent-soft p-3 text-sm text-accent-ink">
+              The column mapped to <strong>List ID</strong> ({mapping.externalId}) holds
+              no numbers, so it looks like a name rather than an elector number.
+              Importing it as the List ID will overwrite voters who share that
+              value. Map it to a name field, or leave it unimported.
+            </p>
+          ) : null}
+
           <div className="flex items-center gap-3">
             <button
               type="button"
               className="btn-primary"
-              disabled={pending || !namesMapped || rows.length === 0}
+              disabled={pending || !namesMapped || rows.length === 0 || idColumnLooksLikeNames}
               onClick={runImport}
             >
               {pending ? "Importing…" : `Import ${rows.length.toLocaleString("en-CA")} rows`}
@@ -263,6 +288,23 @@ export function ImportWizard({ showWards = false }: { showWards?: boolean }) {
   );
 }
 
+/**
+ * Split a header into whole words: "Middle Name" -> ["middle", "name"], and
+ * also the run-together form ("middlename") so "MiddleName" still matches.
+ *
+ * Matching used to be a plain substring test, which is how a clerk's "Middle
+ * Name" column ended up mapped to List ID: "middlename" contains "id". Names
+ * imported into externalId then collided on the municipality/externalId unique
+ * key and quietly overwrote each other, so this stays word-based.
+ */
+function headerWords(header: string): Set<string> {
+  const words = header
+    .toLowerCase()
+    .split(/[^a-z]+/)
+    .filter(Boolean);
+  return new Set([...words, words.join("")]);
+}
+
 /** Guess the mapping from header names so most lists need no manual work. */
 function guessMapping(
   headers: string[],
@@ -274,8 +316,8 @@ function guessMapping(
   for (const target of targets) {
     const match = headers.find((h) => {
       if (taken.has(h)) return false;
-      const norm = h.toLowerCase().replace(/[^a-z]/g, "");
-      return target.hints.some((hint) => norm === hint || norm.includes(hint));
+      const words = headerWords(h);
+      return target.hints.some((hint) => words.has(hint));
     });
     if (match) {
       mapping[target.key] = match;

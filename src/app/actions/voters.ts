@@ -382,6 +382,7 @@ export async function removeHouseholdFromTurf(turfId: string, householdId: strin
 export type ImportRow = {
   externalId?: string;
   firstName?: string;
+  middleName?: string;
   lastName?: string;
   email?: string;
   phone?: string;
@@ -462,6 +463,7 @@ export async function importVoters(rows: ImportRow[]): Promise<ImportResult> {
 
       const data = {
         firstName,
+        middleName: (row.middleName ?? "").trim(),
         lastName,
         email: (row.email ?? "").trim(),
         phone: (row.phone ?? "").trim(),

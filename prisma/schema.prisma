@@ -200,8 +200,9 @@ model Voter {
   /// rather than globally — two municipalities may well reuse a number.
   externalId String?
 
-  firstName String @default("")
-  lastName  String @default("")
+  firstName  String @default("")
+  middleName String @default("")
+  lastName   String @default("")
   email     String @default("")
   phone     String @default("")
   language  String @default("")
