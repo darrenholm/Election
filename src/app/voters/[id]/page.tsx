@@ -107,8 +107,8 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
               voterId={voter.id}
               volunteers={volunteers}
               draftScope={campaignId}
-              knownPhone={voter.phone}
-              knownEmail={voter.email}
+              knownPhone={state.phone}
+              knownEmail={state.email}
               smsConsent={state.smsConsent}
             />
           </Card>
@@ -221,8 +221,8 @@ export default async function VoterPage({ params }: { params: Promise<{ id: stri
         <div className="space-y-6">
           <Card title="Contact details">
             <dl className="space-y-2 text-sm">
-              <Row label="Phone" value={voter.phone || "—"} />
-              <Row label="Email" value={voter.email || "—"} />
+              <Row label="Phone" value={state.phone || "—"} />
+              <Row label="Email" value={state.email || "—"} />
               <Row label="Language" value={voter.language || "—"} />
               {campaign.municipality.usesWards ? (
                 <Row label="Ward" value={voter.household?.ward || "—"} />

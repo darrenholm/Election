@@ -62,6 +62,9 @@ export default async function VolunteersPage({
       },
       orderBy: { updatedAt: "desc" },
       take: 10,
+      include: {
+        campaignStates: { where: { campaignId }, select: { phone: true, email: true } },
+      },
     }),
   ]);
 
@@ -106,7 +109,9 @@ export default async function VolunteersPage({
                       {titleCase(voter.firstName)} {titleCase(voter.lastName)}
                     </Link>
                     <p className="text-xs text-muted">
-                      {[voter.phone, voter.email].filter(Boolean).join(" · ") || "No contact details"}
+                      {[voter.campaignStates[0]?.phone, voter.campaignStates[0]?.email]
+                        .filter(Boolean)
+                        .join(" · ") || "No contact details"}
                     </p>
                   </div>
                   <form action={recruit}>

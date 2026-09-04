@@ -45,7 +45,7 @@ export default async function MeetPage({
           household: { select: { streetNumber: true, streetName: true } },
           campaignStates: {
             where: { campaignId: campaign.id },
-            select: { smsConsent: true },
+            select: { smsConsent: true, phone: true, email: true },
           },
         },
       })
@@ -141,8 +141,8 @@ export default async function MeetPage({
               volunteers={volunteers}
               draftScope={campaign.id}
               defaultMethod="EVENT"
-              knownPhone={voter?.phone ?? ""}
-              knownEmail={voter?.email ?? ""}
+              knownPhone={voter?.campaignStates[0]?.phone ?? ""}
+              knownEmail={voter?.campaignStates[0]?.email ?? ""}
               smsConsent={voter?.campaignStates[0]?.smsConsent ?? "UNKNOWN"}
             />
           </div>

@@ -73,7 +73,10 @@ export async function recruitVoter(voterId: string) {
 
   const voter = await db.voter.findUnique({
     where: { id: voterId },
-    include: { volunteers: { where: { campaignId } } },
+    include: {
+      volunteers: { where: { campaignId } },
+      campaignStates: { where: { campaignId }, select: { phone: true, email: true } },
+    },
   });
   if (!voter) return;
   // Someone can volunteer for two candidates; only this campaign's roster matters.
@@ -81,13 +84,15 @@ export async function recruitVoter(voterId: string) {
     redirect(`/volunteers/${voter.volunteers[0].id}`);
   }
 
+  const contact = voter.campaignStates[0];
+
   const volunteer = await db.volunteer.create({
     data: {
       campaignId,
       firstName: voter.firstName,
       lastName: voter.lastName,
-      email: voter.email,
-      phone: voter.phone,
+      email: contact?.email ?? "",
+      phone: contact?.phone ?? "",
       status: "PROSPECT",
       voterId: voter.id,
       notes: "Offered to volunteer while being canvassed.",

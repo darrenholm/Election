@@ -108,8 +108,6 @@ function voterIdentityFields(formData: FormData) {
   return {
     firstName: str(formData, "firstName"),
     lastName: str(formData, "lastName"),
-    email: str(formData, "email"),
-    phone: str(formData, "phone"),
     language: str(formData, "language"),
     birthYear: intOrNull(formData, "birthYear"),
     movedAway: bool(formData, "movedAway"),
@@ -117,9 +115,17 @@ function voterIdentityFields(formData: FormData) {
   };
 }
 
-/** Fields that are one campaign's opinion, and so are scoped to it. */
+/**
+ * Fields that are one campaign's own record, and so are scoped to it.
+ *
+ * Phone and email are here rather than with the identity fields: a number is
+ * given to a candidate, not published to the town, and the other campaigns
+ * sharing this voters' list have no business reading it.
+ */
 function voterStateFields(formData: FormData) {
   return {
+    email: str(formData, "email"),
+    phone: str(formData, "phone"),
     supportLevel: clampSupport(intOrNull(formData, "supportLevel")),
     wantsSign: bool(formData, "wantsSign"),
     wantsToVolunteer: bool(formData, "wantsToVolunteer"),
@@ -465,12 +471,17 @@ export async function importVoters(rows: ImportRow[]): Promise<ImportResult> {
         firstName,
         middleName: (row.middleName ?? "").trim(),
         lastName,
-        email: (row.email ?? "").trim(),
-        phone: (row.phone ?? "").trim(),
         householdId,
         municipalityId,
       };
 
+      // A list carrying phone numbers was obtained by this campaign, so the
+      // numbers land on this campaign's record rather than on the shared voter
+      // row where the other candidates in town would read them.
+      const phone = (row.phone ?? "").trim();
+      const email = (row.email ?? "").trim();
+
+      let voterId: string;
       const externalId = (row.externalId ?? "").trim();
       if (externalId) {
         const existing = await db.voter.findUnique({
@@ -478,14 +489,25 @@ export async function importVoters(rows: ImportRow[]): Promise<ImportResult> {
         });
         if (existing) {
           await db.voter.update({ where: { id: existing.id }, data });
+          voterId = existing.id;
           result.updated++;
         } else {
-          await db.voter.create({ data: { ...data, externalId } });
+          const created = await db.voter.create({ data: { ...data, externalId } });
+          voterId = created.id;
           result.created++;
         }
       } else {
-        await db.voter.create({ data });
+        const created = await db.voter.create({ data });
+        voterId = created.id;
         result.created++;
+      }
+
+      if (phone !== "" || email !== "") {
+        await db.voterCampaignState.upsert({
+          where: { campaignId_voterId: { campaignId: campaign.id, voterId } },
+          create: { campaignId: campaign.id, voterId, phone, email },
+          update: { phone, email },
+        });
       }
     } catch (error) {
       result.skipped++;

@@ -36,7 +36,7 @@ export default async function ConsentPage({
       orderBy: { smsConsentAt: "desc" },
       take: 300,
       include: {
-        voter: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        voter: { select: { id: true, firstName: true, lastName: true } },
       },
     }),
     db.voterCampaignState.groupBy({ by: ["smsConsent"], where: { campaignId }, _count: true }),
@@ -47,7 +47,7 @@ export default async function ConsentPage({
     id: r.voter.id,
     firstName: r.voter.firstName,
     lastName: r.voter.lastName,
-    phone: r.voter.phone,
+    phone: r.phone,
     smsConsent: r.smsConsent,
     smsConsentAt: r.smsConsentAt,
     smsConsentSource: r.smsConsentSource,

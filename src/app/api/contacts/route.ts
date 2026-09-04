@@ -110,11 +110,11 @@ export async function POST(request: Request) {
     }
   }
 
-  let voter: { id: string; phone: string; email: string } | null = null;
+  let voter: { id: string } | null = null;
   if (data.voterId) {
     voter = await db.voter.findUnique({
       where: { id: data.voterId },
-      select: { id: true, phone: true, email: true },
+      select: { id: true },
     });
     // 404 rather than 5xx: the outbox drops entries it can never deliver, and a
     // voter deleted since the door was knocked is exactly that case.
@@ -123,17 +123,16 @@ export async function POST(request: Request) {
     // Somebody answered a door that had nobody on file, or was met away from
     // any door at all. Either way they become an elector in this municipality;
     // the address is attached when the contact carries one and left off when
-    // it does not, rather than being invented.
+    // it does not, rather than being invented. Their phone and email are not
+    // set here — those go on this campaign's own record, below.
     voter = await db.voter.create({
       data: {
         municipalityId: campaign.municipalityId,
         householdId: household?.id ?? null,
         firstName: data.newPerson.firstName.trim(),
         lastName: data.newPerson.lastName.trim(),
-        phone: data.phone.trim(),
-        email: data.email.trim(),
       },
-      select: { id: true, phone: true, email: true },
+      select: { id: true },
     });
   }
 
@@ -199,9 +198,21 @@ export async function POST(request: Request) {
     state.smsConsentWording = data.smsConsentWording;
   }
 
+  // What this campaign already holds for them. Another candidate may well have
+  // their number; that is not this campaign's to read or to reuse.
+  const known = await db.voterCampaignState.findUnique({
+    where: { campaignId_voterId: { campaignId: campaign.id, voterId: voter.id } },
+    select: { phone: true, email: true },
+  });
+
+  // Details collected at the door only ever fill gaps; they never overwrite
+  // something already on file, which a canvasser cannot verify from the step.
+  if (data.phone.trim() && !(known?.phone ?? "").trim()) state.phone = data.phone.trim();
+  if (data.email.trim() && !(known?.email ?? "").trim()) state.email = data.email.trim();
+
   // A number collected at the door is useless if it has already opted out of
   // this campaign's messages, so honour any standing opt-out immediately.
-  const e164 = normalisePhone(data.phone || voter.phone);
+  const e164 = normalisePhone(data.phone || known?.phone || "");
   if (e164 && data.smsConsent === "GRANTED") {
     const optedOut = await db.smsOptOut.findUnique({
       where: { campaignId_phone: { campaignId: campaign.id, phone: e164 } },
@@ -217,10 +228,6 @@ export async function POST(request: Request) {
   const person: Record<string, unknown> = {};
   if (data.result === "MOVED") person.movedAway = true;
   if (data.result === "DECEASED") person.deceased = true;
-  // Details collected at the door only ever fill gaps; they never overwrite
-  // something already on file, which a canvasser cannot verify from the step.
-  if (data.phone.trim() && !voter.phone.trim()) person.phone = data.phone.trim();
-  if (data.email.trim() && !voter.email.trim()) person.email = data.email.trim();
 
   if (Object.keys(person).length > 0) {
     await db.voter.update({ where: { id: voter.id }, data: person });

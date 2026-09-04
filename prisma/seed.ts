@@ -183,8 +183,6 @@ async function main() {
               externalId: `${town.postalPrefix}-${externalId++}`,
               firstName: pick(FIRST_NAMES),
               lastName: chance(0.8) ? lastName : pick(LAST_NAMES),
-              phone: chance(0.55) ? `519-555-${String(intBetween(1000, 9999))}` : "",
-              email: chance(0.25) ? `resident${externalId}@example.com` : "",
               householdId: household.id,
               deceased: chance(0.01),
               movedAway: chance(0.02),
@@ -284,6 +282,10 @@ async function main() {
         data: {
           campaignId: campaign.id,
           voterId,
+          // Contact details belong to the campaign that was given them, so the
+          // seed hands them out per campaign rather than to the whole town.
+          phone: chance(0.55) ? `519-555-${String(intBetween(1000, 9999))}` : "",
+          email: chance(0.25) ? `resident-${voterId.slice(-6)}@example.com` : "",
           supportLevel,
           wantsSign,
           wantsToVolunteer: supportLevel === 1 && chance(0.1),
@@ -327,7 +329,10 @@ async function main() {
       if (wantsSign) {
         const voter = await db.voter.findUnique({
           where: { id: voterId },
-          include: { household: true },
+          include: {
+            household: true,
+            campaignStates: { where: { campaignId: campaign.id }, select: { phone: true } },
+          },
         });
         if (voter?.household) {
           await db.signRequest.create({
@@ -335,7 +340,7 @@ async function main() {
               campaignId: campaign.id,
               voterId,
               requesterName: `${voter.firstName} ${voter.lastName}`.trim(),
-              phone: voter.phone,
+              phone: voter.campaignStates[0]?.phone ?? "",
               addressLine: `${voter.household.streetNumber} ${voter.household.streetName}`,
               city: voter.household.city,
               postalCode: voter.household.postalCode,
@@ -485,11 +490,10 @@ async function main() {
 
     /* --- one opt-out, so the block list is not empty --- */
     const consentedVoter = await db.voterCampaignState.findFirst({
-      where: { campaignId: campaign.id, smsConsent: "GRANTED", voter: { NOT: { phone: "" } } },
-      include: { voter: true },
+      where: { campaignId: campaign.id, smsConsent: "GRANTED", NOT: { phone: "" } },
     });
     if (consentedVoter) {
-      const e164 = normalisePhone(consentedVoter.voter.phone);
+      const e164 = normalisePhone(consentedVoter.phone);
       if (e164) {
         await db.smsOptOut.create({
           data: { campaignId: campaign.id, phone: e164, reason: 'Texted "STOP"' },

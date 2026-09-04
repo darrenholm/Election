@@ -250,13 +250,13 @@ export async function addOptOut(formData: FormData) {
 
   // Reflect it on this campaign's view of any voter carrying that number, so
   // the roster agrees with the block list rather than quietly disagreeing.
-  const voters = await db.voter.findMany({
-    where: { municipalityId: campaign.municipalityId, NOT: { phone: "" } },
-    select: { id: true, phone: true },
+  const states = await db.voterCampaignState.findMany({
+    where: { campaignId: campaign.id, NOT: { phone: "" } },
+    select: { voterId: true, phone: true },
   });
-  for (const voter of voters) {
-    if (normalisePhone(voter.phone) === e164) {
-      await upsertVoterState(campaign.id, voter.id, { smsConsent: "REVOKED" });
+  for (const s of states) {
+    if (normalisePhone(s.phone) === e164) {
+      await upsertVoterState(campaign.id, s.voterId, { smsConsent: "REVOKED" });
     }
   }
 

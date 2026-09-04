@@ -20,17 +20,24 @@ export async function createSignRequestForVoter(
 
   const voter = await db.voter.findUnique({
     where: { id: voterId },
-    include: { household: true },
+    include: {
+      household: true,
+      // Contact details belong to the campaign that was given them, so take
+      // them from this campaign's own record rather than the shared row.
+      campaignStates: { where: { campaignId }, select: { phone: true, email: true } },
+    },
   });
   if (!voter) return;
+
+  const contact = voter.campaignStates[0];
 
   await db.signRequest.create({
     data: {
       campaignId,
       voterId,
       requesterName: `${voter.firstName} ${voter.lastName}`.trim(),
-      phone: voter.phone,
-      email: voter.email,
+      phone: contact?.phone ?? "",
+      email: contact?.email ?? "",
       addressLine: voter.household
         ? `${voter.household.streetNumber} ${voter.household.streetName}${
             voter.household.unit ? ` Unit ${voter.household.unit}` : ""

@@ -54,7 +54,7 @@ function flagWhere(key: string, campaignId: string): Prisma.VoterWhereInput | nu
     case "consented":
       return state({ smsConsent: "GRANTED" });
     case "phone":
-      return { NOT: { phone: "" } };
+      return state({ NOT: { phone: "" } });
     case "dnc":
       return state({ doNotContact: true });
     default:
@@ -104,8 +104,14 @@ export default async function VotersPage({
         { firstName: { contains: q, mode: "insensitive" } },
         { middleName: { contains: q, mode: "insensitive" } },
         { lastName: { contains: q, mode: "insensitive" } },
-        { phone: { contains: q } },
-        { email: { contains: q, mode: "insensitive" } },
+        // Only this campaign's own contact details are searchable; another
+        // candidate's number is not on this campaign's record to find.
+        { campaignStates: { some: { campaignId, phone: { contains: q } } } },
+        {
+          campaignStates: {
+            some: { campaignId, email: { contains: q, mode: "insensitive" } },
+          },
+        },
         {
           household: {
             is: { streetName: { contains: normaliseStreet(q), mode: "insensitive" } },
@@ -286,11 +292,11 @@ export default async function VotersPage({
                       <SupportBadge level={state.supportLevel} />
                     </Td>
                     <Td className="text-muted">
-                      {voter.phone ? <span className="block">{voter.phone}</span> : null}
-                      {voter.email ? (
-                        <span className="block truncate text-xs">{voter.email}</span>
+                      {state.phone ? <span className="block">{state.phone}</span> : null}
+                      {state.email ? (
+                        <span className="block truncate text-xs">{state.email}</span>
                       ) : null}
-                      {!voter.phone && !voter.email ? "—" : null}
+                      {!state.phone && !state.email ? "—" : null}
                     </Td>
                     <Td className="text-muted">
                       {voter.contacts[0] ? formatDate(voter.contacts[0].occurredAt) : "Never"}

@@ -88,7 +88,7 @@ export async function POST(request: Request) {
       create: { campaignId: resolved.id, phone: from, reason },
       update: { reason },
     });
-    await setConsentForPhone(resolved.id, resolved.municipalityId, from, "REVOKED");
+    await setConsentForPhone(resolved.id, from, "REVOKED");
 
     // Twilio sends its own confirmation for standard STOP keywords on a
     // from-number, so replying here would double up.
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
 
   // Anything else is a reply worth a human reading. Store it as a contact
   // against the voter so it does not vanish into the provider's console.
-  const voter = await findVoterByPhone(resolved.municipalityId, from);
+  const voter = await findVoterByPhone(resolved.id, from);
   if (voter) {
     await db.contactAttempt.create({
       data: {
@@ -121,27 +121,28 @@ export async function POST(request: Request) {
   return twiml("");
 }
 
-async function findVoterByPhone(municipalityId: string, e164: string) {
-  const voters = await db.voter.findMany({
-    where: { municipalityId, NOT: { phone: "" } },
-    select: { id: true, phone: true },
+/**
+ * Numbers are held per campaign, so an inbound text is matched against this
+ * campaign's own records. It could not sensibly be otherwise: a reply to one
+ * candidate's message is not evidence about anybody else's contact list.
+ */
+async function findVoterByPhone(campaignId: string, e164: string) {
+  const states = await db.voterCampaignState.findMany({
+    where: { campaignId, NOT: { phone: "" } },
+    select: { voterId: true, phone: true },
   });
-  return voters.find((v) => normalisePhone(v.phone) === e164) ?? null;
+  const match = states.find((s) => normalisePhone(s.phone) === e164);
+  return match ? { id: match.voterId } : null;
 }
 
-async function setConsentForPhone(
-  campaignId: string,
-  municipalityId: string,
-  e164: string,
-  state: string,
-) {
-  const voters = await db.voter.findMany({
-    where: { municipalityId, NOT: { phone: "" } },
-    select: { id: true, phone: true },
+async function setConsentForPhone(campaignId: string, e164: string, state: string) {
+  const states = await db.voterCampaignState.findMany({
+    where: { campaignId, NOT: { phone: "" } },
+    select: { voterId: true, phone: true },
   });
-  for (const voter of voters) {
-    if (normalisePhone(voter.phone) === e164) {
-      await upsertVoterState(campaignId, voter.id, { smsConsent: state });
+  for (const s of states) {
+    if (normalisePhone(s.phone) === e164) {
+      await upsertVoterState(campaignId, s.voterId, { smsConsent: state });
     }
   }
 }

@@ -203,10 +203,14 @@ model Voter {
   firstName  String @default("")
   middleName String @default("")
   lastName   String @default("")
-  email     String @default("")
-  phone     String @default("")
-  language  String @default("")
-  birthYear Int?
+  language   String @default("")
+  birthYear  Int?
+
+  /// Phone and email are deliberately NOT here. A number is given to a
+  /// particular candidate, not to the municipality, and the consent that goes
+  /// with it already lives on VoterCampaignState. Keeping the number beside
+  /// the consent means one campaign's canvassing cannot hand another campaign
+  /// a way to reach someone who never offered it to them.
 
   householdId String?
   household   Household? @relation(fields: [householdId], references: [id], onDelete: SetNull)
@@ -242,6 +246,14 @@ model VoterCampaignState {
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
   voterId    String
   voter      Voter    @relation(fields: [voterId], references: [id], onDelete: Cascade)
+
+  /// How to reach this elector, as given to THIS campaign. Somebody who hands
+  /// their mobile to one candidate's canvasser has not published it to the
+  /// town, so a number collected here is invisible to the other campaigns
+  /// sharing the voters' list. It sits beside smsConsent below for the same
+  /// reason: the permission and the number it was given for belong together.
+  phone String @default("")
+  email String @default("")
 
   /// 1 = strong support … 5 = strong oppose. Null = never identified.
   supportLevel Int?

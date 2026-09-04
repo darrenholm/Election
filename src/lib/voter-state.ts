@@ -22,6 +22,8 @@ export async function upsertVoterState(
 
 /** The defaults a voter has for a campaign that has never recorded anything. */
 export const EMPTY_VOTER_STATE = {
+  phone: "",
+  email: "",
   supportLevel: null as number | null,
   wantsSign: false,
   wantsToVolunteer: false,

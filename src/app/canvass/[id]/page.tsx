@@ -213,8 +213,8 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
                                         volunteers={volunteers}
                                         draftScope={campaignId}
                                         defaultVolunteerId={turf.assignedToId}
-                                        knownPhone={voter.phone}
-                                        knownEmail={voter.email}
+                                        knownPhone={state.phone}
+                                        knownEmail={state.email}
                                         smsConsent={state.smsConsent}
                                         compact
                                       />

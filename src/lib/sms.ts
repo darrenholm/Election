@@ -106,10 +106,10 @@ export async function buildAudience(
       campaignId,
       smsConsent: "GRANTED",
       doNotContact: false,
+      NOT: { phone: "" },
       voter: {
         deceased: false,
         movedAway: false,
-        NOT: { phone: "" },
         ...(filter.streets && filter.streets.length > 0
           ? { household: { is: { streetKey: { in: filter.streets } } } }
           : {}),
@@ -123,11 +123,12 @@ export async function buildAudience(
       ...(filter.tag ? { tags: { contains: filter.tag } } : {}),
     },
     select: {
-      voter: { select: { id: true, firstName: true, lastName: true, phone: true } },
+      phone: true,
+      voter: { select: { id: true, firstName: true, lastName: true } },
     },
   });
 
-  const voters = states.map((s) => s.voter);
+  const voters = states.map((s) => ({ ...s.voter, phone: s.phone }));
 
   const optOuts = new Set(
     (await db.smsOptOut.findMany({ where: { campaignId }, select: { phone: true } })).map(

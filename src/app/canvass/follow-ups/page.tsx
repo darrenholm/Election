@@ -25,7 +25,12 @@ export default async function FollowUpsPage() {
     db.contactAttempt.findMany({
       where: { campaignId, followUpNeeded: true, followUpDoneAt: null },
       include: {
-        voter: { include: { household: true } },
+        voter: {
+          include: {
+            household: true,
+            campaignStates: { where: { campaignId }, select: { phone: true } },
+          },
+        },
         household: true,
         volunteer: { select: { firstName: true, lastName: true } },
       },
@@ -111,7 +116,9 @@ export default async function FollowUpsPage() {
                             {contact.volunteer
                               ? ` · ${contact.volunteer.firstName} ${contact.volunteer.lastName}`.trimEnd()
                               : ""}
-                            {voter?.phone ? ` · ${voter.phone}` : ""}
+                            {voter?.campaignStates[0]?.phone
+                              ? ` · ${voter.campaignStates[0].phone}`
+                              : ""}
                           </p>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
