@@ -26,6 +26,7 @@ const db = new PrismaClient();
 
 const argv = process.argv.slice(2);
 const apply = argv.includes("--apply");
+const listAll = argv.includes("--list");
 const wanted: string[] = [];
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === "--municipality" && argv[i + 1]) wanted.push(argv[++i]);
@@ -66,12 +67,21 @@ async function main() {
   for (const m of targets) {
     const households = await db.household.findMany({
       where: { municipalityId: m.id },
-      select: { id: true, streetNumber: true, streetName: true, streetKey: true, unit: true, city: true },
+      select: {
+        id: true,
+        streetNumber: true,
+        streetName: true,
+        streetKey: true,
+        unit: true,
+        city: true,
+        _count: { select: { voters: true } },
+      },
     });
 
     const streetsBefore = new Set(households.map((h) => h.streetKey)).size;
 
     const candidates = households.filter((h) => h.streetNumber.trim() === "");
+    const leftAloneRows: { streetName: string; _count: { voters: number } }[] = [];
     const splittable: {
       id: string;
       before: string;
@@ -85,6 +95,7 @@ async function main() {
       const split = splitCivicNumber(h.streetName);
       if (!split) {
         leftAlone.push(h.streetName);
+        leftAloneRows.push({ streetName: h.streetName, _count: h._count });
         continue;
       }
       splittable.push({
@@ -120,8 +131,24 @@ async function main() {
       }
     }
     if (leftAlone.length > 0) {
-      console.log("  examples left alone:");
-      for (const value of leftAlone.slice(0, 8)) console.log(`    "${value}"`);
+      if (listAll) {
+        // The whole list, with electors, because deciding what to do about a
+        // rural address is a judgement about the ground and needs all of it.
+        console.log(`  every address with no civic number (${leftAlone.length}):`);
+        const counts = new Map<string, { doors: number; voters: number }>();
+        for (const h of leftAloneRows) {
+          const row = counts.get(h.streetName) ?? { doors: 0, voters: 0 };
+          row.doors++;
+          row.voters += h._count.voters;
+          counts.set(h.streetName, row);
+        }
+        for (const [value, n] of [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+          console.log(`    ${String(n.voters).padStart(3)} electors  ${n.doors} door(s)  "${value}"`);
+        }
+      } else {
+        console.log("  examples left alone (--list for all of them):");
+        for (const value of leftAlone.slice(0, 8)) console.log(`    "${value}"`);
+      }
     }
 
     // After the split two rows can describe the same door. Nothing here merges
