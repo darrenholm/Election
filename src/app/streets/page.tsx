@@ -109,10 +109,13 @@ export default async function StreetsPage({
     switch (sort) {
       case "street":
         return a.street.localeCompare(b.street);
+      // Ascending: these two exist to surface the streets nobody has been
+      // down yet, so the emptiest has to come first. Sorted the other way they
+      // showed the finished streets and hid the work.
       case "knocked":
-        return pct(b.knockedDoors, b.doors) - pct(a.knockedDoors, a.doors);
+        return pct(a.knockedDoors, a.doors) - pct(b.knockedDoors, b.doors);
       case "identified":
-        return pct(b.identified, b.voters) - pct(a.identified, a.voters);
+        return pct(a.identified, a.voters) - pct(b.identified, b.voters);
       case "support":
         return average(a.supportSum, a.supportCount) - average(b.supportSum, b.supportCount);
       case "voters":
