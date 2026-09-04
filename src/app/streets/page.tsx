@@ -8,7 +8,7 @@ import { titleCase } from "@/components/voter";
 
 export const dynamic = "force-dynamic";
 
-type Sort = "street" | "doors" | "knocked" | "identified" | "support";
+type Sort = "street" | "doors" | "voters" | "knocked" | "identified" | "support";
 
 /**
  * Door counts per street, which is how canvass planning actually gets done:
@@ -115,6 +115,12 @@ export default async function StreetsPage({
         return pct(b.identified, b.voters) - pct(a.identified, a.voters);
       case "support":
         return average(a.supportSum, a.supportCount) - average(b.supportSum, b.supportCount);
+      case "voters":
+        // Doors and electors diverge: an apartment block is one door and
+        // twenty votes, a rural concession the other way about. Sorting by
+        // electors is what you want when the question is where the votes are
+        // rather than where the walking is.
+        return b.voters - a.voters;
       case "doors":
       default:
         return b.doors - a.doors;
@@ -170,6 +176,7 @@ export default async function StreetsPage({
             />
             <select name="sort" defaultValue={sort} className="field w-44">
               <option value="doors">Most doors</option>
+              <option value="voters">Most voters</option>
               <option value="street">Street name</option>
               <option value="knocked">Least covered</option>
               <option value="identified">Least identified</option>
