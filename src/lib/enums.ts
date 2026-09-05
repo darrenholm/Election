@@ -442,6 +442,21 @@ export const SHOP_FULFILMENTS = {
 export type ShopFulfilment = keyof typeof SHOP_FULFILMENTS;
 export const SHOP_FULFILMENT_OPTIONS = options(SHOP_FULFILMENTS);
 
+/**
+ * Who actually prints a job.
+ *
+ * Signs are cut from sheets in the shop. Cards and hangers go to a trade
+ * printer and are drop-shipped, which is cheaper than running short offset work
+ * in-house and is how most small shops fill those lines. Recorded per order
+ * because it is a fact about what happened, not a preference.
+ */
+export const SHOP_VENDORS = {
+  NONE: "Printed in the shop",
+  SINALITE: "SinaLite",
+} as const;
+export type ShopVendor = keyof typeof SHOP_VENDORS;
+export const SHOP_VENDOR_OPTIONS = options(SHOP_VENDORS);
+
 /* ------------------------------------------------------------------- helpers */
 
 

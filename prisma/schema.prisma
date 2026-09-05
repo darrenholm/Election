@@ -1209,6 +1209,49 @@ model ShopOrder {
   /// Only ever shown in the shop's own queue, never on the customer's page.
   staffNotes String @default("")
 
+  /// Trade fulfilment.
+  ///
+  /// NONE — the shop prints it. SINALITE — it is sent to the trade printer and
+  /// drop-shipped. Which one an order takes is decided per product (signs are
+  /// cut in the shop; cards and hangers are not), so this records what actually
+  /// happened to this order rather than what the catalogue would prefer.
+  vendor String @default("NONE")
+
+  /// Their id for the job, and what they last told us about it. Kept as free
+  /// text: a vendor's status vocabulary is theirs to change, and pinning it to
+  /// our own enum would mean a migration every time they add one.
+  ///
+  /// SinaLite's API publishes no order-status endpoint, so vendorStatus is
+  /// whatever they said when the order was accepted, and tracking arrives by
+  /// email and is typed in. Both are here rather than in a note so the queue
+  /// can show them and the candidate's page can carry the tracking number.
+  vendorOrderId  String @default("")
+  vendorStatus   String @default("")
+  vendorTracking String @default("")
+
+  /// The shipping service chosen from their estimate — "UPS Standard" and the
+  /// like. Their rate quote is per carrier and method, so which one was picked
+  /// is part of what was quoted.
+  vendorShipCarrier String @default("")
+  vendorShipMethod  String @default("")
+
+  /// Every service they offered, as [{carrier, method, priceCents, days}].
+  /// Kept so the shop can take a dearer, faster one without re-quoting the
+  /// whole job — a candidate whose signs are late does not want the cheapest.
+  vendorShipOptions Json?
+
+  /// What the trade printer charges us, in cents — the goods and their
+  /// shipping, kept apart so margin is legible. Never shown to the candidate.
+  vendorCostCents     Int @default(0)
+  vendorShippingCents Int @default(0)
+
+  vendorQuotedAt DateTime?
+  vendorSentAt   DateTime?
+
+  /// The last failure, kept rather than thrown away, so the queue can show why
+  /// a job did not go over instead of silently looking unsent.
+  vendorError String @default("")
+
   items   ShopOrderItem[]
   artwork ShopArtwork[]
 
@@ -1249,6 +1292,15 @@ model ShopOrderItem {
   lineTotalCents Int @default(0)
 
   artworkNote String @default("")
+
+  /// What this line maps to at the trade printer, resolved when it was priced —
+  /// their product id and the option ids they wanted. Snapshotted for the same
+  /// reason the price is: their catalogue is not ours to keep still.
+  vendorProductId String @default("")
+  vendorOptions   Json?
+  /// Trade cost for this line alone, excluding shipping. Never shown to the
+  /// candidate.
+  vendorCostCents Int    @default(0)
 
   artwork ShopArtwork[]
 

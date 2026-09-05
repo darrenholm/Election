@@ -6,6 +6,11 @@ import { cents, oneOf, str } from "@/lib/form";
 import { SHOP_ORDER_STATUSES } from "@/lib/enums";
 import { requireShopStaff } from "@/lib/shop/auth";
 import { recalcOrder } from "@/lib/shop/orders";
+import {
+  quoteOrderWithVendor,
+  recordVendorTracking,
+  sendOrderToVendor,
+} from "@/lib/shop/fulfilment";
 
 /**
  * The shop's side of the portal: quoting, moving a job along, and marking the
@@ -130,5 +135,71 @@ export async function saveStaffNotes(formData: FormData) {
     data: { staffNotes: str(formData, "staffNotes") },
   });
 
+  refresh(orderId);
+}
+
+/* ------------------------------------------------------- trade fulfilment */
+
+/**
+ * Ask SinaLite what the bought-in lines cost, and what freight would be.
+ *
+ * Deliberately separate from quoteOrder() above, which is what the candidate
+ * sees. This one is about margin: it tells the shop what the job costs and what
+ * it would have to sell for, and the shop decides what to do about it.
+ */
+export async function priceWithVendor(formData: FormData) {
+  await requireShopStaff();
+
+  const orderId = str(formData, "orderId");
+  await quoteOrderWithVendor(orderId);
+  refresh(orderId);
+}
+
+/** Take a dearer, faster service than the cheapest one the quote defaulted to. */
+export async function chooseVendorShipping(formData: FormData) {
+  await requireShopStaff();
+
+  const orderId = str(formData, "orderId");
+  const [carrier, method, priceRaw] = str(formData, "service").split("|");
+  if (!method) return;
+
+  const priceCents = Number(priceRaw);
+  await db.shopOrder.update({
+    where: { id: orderId },
+    data: {
+      vendorShipCarrier: carrier ?? "",
+      vendorShipMethod: method,
+      vendorShippingCents: Number.isFinite(priceCents) ? priceCents : 0,
+    },
+  });
+
+  refresh(orderId);
+}
+
+/**
+ * Send the job to press.
+ *
+ * A button rather than something that fires on payment: the artwork is looked
+ * at by eye first, which is most of what the file-prep charge pays for.
+ */
+export async function sendToVendor(formData: FormData) {
+  await requireShopStaff();
+
+  const orderId = str(formData, "orderId");
+  await sendOrderToVendor(orderId);
+  refresh(orderId);
+}
+
+/**
+ * Type in the tracking number from their dispatch email.
+ *
+ * There is no order-status endpoint in SinaLite's API, so this is how a
+ * candidate gets to see where their signs are.
+ */
+export async function saveVendorTracking(formData: FormData) {
+  await requireShopStaff();
+
+  const orderId = str(formData, "orderId");
+  await recordVendorTracking(orderId, str(formData, "tracking"), str(formData, "vendorStatus"));
   refresh(orderId);
 }

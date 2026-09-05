@@ -108,6 +108,17 @@ export default async function OrderPage({
         </ol>
       ) : null}
 
+      {order.vendorTracking ? (
+        <section className="rounded-xl border border-brand/30 bg-brand-soft p-4 text-sm text-brand-ink">
+          <p className="font-bold">On its way</p>
+          <p className="mt-1">
+            Tracking number{" "}
+            <span className="font-semibold tabular-nums">{order.vendorTracking}</span>
+            {order.vendorShipCarrier ? ` with ${order.vendorShipCarrier}` : ""}.
+          </p>
+        </section>
+      ) : null}
+
       {/* ----------------------------------------------------------- paying */}
       {order.paymentStatus !== "PAID" && order.status !== "CANCELLED" ? (
         <section className="rounded-xl border border-accent/40 bg-accent-soft p-5">

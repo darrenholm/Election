@@ -14,6 +14,15 @@ import { ETRANSFER_EMAIL } from "@/lib/shop/config";
 import { formatCents } from "@/lib/money";
 import { formatDate, formatDateTime } from "@/lib/dates";
 import { quoteOrder, recordPayment, setOrderStatus } from "@/app/actions/shop-admin";
+import { productBySlug, variantByKey } from "@/lib/shop/catalog";
+import { floorPriceCents } from "@/lib/shop/fulfilment";
+import { sinaliteConfig } from "@/lib/shop/sinalite";
+import { isVendorProduct } from "@/lib/shop/vendor-map";
+import {
+  TradeCard,
+  type ShippingOptionView,
+  type TradeLineView,
+} from "@/components/shop/trade-card";
 import { Badge, Card, Field, Note, PageHeader, Select } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +47,26 @@ export default async function ShopOrderPage({ params }: { params: Promise<{ id: 
   if (!order || order.status === "DRAFT") notFound();
 
   const owing = order.totalCents - order.paidCents;
+
+  // The bought-in half of the order, with what each line costs us against what
+  // it was sold for. The floor is trade cost doubled plus our file-prep charge.
+  const tradeLines: TradeLineView[] = order.items
+    .filter((item) => isVendorProduct(item.productSlug))
+    .map((item) => {
+      const product = productBySlug(item.productSlug);
+      const variant = product ? variantByKey(product, item.variantKey) : null;
+      return {
+        id: item.id,
+        description: `${item.quantity} × ${item.productName} · ${item.variantName}`,
+        costCents: item.vendorCostCents,
+        chargedCents: item.lineTotalCents,
+        floorCents: floorPriceCents(item.vendorCostCents, variant?.setupFeeCents ?? item.setupFeeCents),
+      };
+    });
+
+  const shippingOptions = ((order.vendorShipOptions ?? []) as ShippingOptionView[]).filter(
+    (option) => typeof option?.priceCents === "number",
+  );
 
   return (
     <>
@@ -178,6 +207,16 @@ export default async function ShopOrderPage({ params }: { params: Promise<{ id: 
               </ul>
             )}
           </Card>
+
+          {tradeLines.length > 0 ? (
+            <TradeCard
+              orderId={order.id}
+              configured={sinaliteConfig().configured}
+              lines={tradeLines}
+              shippingOptions={shippingOptions}
+              order={order}
+            />
+          ) : null}
 
           {order.designBrief || order.notes || order.authorisationLine ? (
             <Card title="What they told us">
