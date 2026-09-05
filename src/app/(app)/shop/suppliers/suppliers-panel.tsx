@@ -1,7 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { probeSanmar, syncSanmar, type ProbeResult } from "@/app/actions/suppliers";
+import {
+  probeSanmar,
+  probeShopApi,
+  syncSanmar,
+  type ProbeResult,
+  type ShopApiResult,
+} from "@/app/actions/suppliers";
 import type { SyncReport } from "@/lib/shop/sanmar-sync";
 import { formatCents } from "@/lib/money";
 import { Note } from "@/components/ui";
@@ -17,18 +23,21 @@ import { Note } from "@/components/ui";
 export function SuppliersPanel({ styles }: { styles: string[] }) {
   const [probe, setProbe] = useState<ProbeResult | null>(null);
   const [sync, setSync] = useState<SyncReport | null>(null);
+  const [shopApi, setShopApi] = useState<ShopApiResult | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  function run(action: "probe" | "sync") {
+  function run(action: "probe" | "sync" | "shopApi") {
     setFailure(null);
     if (action === "probe") setProbe(null);
-    else setSync(null);
+    else if (action === "sync") setSync(null);
+    else setShopApi(null);
 
     startTransition(async () => {
       try {
         if (action === "probe") setProbe(await probeSanmar());
-        else setSync(await syncSanmar());
+        else if (action === "sync") setSync(await syncSanmar());
+        else setShopApi(await probeShopApi());
       } catch (error) {
         setFailure(error instanceof Error ? error.message : String(error));
       }
@@ -54,6 +63,14 @@ export function SuppliersPanel({ styles }: { styles: string[] }) {
         >
           {pending ? "Working…" : "Load prices"}
         </button>
+        <button
+          type="button"
+          onClick={() => run("shopApi")}
+          disabled={pending}
+          className="btn-secondary"
+        >
+          {pending ? "Working…" : "Check apparel pricing"}
+        </button>
       </div>
 
       <p className="text-xs text-muted">
@@ -62,6 +79,26 @@ export function SuppliersPanel({ styles }: { styles: string[] }) {
       </p>
 
       {failure ? <Note tone="bad">{failure}</Note> : null}
+
+      {shopApi ? (
+        <div className="space-y-2">
+          <Note tone={shopApi.ok ? "info" : "bad"}>
+            {shopApi.ok
+              ? "The shop's API priced a shirt. Apparel can be sold from the portal."
+              : shopApi.configured
+                ? "The shop's API did not price a shirt."
+                : "The shop's API is not configured on this service."}
+          </Note>
+          <ul className="space-y-1 text-xs leading-relaxed text-muted">
+            {shopApi.lines.map((line, i) => (
+              <li key={i}>{line}</li>
+            ))}
+          </ul>
+          {shopApi.base ? (
+            <p className="text-xs text-muted break-all">Asking {shopApi.base}</p>
+          ) : null}
+        </div>
+      ) : null}
 
       {probe ? (
         <div className="space-y-2">

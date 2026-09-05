@@ -12,6 +12,16 @@ import {
   soapFault,
 } from "@/lib/shop/sanmar";
 import { catalogueStyles, syncSanmarStyles, type SyncReport } from "@/lib/shop/sanmar-sync";
+import {
+  SUPPLIER_CODE,
+  fetchPrintLocations,
+  fetchStyle,
+  holmgraphicsBase,
+  holmgraphicsConfigured,
+  quoteApparel,
+  toCents,
+} from "@/lib/shop/holmgraphics";
+import { formatCents } from "@/lib/money";
 
 /**
  * The supplier buttons on /shop/suppliers.
@@ -125,4 +135,91 @@ export async function syncSanmar(): Promise<SyncReport> {
   revalidatePath("/shop/suppliers");
   revalidatePath("/election");
   return report;
+}
+
+/* --------------------------------------------------- the shop's own API -- */
+
+export type ShopApiResult = {
+  configured: boolean;
+  base: string;
+  lines: string[];
+  ok: boolean;
+};
+
+/**
+ * Does the shop's API answer, and does it price a shirt?
+ *
+ * Apparel is not priced in this app any more — it is quoted by
+ * holmgraphics-shop-api, which is where the shop's real DTF pricing lives. This
+ * checks all three things that has to do: name the colours and sizes, list the
+ * print locations, and put a number on a run.
+ */
+export async function probeShopApi(): Promise<ShopApiResult> {
+  await requireShopStaff();
+
+  const result: ShopApiResult = {
+    configured: holmgraphicsConfigured(),
+    base: holmgraphicsBase(),
+    lines: [],
+    ok: false,
+  };
+
+  const style = "ATC1000";
+  const catalogue = await fetchStyle(style);
+  if (!catalogue.ok) {
+    result.lines.push(`Catalogue: ${catalogue.problem}`);
+    return result;
+  }
+
+  const variants = catalogue.data.variants ?? [];
+  const colours = new Set(variants.map((v) => v.color_name)).size;
+  result.lines.push(
+    `Catalogue: ${catalogue.data.product?.product_name || style} — ` +
+      `${variants.length} sizes across ${colours} colours.`,
+  );
+  if (variants.length === 0) {
+    result.lines.push("No variants came back, so nothing could be ordered.");
+    return result;
+  }
+
+  const locations = await fetchPrintLocations();
+  if (!locations.ok) {
+    result.lines.push(`Print locations: ${locations.problem}`);
+    return result;
+  }
+
+  const places = locations.data.print_locations ?? [];
+  result.lines.push(`Print locations: ${places.length}.`);
+  if (places.length === 0) {
+    result.lines.push("No print locations configured, so a decorated shirt cannot be quoted.");
+    return result;
+  }
+
+  // A real quote for a dozen of one size — the size of run a campaign orders,
+  // and enough to land on a quantity tier rather than the single-piece price.
+  const variant = variants[0];
+  const quote = await quoteApparel([
+    {
+      supplier: SUPPLIER_CODE,
+      style,
+      variant_id: variant.id,
+      size: variant.size,
+      quantity: 12,
+      unit_price: Number(variant.price ?? 0),
+      decorations: [{ design_id: "portal-check", print_location_id: places[0].id }],
+    },
+  ]);
+
+  if (!quote.ok) {
+    result.lines.push(`Quote: ${quote.problem}`);
+    return result;
+  }
+
+  const total = quote.data.breakdown?.grand_total;
+  result.lines.push(
+    `Quote: 12 × ${variant.size} ${variant.color_name}` +
+      (typeof total === "number" ? ` comes to ${formatCents(toCents(total))}.` : " answered."),
+  );
+  result.ok = true;
+  return result;
 }
