@@ -96,7 +96,7 @@ export default function PortalHome() {
             {
               step: "3",
               title: "You pay",
-              body: `Interac e-transfer to ${ETRANSFER_EMAIL} with your order number in the message, or settle up at the counter when you collect.`,
+              body: `Interac e-transfer to ${ETRANSFER_EMAIL} with your order number in the message, or a cheque or debit at the counter when you collect. Pay from the campaign account, not your own.`,
             },
             {
               step: "4",

@@ -435,6 +435,23 @@ export const SHOP_PAYMENT_STATUSES = {
 export type ShopPaymentStatus = keyof typeof SHOP_PAYMENT_STATUSES;
 export const SHOP_PAYMENT_STATUS_OPTIONS = options(SHOP_PAYMENT_STATUSES);
 
+/**
+ * How a campaign is allowed to pay.
+ *
+ * Not a free-text field and deliberately short. A municipal campaign's expenses
+ * are audited, and these three are what a candidate can settle with here:
+ * e-transfer from the campaign account, a cheque on it, or debit at the counter.
+ * Credit cards are not offered — the portal has no card processor, and a card
+ * would put a campaign expense on somebody's personal account.
+ */
+export const SHOP_PAYMENT_METHODS = {
+  ETRANSFER: "Interac e-transfer",
+  CHEQUE: "Cheque",
+  DEBIT: "Debit at the counter",
+} as const;
+export type ShopPaymentMethod = keyof typeof SHOP_PAYMENT_METHODS;
+export const SHOP_PAYMENT_METHOD_OPTIONS = options(SHOP_PAYMENT_METHODS);
+
 export const SHOP_FULFILMENTS = {
   PICKUP: "Pick up at the shop",
   DELIVERY: "Delivery — quoted with the order",

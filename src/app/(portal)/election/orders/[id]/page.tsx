@@ -5,6 +5,7 @@ import { requireCustomer } from "@/lib/shop/auth";
 import {
   SHOP_FULFILMENTS,
   SHOP_ORDER_STATUSES,
+  SHOP_PAYMENT_METHODS,
   SHOP_PAYMENT_STATUSES,
   label,
   type ShopOrderStatus,
@@ -86,6 +87,9 @@ export default async function OrderPage({
           </Badge>
           <Badge tone={order.paymentStatus === "PAID" ? "good" : "warn"}>
             {label(SHOP_PAYMENT_STATUSES, order.paymentStatus)}
+            {order.paymentMethod
+              ? ` · ${label(SHOP_PAYMENT_METHODS, order.paymentMethod)}`
+              : ""}
           </Badge>
         </div>
       </header>
@@ -127,13 +131,12 @@ export default async function OrderPage({
             {order.status === "SUBMITTED" ? "Payment — once we have quoted it" : "Payment"}
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-accent-ink">
-            Send an Interac e-transfer to{" "}
-            <span className="font-bold">{ETRANSFER_EMAIL}</span> for{" "}
-            <span className="font-bold tabular-nums">{formatCents(owing)}</span>, and put{" "}
+            Interac e-transfer to <span className="font-bold">{ETRANSFER_EMAIL}</span> for{" "}
+            <span className="font-bold tabular-nums">{formatCents(owing)}</span>, with{" "}
             <span className="font-bold tabular-nums">{order.number}</span> in the message so it
             lands against this job.
             {order.fulfilment === "PICKUP" ? (
-              <> Or settle up at the counter when you collect — either is fine.</>
+              <> Or a cheque or debit at the counter when you collect — whichever suits.</>
             ) : null}
           </p>
           {order.status === "SUBMITTED" && order.fulfilment === "DELIVERY" ? (
@@ -147,6 +150,10 @@ export default async function OrderPage({
               {formatCents(order.paidCents)} received so far.
             </p>
           ) : null}
+          <p className="mt-2 text-xs text-accent-ink">
+            Pay from the campaign account rather than your own. This is a campaign expense and it
+            has to be able to be traced to the account your financial statement reports on.
+          </p>
         </section>
       ) : null}
 

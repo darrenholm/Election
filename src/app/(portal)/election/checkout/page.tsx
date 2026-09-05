@@ -165,10 +165,10 @@ export default async function CheckoutPage() {
           <div className="rounded-xl border border-line bg-raise/60 p-4 text-xs leading-relaxed text-muted">
             <p className="font-bold text-ink">Paying</p>
             <p className="mt-1">
-              When we have quoted it, send an Interac e-transfer to{" "}
+              When we have quoted it: Interac e-transfer to{" "}
               <span className="font-medium text-ink">{ETRANSFER_EMAIL}</span> with your order number
-              in the message — or settle up at the counter when you collect. Your order page will
-              show the number and the total.
+              in the message, or a cheque or debit at the counter when you collect. Your order page
+              will show the number and the total.
             </p>
           </div>
         </aside>

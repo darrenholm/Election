@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
 import { cents, oneOf, str } from "@/lib/form";
-import { SHOP_ORDER_STATUSES } from "@/lib/enums";
+import { SHOP_ORDER_STATUSES, SHOP_PAYMENT_METHODS } from "@/lib/enums";
 import { requireShopStaff } from "@/lib/shop/auth";
 import { recalcOrder } from "@/lib/shop/orders";
 import {
@@ -113,12 +113,16 @@ export async function recordPayment(formData: FormData) {
 
   const paidCents = Math.max(0, order.paidCents + received);
   const paymentStatus = paidCents >= order.totalCents ? "PAID" : paidCents > 0 ? "PARTIAL" : "UNPAID";
+  const method = oneOf(formData, "paymentMethod", SHOP_PAYMENT_METHODS, "ETRANSFER");
 
   await db.shopOrder.update({
     where: { id: order.id },
     data: {
       paidCents,
       paymentStatus,
+      // The receipt says how it was settled, because a campaign's financial
+      // statement is audited and "paid" on its own is not much of an answer.
+      paymentMethod: method,
       paidAt: paymentStatus === "PAID" ? new Date() : null,
     },
   });

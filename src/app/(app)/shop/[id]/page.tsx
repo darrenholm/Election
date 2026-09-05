@@ -6,6 +6,8 @@ import {
   SHOP_FULFILMENTS,
   SHOP_ORDER_STATUSES,
   SHOP_ORDER_STATUS_OPTIONS,
+  SHOP_PAYMENT_METHODS,
+  SHOP_PAYMENT_METHOD_OPTIONS,
   SHOP_PAYMENT_STATUSES,
   label,
 } from "@/lib/enums";
@@ -90,6 +92,9 @@ export default async function ShopOrderPage({ params }: { params: Promise<{ id: 
         <Badge tone={order.status === "CANCELLED" ? "bad" : "brand"}>
           {label(SHOP_ORDER_STATUSES, order.status)}
         </Badge>
+        {order.paymentMethod ? (
+          <Badge>{label(SHOP_PAYMENT_METHODS, order.paymentMethod)}</Badge>
+        ) : null}
         <Badge tone={order.paymentStatus === "PAID" ? "good" : "warn"}>
           {label(SHOP_PAYMENT_STATUSES, order.paymentStatus)}
         </Badge>
@@ -294,7 +299,7 @@ export default async function ShopOrderPage({ params }: { params: Promise<{ id: 
 
             <form action={recordPayment} className="mt-4 space-y-2 border-t border-line pt-3">
               <input type="hidden" name="orderId" value={order.id} />
-              <Field label="Record an e-transfer" hint={`Arrives at ${ETRANSFER_EMAIL}.`}>
+              <Field label="Record a payment" hint={`E-transfers arrive at ${ETRANSFER_EMAIL}.`}>
                 <input
                   name="amount"
                   inputMode="decimal"
@@ -302,6 +307,11 @@ export default async function ShopOrderPage({ params }: { params: Promise<{ id: 
                   className="field tabular-nums"
                 />
               </Field>
+              <Select
+                name="paymentMethod"
+                options={SHOP_PAYMENT_METHOD_OPTIONS}
+                defaultValue={order.paymentMethod || "ETRANSFER"}
+              />
               <button type="submit" className="btn-secondary w-full">
                 Add payment
               </button>

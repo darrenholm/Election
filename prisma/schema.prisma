@@ -1156,9 +1156,17 @@ model ShopOrder {
   /// CANCELLED. See SHOP_ORDER_STATUSES in src/lib/enums.ts.
   status String @default("DRAFT")
 
-  /// UNPAID → PARTIAL → PAID. Payment is by e-transfer, so this is what the
-  /// shop marks off by hand when the money lands; nothing automated moves it.
+  /// UNPAID → PARTIAL → PAID. Nothing automated moves this: every permitted
+  /// method lands somewhere a person has to look — an inbox, a chequebook, the
+  /// debit terminal — so the shop marks it off by hand.
   paymentStatus String @default("UNPAID")
+
+  /// ETRANSFER, CHEQUE or DEBIT. See SHOP_PAYMENT_METHODS in src/lib/enums.ts.
+  ///
+  /// Recorded because a campaign's financial statement is audited: the Form 4
+  /// wants the expense and the receipt should say how it was settled. Empty
+  /// until money actually lands.
+  paymentMethod String @default("")
 
   /// PICKUP or DELIVERY. Delivery is quoted by hand, which is why there is a
   /// deliveryCents the shop fills in rather than a rate table.
