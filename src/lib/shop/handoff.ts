@@ -116,16 +116,24 @@ export function portalBase(): string {
   return (process.env.PORTAL_URL || process.env.APP_URL || "").replace(/\/$/, "");
 }
 
-export function portalOrderUrl(campaignId: string, next = "/election/products/signs"): string {
-  const query = `token=${encodeURIComponent(createCampaignHandoff(campaignId))}&next=${encodeURIComponent(next)}`;
-  return `${portalBase()}/api/shop/handoff?${query}`;
+export function portalOrderUrl(): string {
+  return electionShopUrl();
 }
 
 /**
- * The storefront's front page, for a link with no campaign in scope — an
- * administrator who has not picked one, say. No handoff token, because with no
- * campaign there is nothing to fill in.
+ * The storefront's front page.
+ *
+ * It is a Holm Graphics shop now, not a route in this app, so there is no
+ * handoff token to mint and nothing to prefill: a candidate signs in there with
+ * their own Holm Graphics account, which several of them already had.
  */
 export function portalHomeUrl(): string {
-  return `${portalBase()}/election`;
+  return electionShopUrl();
+}
+
+/** Where the election storefront lives. Same default as next.config.ts. */
+export function electionShopUrl(): string {
+  return (
+    process.env.ELECTION_SHOP_URL || "https://shop.holmgraphics.ca/shop/election"
+  ).replace(/\/$/, "");
 }
