@@ -107,7 +107,12 @@ export async function pendingPrefill(): Promise<Prefill | null> {
  * the walk from the catalogue to the form. PORTAL_URL when the shop is on its
  * own domain; otherwise the app's own, since both halves are one deployment.
  */
-function portalBase(): string {
+/**
+ * The storefront's public address. Behind Railway's proxy the incoming
+ * request's own origin is the container's internal one — http://localhost:8080
+ * — so anything the browser will follow has to be built from this instead.
+ */
+export function portalBase(): string {
   return (process.env.PORTAL_URL || process.env.APP_URL || "").replace(/\/$/, "");
 }
 
