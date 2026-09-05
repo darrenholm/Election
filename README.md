@@ -152,6 +152,48 @@ limit formula, the self-funding ceiling and the Form 4 expense taxonomy.
 - Events, with fundraisers linked to their contributions and costs so
   Schedule 2 fills itself in.
 
+### The election print portal
+
+A second thing served from the same deployment, for a different audience.
+`/election` is a shopfront for **Holm Graphics**, open to any municipal
+candidate — no campaign-manager account, no sign-in to look around.
+
+- The catalogue is **signs, post cards, door hangers, t-shirts, hoodies and
+  decals**, each with its own configurator that prices the order as it is
+  changed. What the page quotes is what the server charges: both call the same
+  `priceLine()`, and nothing about a price is posted from the browser.
+- **Signs are priced off the sheet.** Every cut in the catalogue — 12x12,
+  12x16, 16x24, 24x32, 32x48, 48x48 and the full 4' x 8' — divides a sheet
+  exactly, so the price of a sign is the price of the sheet divided by the
+  yield. Thickness and printed sides are one choice with one price, and every
+  additional sheet an order consumes takes another 5% off the whole order, to a
+  floor of 25% at six sheets.
+- Candidates get **their own accounts**, separate from the campaign manager's
+  users and on their own session cookie. A print customer must never hold
+  something the campaign manager would accept as a sign-in, because that side
+  of the deployment holds voters' lists.
+- The cart is a **draft order** rather than a table of its own, so a run priced
+  on a phone at a kitchen table is still there on the laptop later, and a past
+  order can be re-run in one click at today's prices.
+- Artwork is optional: candidates upload print-ready files, or tick **design it
+  for me** and describe what they want, for one flat fee covering the whole
+  order however many pieces are on it.
+- **Payment is by Interac e-transfer**, so nothing moves on its own. The order
+  page names the address and puts the order number in front of the candidate to
+  quote in the message; somebody at the shop sees the money arrive and records
+  it.
+- The shop's own queue is at `/shop`, inside the campaign manager and
+  **administrators only** — the queue holds the orders of candidates running
+  against each other. Delivery and any discount are set there, which is what
+  turns a submitted order into a quoted one.
+- Every order carries a printable receipt with the supplier, the date, what was
+  bought and the tax, because campaign material is an election expense and the
+  filing wants exactly that.
+
+Prices live in one file, `src/lib/shop/catalog.ts`, and ship in a commit rather
+than being edited in a database. Orders snapshot the names and the cents they
+were quoted at, so changing a price never rewrites an order already placed.
+
 ## A necessary caveat on the compliance features
 
 **This is a bookkeeping aid, not legal or accounting advice.** The clerk of the
@@ -312,6 +354,8 @@ execution caps. Railway gives you that plus Postgres in one place.
    | `APP_URL` | your Railway URL, e.g. `https://campaign.up.railway.app` |
    | `GOOGLE_GEOCODING_API_KEY` | only if your address file has no coordinates |
    | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` | only when you are ready to send texts |
+   | `SHOP_ETRANSFER_EMAIL` | where candidates send payment for print orders; defaults to `darren@holmgraphics.ca` |
+   | `SHOP_NAME` / `SHOP_PHONE` / `SHOP_PICKUP_ADDRESS` | shown on the portal; all optional |
 
 4. **Generate a domain** under Settings → Networking, and put it in `APP_URL`.
 5. Deploy. `npm run start` runs `prisma migrate deploy` first, so the schema is
@@ -375,6 +419,12 @@ src/
     finance.ts         Aggregations shared by the finance pages and Form 4
     enums.ts           Value sets for every String-backed column, plus labels
     campaign.ts        The singleton campaign row and its computed limits
+    shop/
+      catalog.ts       The print price list — products, cuts, sheet prices, options
+      pricing.ts       Catalogue to money: quantity breaks, sheet discount, totals
+      orders.ts        The cart, order numbers and re-adding an order up
+      auth.ts          Print customers, and whose order is whose
+      session.ts       The portal's own cookie, namespaced away from the app's
     form.ts            FormData readers used by every server action
     money.ts           Cents parsing and formatting
     csv.ts             CSV writing for the exports
@@ -382,7 +432,11 @@ src/
     guard.ts           Re-checks the caller against a record handed in by id
   app/
     actions/           Server actions, one module per domain
-    voters/  canvass/  volunteers/  shifts/  finance/  signs/  events/  social/
+    (app)/             The campaign manager, behind the sign-in gate
+      voters/  canvass/  volunteers/  shifts/  finance/  signs/  events/  social/
+      shop/            The print queue — administrators only
+    (portal)/          The election print portal, open to the public
+      election/        Catalogue, cart, checkout, orders, account
   components/          Shared UI primitives and forms
 ```
 

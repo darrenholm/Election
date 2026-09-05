@@ -25,7 +25,14 @@ export const config = {
   // authenticate themselves with a request signature instead — an opt-out
   // bounced to a login page is an opt-out that never happened; and the health
   // check has to answer the platform, which has no session.
+  //
+  // The election print portal is a shopfront: a candidate who has never dealt
+  // with this shop reaches it from a search result, so /election is outside the
+  // gate entirely and signs its customers in against its own session (see
+  // src/lib/shop/session.ts). /api/shop serves their artwork and does its own
+  // check, because the caller may legitimately be a customer rather than one of
+  // the campaign manager's users.
   matcher: [
-    "/((?!login|setup|api/sms|api/health|manifest.webmanifest|sw.js|offline.html|icons|_next/static|_next/image|favicon.ico|.*\\.png$).*)",
+    "/((?!login|setup|election|api/shop|api/sms|api/health|manifest.webmanifest|sw.js|offline.html|icons|_next/static|_next/image|favicon.ico|.*\\.png$).*)",
   ],
 };

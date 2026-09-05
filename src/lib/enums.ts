@@ -389,6 +389,59 @@ export const POST_STATUS_OPTIONS = options(POST_STATUSES);
 /** Statuses that still expect something to happen. */
 export const OPEN_POST_STATUSES: PostStatus[] = ["SUGGESTED", "DRAFT", "APPROVED"];
 
+/* ------------------------------------------------------- election print portal */
+
+/**
+ * Where an order has got to.
+ *
+ * DRAFT is the cart — an order the candidate is still filling and nobody at the
+ * shop has seen. It is a status rather than a separate table so there is one
+ * shape of thing to price, show and total; everything from SUBMITTED on is a
+ * real job.
+ *
+ * QUOTED is the step candidates ask about most: delivery and any adjustment
+ * have been set by hand, so the total on the page is now the price, and the
+ * e-transfer can be sent against it.
+ */
+export const SHOP_ORDER_STATUSES = {
+  DRAFT: "In your cart",
+  SUBMITTED: "Submitted",
+  QUOTED: "Quoted",
+  IN_PRODUCTION: "In production",
+  READY: "Ready",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+} as const;
+export type ShopOrderStatus = keyof typeof SHOP_ORDER_STATUSES;
+export const SHOP_ORDER_STATUS_OPTIONS = options(SHOP_ORDER_STATUSES);
+
+/** Statuses the shop still has work to do on. */
+export const OPEN_SHOP_ORDER_STATUSES: ShopOrderStatus[] = [
+  "SUBMITTED",
+  "QUOTED",
+  "IN_PRODUCTION",
+  "READY",
+];
+
+/**
+ * Payment moves by hand, because payment is by e-transfer. Nothing automated
+ * ever sets this: somebody at the shop sees the money arrive and marks it.
+ */
+export const SHOP_PAYMENT_STATUSES = {
+  UNPAID: "Unpaid",
+  PARTIAL: "Deposit received",
+  PAID: "Paid",
+} as const;
+export type ShopPaymentStatus = keyof typeof SHOP_PAYMENT_STATUSES;
+export const SHOP_PAYMENT_STATUS_OPTIONS = options(SHOP_PAYMENT_STATUSES);
+
+export const SHOP_FULFILMENTS = {
+  PICKUP: "Pick up at the shop",
+  DELIVERY: "Delivery — quoted with the order",
+} as const;
+export type ShopFulfilment = keyof typeof SHOP_FULFILMENTS;
+export const SHOP_FULFILMENT_OPTIONS = options(SHOP_FULFILMENTS);
+
 /* ------------------------------------------------------------------- helpers */
 
 
