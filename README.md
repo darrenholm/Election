@@ -190,6 +190,60 @@ candidate — no campaign-manager account, no sign-in to look around.
   bought and the tax, because campaign material is an election expense and the
   filing wants exactly that.
 
+#### Apparel, and where garment data comes from
+
+Shirts are not priced like print. A sign's price comes out of a sheet bought by
+the sheet; a shirt's comes from SanMar's cost for that style, in that colour, in
+that size — a 2XL costs more than a medium — and it changes when they change it.
+So garment data lives in the database and the catalogue names only the style:
+**ATC1000** for tees, **ATCF6500 / ATCF6600 / ATCF6700** for the fleece, and
+**S365 / SL365** for the polos.
+
+The shop's rule, in one place (`src/lib/shop/garments.ts`):
+
+> retail per garment = the greater of **cost doubled** and **$12**,
+> plus **$45** screen setup, once per line
+
+The floor is what stops a cheap tee being sold for less than it costs to handle:
+doubling covers the garment, but folding, boxing and answering the phone about it
+do not get cheaper because the blank did. Every size is priced at its own cost,
+because that is how they are bought — a run of twelve with two 2XLs costs more
+than twelve mediums, and averaging would quietly lose the difference on every
+order with a big size in it.
+
+Data gets in one of two ways, and both write the same rows:
+
+- **A CSV export from the dealer portal**, which needs no credentials and works
+  today. `npm run garments:import -- export.csv --dry-run` shows what it read
+  and what each garment would sell for, so a mis-picked cost column is obvious
+  before anything is written; drop `--dry-run` to import. Column names are
+  matched loosely, because no two exports spell them the same.
+- **The SanMar API**, which is not wired. Their services are SOAP, and a SOAP
+  envelope invented from memory is far likelier to be wrong than a REST body
+  was, so `src/lib/shop/sanmar.ts` holds the configuration seam and lists what
+  it still needs rather than shipping a call that cannot work.
+
+The shop's queue shows which styles have data and when they were last refreshed.
+Until a style has rows, apparel stays listed but not orderable.
+
+#### What holds a sign up
+
+Two facts of the material, both of which cost money to learn the hard way, and
+both now on the product page as the choice is being made:
+
+- A **wire stand holds a sign up to 16 × 24** and no larger. Above that the
+  option is not offered at all.
+- **Coroplast will not bridge between two end posts** at the larger sizes. At
+  4mm it needs plywood or similar behind it; at 6mm strapping is enough, which
+  usually works out cheaper than buying the plywood. The page says so the moment
+  a large cut and 4mm are both selected.
+- **A post behind a double-sided sign shows from the back**, so the second face
+  is never quite the clean face the front is.
+
+These are advice, not rules. A large 4mm sign screwed flat to a barn wall is
+perfectly sound, and the portal should not refuse an order whose reason it
+cannot see.
+
 #### Taking orders before the trade printer is connected
 
 The portal does not depend on SinaLite in any way. Nothing in the catalogue,
@@ -385,6 +439,7 @@ levels and consent are not.
 | `npm run db:studio` | Prisma Studio, for poking at the data directly |
 | `npm run sinalite:catalog` | Print SinaLite's products, option ids and priced combinations, to fill in the vendor map |
 | `npm run sinalite:check` | Check the catalogue and the vendor map still agree. No credentials needed |
+| `npm run garments:import` | Load garment colours, sizes and costs from a CSV export. `--dry-run` shows what it read |
 
 ## Accounts and who sees what
 

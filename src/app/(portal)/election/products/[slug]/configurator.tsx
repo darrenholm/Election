@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { addToCart } from "@/app/actions/shop";
 import { formatCents } from "@/lib/money";
-import type { Product } from "@/lib/shop/catalog";
+import { mountingNotes, type Product } from "@/lib/shop/catalog";
 import {
   applicableBreak,
   describeSizeRun,
@@ -56,6 +56,9 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
   );
 
   const belowMinimum = perSheet === 0 && effectiveQuantity < variant.minQuantity;
+  const mounting = product.sheetPricing
+    ? mountingNotes(variant.key, options[product.sheetPricing.key] ?? "")
+    : [];
   const upsell = variant.signsPerSheet
     ? nextSheetDiscount(variant, effectiveQuantity)
     : nextBreak(variant, effectiveQuantity);
@@ -145,6 +148,26 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
             ))}
           </div>
         </fieldset>
+      ) : null}
+
+      {/* How it gets held up. Placed straight after the thickness choice
+          because that is the choice it is about: 4mm at these sizes needs a
+          backer, 6mm does not, and a post behind a double-sided sign shows. */}
+      {mounting.length > 0 ? (
+        <div className="space-y-2">
+          {mounting.map((note) => (
+            <p
+              key={note.text}
+              className={`rounded-lg border px-3 py-2 text-xs leading-relaxed ${
+                note.tone === "warn"
+                  ? "border-accent/40 bg-accent-soft text-accent-ink"
+                  : "border-line bg-raise text-muted"
+              }`}
+            >
+              {note.text}
+            </p>
+          ))}
+        </div>
       ) : null}
 
       {product.options

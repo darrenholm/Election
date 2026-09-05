@@ -10,7 +10,8 @@ import {
 import { formatCents } from "@/lib/money";
 import { formatDate } from "@/lib/dates";
 import { ETRANSFER_EMAIL } from "@/lib/shop/config";
-import { Badge, EmptyState, PageHeader, StatTile, Table, Td, Th } from "@/components/ui";
+import { garmentStyles } from "@/lib/shop/garments";
+import { Badge, Card, EmptyState, PageHeader, StatTile, Table, Td, Th } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
 
@@ -30,7 +31,7 @@ export default async function ShopQueuePage({
   const { show } = await searchParams;
   const showAll = show === "all";
 
-  const [orders, awaitingQuote, unpaidCents, customers] = await Promise.all([
+  const [orders, awaitingQuote, unpaidCents, customers, garments] = await Promise.all([
     db.shopOrder.findMany({
       where: showAll
         ? { status: { not: "DRAFT" } }
@@ -45,6 +46,7 @@ export default async function ShopQueuePage({
       _sum: { totalCents: true, paidCents: true },
     }),
     db.shopCustomer.count(),
+    garmentStyles(),
   ]);
 
   const owing = (unpaidCents._sum.totalCents ?? 0) - (unpaidCents._sum.paidCents ?? 0);
@@ -130,6 +132,37 @@ export default async function ShopQueuePage({
             </tbody>
         </Table>
       )}
+
+      {/* What garment data is loaded. Apparel cannot be sold without it — the
+          storefront takes its colours, sizes and prices from these rows. */}
+      <div className="mt-6">
+        <Card
+          title="Garment data"
+          description="Colours, sizes and costs for the SanMar styles. Loaded with npm run garments:import."
+        >
+          {garments.length === 0 ? (
+            <p className="text-sm text-muted">
+              Nothing loaded yet, so no apparel can be priced or sold. Import a CSV export from the
+              dealer portal, or wire the SanMar connection.
+            </p>
+          ) : (
+            <ul className="space-y-1.5 text-sm">
+              {garments.map((style) => (
+                <li key={style.styleCode} className="flex flex-wrap justify-between gap-3">
+                  <span className="font-medium">
+                    {style.styleCode}
+                    <span className="ml-2 font-normal text-muted">{style.name}</span>
+                  </span>
+                  <span className="text-xs text-muted tabular-nums">
+                    {style.skuCount} sizes · {style.source.toLowerCase()} ·{" "}
+                    {style.syncedAt ? formatDate(style.syncedAt) : "—"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
     </>
   );
 }

@@ -15,7 +15,8 @@
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
     "sinalite:catalog": "tsx scripts/sinalite-catalog.ts",
-    "sinalite:check": "tsx scripts/sinalite-check.ts"
+    "sinalite:check": "tsx scripts/sinalite-check.ts",
+    "garments:import": "tsx scripts/garments-import.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",

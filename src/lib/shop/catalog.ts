@@ -55,6 +55,14 @@ export type Variant = {
    *  Empty on a product priced off a sheet — see signsPerSheet. */
   breaks: PriceBreak[];
   /**
+   * SanMar's style number, for apparel.
+   *
+   * The link between the catalogue and the garment data: colours, sizes and
+   * costs for this variant come from the GarmentStyle rows keyed by this code,
+   * not from anything written here. See src/lib/shop/garments.ts.
+   */
+  garmentStyleCode?: string;
+  /**
    * How many of this cut come out of one 4' × 8' sheet.
    *
    * Signs are priced off the sheet rather than off a per-piece table, because
@@ -80,9 +88,9 @@ export type OptionGroup = {
   hint?: string;
   choices: OptionChoice[];
   /**
-   * Limits the group to certain variants. Wire stands only hold a sign up to
-   * about 16 × 32; offering them against a 4' × 8' board would be selling
-   * somebody something that bends over in the first wind.
+   * Limits the group to certain variants. A wire stand holds a sign up to
+   * 16 × 24 and no larger; offering one against a 4' × 8' board would be
+   * selling somebody something that bends over in the first wind.
    */
   onlyForVariants?: string[];
 };
@@ -294,8 +302,9 @@ export const PRODUCTS: Product[] = [
         key: "stands",
         label: "Wire stands",
         hint:
-          "A wire H-stand holds a sign up to about 16 × 32. Anything larger " +
-          "goes on posts or in a frame, which the shop quotes with the order.",
+          "A wire H-stand holds a sign up to 16 × 24. Anything larger goes on " +
+          "posts, and how it is backed depends on the thickness — see the note " +
+          "under the price.",
         onlyForVariants: ["12x12", "12x16", "16x24"],
         choices: [
           { value: "WITH", label: "One wire stand per sign (+$2.00 each)", unitSurchargeCents: 200 },
@@ -433,6 +442,7 @@ export const PRODUCTS: Product[] = [
         // SanMar ATC1000. Garment cost, colours and the real size run come from
         // the SanMar dealer portal; the figures below are placeholders.
         key: "atc1000",
+        garmentStyleCode: "ATC1000",
         name: "ATC1000",
         detail: "SanMar ATC1000",
         setupFeeCents: 4500,
@@ -495,6 +505,7 @@ export const PRODUCTS: Product[] = [
     variants: [
       {
         key: "atcf6500",
+        garmentStyleCode: "ATCF6500",
         name: "ATCF6500",
         detail: "SanMar ATCF6500",
         setupFeeCents: 4500,
@@ -508,6 +519,7 @@ export const PRODUCTS: Product[] = [
       },
       {
         key: "atcf6600",
+        garmentStyleCode: "ATCF6600",
         name: "ATCF6600",
         detail: "SanMar ATCF6600",
         setupFeeCents: 4500,
@@ -521,6 +533,7 @@ export const PRODUCTS: Product[] = [
       },
       {
         key: "atcf6700",
+        garmentStyleCode: "ATCF6700",
         name: "ATCF6700",
         detail: "SanMar ATCF6700",
         setupFeeCents: 4500,
@@ -567,6 +580,7 @@ export const PRODUCTS: Product[] = [
     variants: [
       {
         key: "s365",
+        garmentStyleCode: "S365",
         name: "S365",
         detail: "SanMar S365",
         setupFeeCents: 6500,
@@ -580,6 +594,7 @@ export const PRODUCTS: Product[] = [
       },
       {
         key: "sl365",
+        garmentStyleCode: "SL365",
         name: "SL365",
         detail: "SanMar SL365",
         setupFeeCents: 6500,
@@ -688,6 +703,62 @@ export const PRODUCTS: Product[] = [
     ],
   },
 ];
+
+/**
+ * Cuts too big for a wire stand. Everything here goes on posts.
+ *
+ * The threshold is a physical one rather than a price break: a wire H-stand
+ * holds a sign up to 16 × 24, and past that the sign has to be fixed to
+ * something.
+ */
+export const POST_MOUNTED_CUTS = ["24x32", "32x48", "48x48", "48x96"];
+
+export type MountingNote = { tone: "warn" | "info"; text: string };
+
+/**
+ * What a candidate has to know about holding this sign up.
+ *
+ * Two facts of the material, and both cost money to learn the hard way.
+ * Coroplast will not bridge between two posts at the ends of a large sign: at
+ * 4mm it needs a backer behind it, and at 6mm strapping is enough. And a post
+ * behind a double-sided sign is visible from the back, so the second face is
+ * never quite the clean face the front is.
+ *
+ * Advice rather than a rule: a large 4mm sign screwed flat to a barn wall or a
+ * fence is perfectly sound, and the portal should not refuse an order it cannot
+ * see the reason for.
+ */
+export function mountingNotes(variantKey: string, sheetValue: string): MountingNote[] {
+  if (!POST_MOUNTED_CUTS.includes(variantKey)) return [];
+
+  const notes: MountingNote[] = [];
+
+  if (sheetValue.startsWith("4MM")) {
+    notes.push({
+      tone: "warn",
+      text:
+        "At this size 4mm will not bridge between two posts — it needs plywood or " +
+        "similar behind it. 6mm does the same job with strapping and no backer, " +
+        "and usually works out cheaper than buying the plywood.",
+    });
+  } else {
+    notes.push({
+      tone: "info",
+      text: "At 6mm this straps to two posts without a backer.",
+    });
+  }
+
+  if (sheetValue.endsWith("DOUBLE")) {
+    notes.push({
+      tone: "info",
+      text:
+        "Posts behind a double-sided sign show from the back. Worth deciding which " +
+        "face matters, or setting the posts to one side.",
+    });
+  }
+
+  return notes;
+}
 
 export function productBySlug(slug: string): Product | null {
   return PRODUCTS.find((p) => p.slug === slug) ?? null;

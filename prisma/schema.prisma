@@ -1347,3 +1347,66 @@ model ShopArtwork {
 
   @@index([orderId])
 }
+
+/// A garment style the shop sells — SanMar's ATC1000, ATCF6600, S365.
+///
+/// Apparel is not priced like print. A sign's price comes out of a sheet the
+/// shop buys by the sheet; a shirt's comes from a supplier's cost for that
+/// style, in that colour, in that size, which changes when they change it. So
+/// the garment data lives in the database and is refreshed from SanMar rather
+/// than being typed into the catalogue: src/lib/shop/catalog.ts names the style
+/// and nothing more.
+model GarmentStyle {
+  id String @id @default(cuid())
+
+  /// SanMar's style number, as printed in their catalogue: ATC1000.
+  styleCode   String @unique
+  brand       String @default("")
+  name        String @default("")
+  description String @default("")
+
+  /// Where the row came from — SANMAR_API, CSV, or MANUAL. Kept because a hand
+  /// entered cost and one pulled from the supplier deserve different trust when
+  /// a price looks wrong.
+  source String @default("MANUAL")
+
+  /// Set when the shop stops offering the style, rather than deleting it: past
+  /// orders still name it.
+  isActive Boolean @default(true)
+
+  syncedAt  DateTime?
+  skus      GarmentSku[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([isActive])
+}
+
+/// One colour and size of a style, with what it costs the shop.
+///
+/// The grain SanMar sells at: a 2XL costs more than a medium, and a heather
+/// costs more than a white, so a single price per style would be wrong in both
+/// directions.
+model GarmentSku {
+  id String @id @default(cuid())
+
+  styleId String
+  style   GarmentStyle @relation(fields: [styleId], references: [id], onDelete: Cascade)
+
+  colourName String @default("")
+  /// Their code for the colour, which is what an order has to quote.
+  colourCode String @default("")
+  size       String @default("")
+
+  /// What the shop pays, in cents. Never shown to a candidate.
+  costCents Int @default(0)
+
+  /// False when the supplier shows it out of stock or discontinued. Kept rather
+  /// than deleted so a colour that comes back does not lose its history.
+  available Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([styleId, colourName, size])
+  @@index([styleId, available])
+}
