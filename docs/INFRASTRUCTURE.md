@@ -135,8 +135,34 @@ chromium.launch({ executablePath: "/opt/pw-browsers/chromium-1194/chrome-linux/c
 - **`/shop` is this app's order queue**, not a SanMar or supplier portal. The
   name collides with how a print shop talks.
 - **`api.holmgraphics.ca` is a different Railway service** (`holmgraphics-shop-api`).
-  Adding domains or variables there does nothing for this app.
+  Adding domains or variables there does nothing for this app. It is worth
+  *reading*, though — see below.
 - **A sandbox that cannot reach a supplier proves nothing about production.**
   The deployed app has ordinary internet access; the development container does
   not. Probe from Railway (`railway run npm run sanmar:probe`) before concluding
   an integration is impossible.
+- **Ask the sibling repository before guessing at a supplier.** A morning went
+  into inventing SanMar endpoint URLs that were never going to answer, while
+  `darrenholm/holmgraphics-shop-api` had the real ones in
+  `suppliers/sanmar/config.js` the whole time — on the same account (#26562),
+  in production. Its `suppliers/promostandards/` also settles the envelope
+  shape, the operation names and the fixed request values, all of which the
+  standard leaves room to get wrong. `holmgraphics-shop` and `holmgraphics-ca`
+  are the other two repositories in the same business.
+
+## SanMar, specifically
+
+The web services are on **`edi.atc-apparel.com`**, not sanmarcanada.com:
+`/pstd/…` in production, `/uat-ws/…` for UAT. The current URLs are constants in
+`src/lib/shop/sanmar.ts`; `SANMAR_PRODUCT_URL` / `SANMAR_PRICING_URL` override
+them if SanMar ever move.
+
+`SANMAR_ENV` is spelled **`production`** or **`uat`** — the same words the
+shop-api service uses, so a variable can be copied between them unchanged.
+
+The credentials are already set on `holmgraphics-shop-api` in Railway
+(`SANMAR_USERNAME`, `SANMAR_PASSWORD`, `SANMAR_MEDIA_PASSWORD`, `SANMAR_ENV`).
+**They are on that service, not this one.** Copy them onto the election app's
+service before expecting `sanmar:sync` to do anything. The username is the
+account number, and these are web-services credentials, which SanMar issue
+separately from the sanmarcanada.com sign-in.
