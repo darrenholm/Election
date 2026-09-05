@@ -539,6 +539,14 @@ The app is built for a consultant running more than one campaign at once.
   in that town. "Do not contact" is per campaign and is almost always what you
   want instead.
 
+## Where it all lives
+
+Hosting, domains, the database, and which of the several providers in this
+business actually serve this app: **[docs/INFRASTRUCTURE.md](docs/INFRASTRUCTURE.md)**.
+Worth reading before adding anything — it records how each fact was established,
+and the handful of things that have caught us out (starting with: the default
+branch is not `main`).
+
 ## Deploying to Railway
 
 The batch work in this app — geocoding runs, SMS sends — happens inside request

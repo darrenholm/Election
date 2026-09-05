@@ -21,7 +21,7 @@ const ITEMS: Item[] = [
   { href: "/texting", label: "Texting", icon: "✉" },
   { href: "/social", label: "Facebook", icon: "◐" },
   { href: "/events", label: "Events", icon: "★" },
-  { href: "/shop", label: "Print orders", icon: "▦" },
+  { href: "/shop", label: "Print queue", icon: "▦" },
   { href: "/campaigns", label: "Campaigns", icon: "◫" },
   { href: "/municipalities", label: "Municipalities", icon: "⌂" },
   { href: "/team", label: "Team", icon: "☗" },

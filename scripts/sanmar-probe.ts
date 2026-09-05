@@ -8,12 +8,17 @@
  *   railway run npm run sanmar:probe -- S365
  *   railway run npm run sanmar:probe -- ATC1000 --raw
  *
- * It tries each candidate endpoint, reports which answered, and shows what came
- * back — parsed if the shape was understood, raw if it was not. Nothing is
- * written to the database. The point is to replace guesses with facts: whatever
- * this prints is what the adapter should be written against.
+ * It calls the configured endpoints, reports whether they answered, and shows
+ * what came back — parsed if the shape was understood, raw if it was not.
+ * Nothing is written to the database.
  *
- * Passwords are never printed, including inside the raw output.
+ * The endpoints are no longer guesses (see src/lib/shop/sanmar.ts), so this is
+ * now a diagnostic rather than a discovery: run it when the sync stops working,
+ * or after SanMar change something, and it says where it broke.
+ *
+ * Passwords are never printed, including inside the raw output. The account
+ * number is: it is on the invoices, and blanking a five-digit number out of a
+ * raw XML dump would also blank out part ids and prices.
  */
 
 import {
@@ -22,14 +27,15 @@ import {
   parseProduct,
   pricingEnvelope,
   productEnvelope,
+  SANMAR_WAREHOUSES,
   sanmarConfig,
   soapFault,
 } from "../src/lib/shop/sanmar";
 
 function redact(text: string): string {
-  const { password, mediaPassword, username } = sanmarConfig();
+  const { password, mediaPassword } = sanmarConfig();
   let out = text;
-  for (const secret of [password, mediaPassword, username]) {
+  for (const secret of [password, mediaPassword]) {
     if (secret) out = out.split(secret).join("«redacted»");
   }
   return out;
@@ -44,8 +50,11 @@ async function main() {
   const config = sanmarConfig();
   console.log(`SanMar probe — style ${style}, ${config.environment}`);
   console.log(`  credentials: ${config.configured ? "set" : "MISSING (SANMAR_USERNAME / SANMAR_PASSWORD)"}`);
-  console.log(`  customer number: ${config.customerNumber || "not set"}`);
-  console.log(`  media password: ${config.mediaPassword ? "set" : "not set"}\n`);
+  console.log(`  media password: ${config.mediaPassword ? "set" : "not set"}`);
+  console.log(
+    `  quoting from FOB ${config.fobId} (${SANMAR_WAREHOUSES[config.fobId] ?? "unknown warehouse"})` +
+      ` in ${config.currency}, ${config.priceType}/${config.configurationType}\n`,
+  );
 
   if (!config.configured) process.exit(1);
 
@@ -53,7 +62,7 @@ async function main() {
   console.log("PRODUCT DATA");
   const productResults = await callFirstWorking(
     config.productUrls,
-    "getProduct",
+    "",
     productEnvelope(style),
   );
   for (const result of productResults) {
@@ -88,7 +97,7 @@ async function main() {
   console.log("\nPRICING");
   const pricingResults = await callFirstWorking(
     config.pricingUrls,
-    "getConfigurationAndPricing",
+    "",
     pricingEnvelope(style),
   );
   for (const result of pricingResults) {
@@ -116,9 +125,11 @@ async function main() {
   }
 
   console.log(
-    "\nIf an endpoint answered, put its URL in SANMAR_PRODUCT_URL / SANMAR_PRICING_URL so\n" +
-      "nothing has to guess again. If none did, the URLs are wrong — SanMar's integration\n" +
-      "documentation has them, and they differ between SanMar Canada and SanMar US.",
+    "\nBoth answered with parts and prices? Run `npm run sanmar:sync` to load them.\n" +
+      "Neither answered? Check SANMAR_ENV (uat or production) before anything else —\n" +
+      "production credentials against the UAT endpoints fail exactly like a wrong URL.\n" +
+      "SANMAR_PRODUCT_URL / SANMAR_PRICING_URL override the built-in endpoints if SanMar\n" +
+      "have moved them; darrenholm/holmgraphics-shop-api is where the current ones live.",
   );
 }
 

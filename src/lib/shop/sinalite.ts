@@ -40,6 +40,8 @@
  * pipelines next door.
  */
 
+import { PRINT_MARKUP_PERCENT } from "./catalog";
+
 const HOSTS = {
   sandbox: "https://api.sinaliteuppy.com",
   live: "https://liveapi.sinalite.com",
@@ -78,9 +80,11 @@ export function sinaliteConfig(): SinaliteConfig {
     // A fixed value in their documentation, and NOT the host — the sandbox and
     // the live API both authenticate against this audience.
     audience: process.env.SINALITE_AUDIENCE || "https://apiconnect.sinalite.com",
-    // Doubling trade cost is the shop's rule; the file-prep charge is added on
-    // top of it, in src/lib/shop/fulfilment.ts.
-    markupPercent: Number.isFinite(markup) ? markup : 100,
+    // The same markup the catalogue prices with, so the margin check in the
+    // queue measures against what the storefront actually charges rather than
+    // against a second figure that can drift. The environment can override it
+    // for a one-off without a deploy.
+    markupPercent: Number.isFinite(markup) ? markup : PRINT_MARKUP_PERCENT,
   };
 }
 

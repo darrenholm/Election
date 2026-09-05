@@ -89,9 +89,10 @@ export function CheckoutForm({
             className="mt-0.5 size-4 rounded border-line accent-[var(--color-brand)]"
           />
           <span className="text-sm">
-            <span className="font-semibold">Design it for me</span>
+            <span className="font-semibold">Do the artwork for me</span>
             <span className="block text-muted">
-              {formatCents(DESIGN_FEE_CENTS)} for the whole order, whatever is on it.
+              {formatCents(DESIGN_FEE_CENTS)} once for the whole order, whatever is on it —
+              drawing it from nothing, or straightening out what you have.
             </span>
           </span>
         </label>

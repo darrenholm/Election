@@ -15,6 +15,12 @@ import {
 } from "@/lib/shop/session";
 import { productBySlug, variantByKey } from "@/lib/shop/catalog";
 import {
+  garmentStyle,
+  priceGarmentChoice,
+  toGarmentChoice,
+} from "@/lib/shop/garments";
+import { describeNesting, priceDecals } from "@/lib/shop/decals";
+import {
   priceLine,
   readSizeRun,
   describeSizeRun,
@@ -176,7 +182,7 @@ export async function addToCart(formData: FormData) {
   // Hiding the button is not the rule; this is. A product still being set up
   // has no settled price, and an order taken against one is a promise the shop
   // has not agreed to.
-  if (product.comingSoon) redirect(`/election/products/${product.slug}`);
+  if (product.pricingProvisional) redirect(`/election/products/${product.slug}`);
 
   const variant = variantByKey(product, str(formData, "variantKey")) ?? product.variants[0];
 
@@ -186,6 +192,147 @@ export async function addToCart(formData: FormData) {
   }
   for (const group of product.options) {
     chosen[group.key] = str(formData, `opt_${group.key}`);
+  }
+
+  /* ----------------------------------------------------------------- decals */
+  // A decal is whatever size was asked for, so the price is worked out from the
+  // dimensions rather than looked up. Recomputed here from the posted
+  // measurements: the page showed a figure using the same function, and this is
+  // the one that is charged.
+  if (product.customSize) {
+    const chosen: ChosenOptions = {};
+    let unitSurcharge = 0;
+    let flatSurcharge = 0;
+    for (const group of product.options) {
+      if (group.onlyForVariants && !group.onlyForVariants.includes(variant.key)) continue;
+      const picked =
+        group.choices.find((c) => c.value === str(formData, `opt_${group.key}`)) ?? group.choices[0];
+      chosen[group.key] = picked.value;
+      unitSurcharge += picked.unitSurchargeCents ?? 0;
+      flatSurcharge += picked.flatSurchargeCents ?? 0;
+    }
+
+    const widthInches = Number(str(formData, "decalWidth"));
+    // A square or a circle is one measurement; the form sends the same number
+    // twice rather than letting the two disagree.
+    const heightInches = Number(str(formData, "decalHeight"));
+    const wanted = int(formData, "quantity", 1);
+
+    const decal = priceDecals({ widthInches, heightInches, quantity: wanted });
+    if (!decal) redirect(`/election/products/${product.slug}?problem=size`);
+
+    const shape = chosen.shape ?? "RECTANGLE";
+    const size =
+      shape === "ROUND"
+        ? `${widthInches}" round`
+        : shape === "SQUARE"
+          ? `${widthInches}" square`
+          : `${widthInches}" × ${heightInches}"`;
+
+    const orderId = await draftOrderId(customer.id);
+    await db.shopOrderItem.create({
+      data: {
+        orderId,
+        productSlug: product.slug,
+        productName: product.name,
+        variantKey: variant.key,
+        variantName: size,
+        options: { ...chosen, decalWidth: String(widthInches), decalHeight: String(heightInches) },
+        optionsSummary: [
+          size,
+          describeNesting(decal.nesting),
+          ...product.options.map(
+            (g) => (g.choices.find((c) => c.value === chosen[g.key]) ?? g.choices[0]).label,
+          ),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        quantity: wanted,
+        unitPriceCents: Math.round((decal.totalCents + unitSurcharge * wanted) / wanted),
+        setupFeeCents: flatSurcharge,
+        lineTotalCents: decal.totalCents + unitSurcharge * wanted + flatSurcharge,
+        artworkNote: str(formData, "artworkNote"),
+      },
+    });
+
+    await recalcOrder(orderId);
+    revalidatePath("/election", "layout");
+    redirect("/election/cart");
+  }
+
+  /* ---------------------------------------------------------------- apparel */
+  // A garment's price comes from what SanMar charge for that style, in that
+  // colour, in that size — never from the catalogue and never from the form.
+  // The page computed a total with the same function; this is the one that
+  // counts.
+  if (variant.garmentStyleCode) {
+    const style = await garmentStyle(variant.garmentStyleCode);
+    if (!style) redirect(`/election/products/${product.slug}`);
+
+    const choice = toGarmentChoice(style);
+    const colourName =
+      choice.colours.find((c) => c.name === str(formData, "garmentColour"))?.name ??
+      choice.colours[0]?.name ??
+      "";
+
+    // Only sizes this colour actually comes in, so a hand-made post cannot
+    // order a 4XL of something that stops at 2XL.
+    const run: Record<string, number> = {};
+    const colourSizes = choice.colours.find((c) => c.name === colourName)?.sizes ?? [];
+    for (const sku of colourSizes) {
+      const count = int(formData, `size_${sku.size}`, 0);
+      if (count > 0) run[sku.size] = count;
+    }
+
+    let unitSurcharge = 0;
+    const chosenDecoration: ChosenOptions = {};
+    for (const group of product.options) {
+      if (group.onlyForVariants && !group.onlyForVariants.includes(variant.key)) continue;
+      const picked =
+        group.choices.find((c) => c.value === str(formData, `opt_${group.key}`)) ?? group.choices[0];
+      chosenDecoration[group.key] = picked.value;
+      unitSurcharge += picked.unitSurchargeCents ?? 0;
+    }
+
+    const garmentPriced = priceGarmentChoice(choice, colourName, run, unitSurcharge);
+    if (!garmentPriced) redirect(`/election/products/${product.slug}?problem=sizes`);
+
+    const orderId = await draftOrderId(customer.id);
+    await db.shopOrderItem.create({
+      data: {
+        orderId,
+        productSlug: product.slug,
+        productName: product.name,
+        variantKey: variant.key,
+        variantName: `${variant.name} · ${colourName}`,
+        options: { ...chosenDecoration, garmentColour: colourName },
+        optionsSummary: [
+          colourName,
+          describeSizeRun(run),
+          ...product.options
+            .filter((g) => !g.onlyForVariants || g.onlyForVariants.includes(variant.key))
+            .map(
+              (g) =>
+                (g.choices.find((c) => c.value === chosenDecoration[g.key]) ?? g.choices[0]).label,
+            ),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        sizeBreakdown: run,
+        quantity: garmentPriced.quantity,
+        // Per garment on average: the sizes are priced individually and the
+        // line total is what they add up to, so this is for display only.
+        unitPriceCents: Math.round(garmentPriced.goodsCents / garmentPriced.quantity),
+        // Screen setup is on the order, not the line — see orderTotals.
+        setupFeeCents: 0,
+        lineTotalCents: garmentPriced.totalCents,
+        artworkNote: str(formData, "artworkNote"),
+      },
+    });
+
+    await recalcOrder(orderId);
+    revalidatePath("/election", "layout");
+    redirect("/election/cart");
   }
 
   // Apparel is ordered as a run of sizes; the total of the run is the quantity.
@@ -272,6 +419,27 @@ export async function setDesignService(formData: FormData) {
   await db.shopOrder.update({
     where: { id: orderId },
     data: { needsDesign: bool(formData, "needsDesign") },
+  });
+  await recalcOrder(orderId);
+  revalidatePath("/election/cart");
+  revalidatePath("/election/checkout");
+}
+
+/**
+ * Say whether the shop already has the artwork for this order.
+ *
+ * Set by the Reorder button, and cleared here by a candidate whose design has
+ * changed since last time. Clearing it is the honest direction to leave open:
+ * somebody telling us there is new work to do is telling us to charge them for
+ * it, and the shop would rather hear that in the cart than at the proof.
+ */
+export async function setArtworkOnFile(formData: FormData) {
+  const customer = await requireCustomer();
+  const orderId = await draftOrderId(customer.id);
+
+  await db.shopOrder.update({
+    where: { id: orderId },
+    data: { artworkOnFile: bool(formData, "artworkOnFile") },
   });
   await recalcOrder(orderId);
   revalidatePath("/election/cart");
@@ -454,6 +622,13 @@ export async function reorder(formData: FormData) {
       },
     });
   }
+
+  // Nothing to draw and nothing to put on film: this is a repeat of work the
+  // shop has already done and already been paid for.
+  await db.shopOrder.update({
+    where: { id: cartId },
+    data: { artworkOnFile: true, needsDesign: false },
+  });
 
   await recalcOrder(cartId);
   revalidatePath("/election", "layout");

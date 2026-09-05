@@ -2,10 +2,22 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireCustomer } from "@/lib/shop/auth";
 import { draftOrderId } from "@/lib/shop/orders";
-import { DESIGN_FEE_CENTS, TAX_LABEL, productBySlug, variantByKey } from "@/lib/shop/catalog";
+import {
+  DESIGN_FEE_CENTS,
+  TAX_LABEL,
+  productBySlug,
+  variantByKey,
+} from "@/lib/shop/catalog";
 import { formatCents } from "@/lib/money";
-import { removeCartItem, setDesignService, updateCartItem } from "@/app/actions/shop";
+import {
+  removeCartItem,
+  setArtworkOnFile,
+  setDesignService,
+  updateCartItem,
+} from "@/app/actions/shop";
 import { EmptyState } from "@/components/ui";
+import { ArtworkUploader } from "@/components/shop/artwork-uploader";
+import { describeLine } from "@/lib/shop/pricing";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Your cart — Election print, Holm Graphics" };
@@ -16,11 +28,15 @@ export default async function CartPage() {
 
   const order = await db.shopOrder.findUnique({
     where: { id: orderId },
-    include: { items: { orderBy: { createdAt: "asc" } } },
+    include: {
+      items: { orderBy: { createdAt: "asc" } },
+      artwork: { orderBy: { uploadedAt: "asc" }, select: { id: true, filename: true } },
+    },
   });
   if (!order) return null;
 
   const hasItems = order.items.length > 0;
+  const artwork = order.artwork;
 
   return (
     <div className="space-y-6">
@@ -72,10 +88,7 @@ export default async function CartPage() {
                         {formatCents(item.lineTotalCents)}
                       </p>
                       <p className="text-xs text-muted tabular-nums">
-                        {item.quantity} × {formatCents(item.unitPriceCents)}
-                        {item.setupFeeCents > 0
-                          ? ` + ${formatCents(item.setupFeeCents)} setup`
-                          : ""}
+                        {describeLine(item)}
                       </p>
                     </div>
                   </div>
@@ -127,14 +140,16 @@ export default async function CartPage() {
           <form
             action={setDesignService}
             className="rounded-xl border border-line bg-raise/60 p-4"
+            hidden={order.artworkOnFile}
           >
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="max-w-xl">
-                <p className="text-sm font-bold">Have us design it</p>
+                <p className="text-sm font-bold">Artwork</p>
                 <p className="mt-1 text-sm leading-relaxed text-muted">
-                  One flat {formatCents(DESIGN_FEE_CENTS)} for the whole order, however many pieces
-                  are on it — the point is that the signs, the cards and the shirts look like one
-                  campaign. Leave it off if you are sending print-ready files.
+                  {formatCents(DESIGN_FEE_CENTS)} once for the whole order, however many pieces are
+                  on it — the point is that the signs, the cards and the shirts look like one
+                  campaign. It covers drawing it from nothing or straightening out what you have.
+                  Leave it off only if you are sending print-ready PDFs.
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -155,6 +170,45 @@ export default async function CartPage() {
             </div>
           </form>
 
+          {order.artworkOnFile ? (
+            <form
+              action={setArtworkOnFile}
+              className="rounded-xl border border-line bg-raise/60 p-4"
+            >
+              <p className="text-sm font-bold">We already have your artwork</p>
+              <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted">
+                This is a repeat of something we have made for you before, so there is no
+                artwork charge and no screen setup on it — you are paying for the printing
+                and nothing else. If the design has changed, say so and we will price the
+                new work when we quote it back.
+              </p>
+              <input type="hidden" name="artworkOnFile" value="" />
+              <button type="submit" className="btn-ghost mt-2 !py-1.5 text-xs">
+                The design has changed
+              </button>
+            </form>
+          ) : null}
+
+          {/* Artwork before checkout, not after. A candidate who has their files
+              to hand should send them while they are here — waiting until the
+              order page means the shop quotes a job it has not seen. */}
+          <div className="rounded-xl border border-line bg-raise/60 p-4">
+            <p className="text-sm font-bold">Your artwork</p>
+            <p className="mt-1 mb-3 max-w-xl text-sm leading-relaxed text-muted">
+              {artwork.length > 0
+                ? "Send anything else that belongs with the order — a logo, a photograph, last time's sign."
+                : "Send it now if you have it. A logo, a photograph, a PDF, or last election's sign — whatever you have is better than nothing, and it lets us proof the job the same day. You can also send it later from the order page."}
+            </p>
+            {artwork.length > 0 ? (
+              <ul className="mb-3 space-y-1 text-xs text-muted">
+                {artwork.map((file) => (
+                  <li key={file.id}>{file.filename}</li>
+                ))}
+              </ul>
+            ) : null}
+            <ArtworkUploader orderId={order.id} />
+          </div>
+
           <div className="rounded-xl border border-line bg-surface p-4 shadow-sm">
             <dl className="space-y-1.5 text-sm">
               <div className="flex justify-between gap-4">
@@ -163,8 +217,20 @@ export default async function CartPage() {
               </div>
               {order.designFeeCents > 0 ? (
                 <div className="flex justify-between gap-4">
-                  <dt className="text-muted">Design</dt>
+                  <dt className="text-muted">Artwork</dt>
                   <dd className="tabular-nums">{formatCents(order.designFeeCents)}</dd>
+                </div>
+              ) : null}
+              {order.garmentSetupCents > 0 ? (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted">Screen setup</dt>
+                  <dd className="tabular-nums">{formatCents(order.garmentSetupCents)}</dd>
+                </div>
+              ) : null}
+              {order.deliveryCents > 0 ? (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted">Shipping</dt>
+                  <dd className="tabular-nums">{formatCents(order.deliveryCents)}</dd>
                 </div>
               ) : null}
               <div className="flex justify-between gap-4">
@@ -177,8 +243,9 @@ export default async function CartPage() {
               </div>
             </dl>
             <p className="mt-2 text-xs text-muted">
-              Delivery is not in this figure. If you want the order delivered, we price that when we
-              quote it — pickup costs nothing.
+              {order.deliveryCents > 0
+                ? "That delivery line is a run we have agreed to make. Otherwise there is nothing to pay for shipping: the price of the cards and hangers covers getting them here, and the signs and decals are made here."
+                : "Nothing further to pay for shipping. Cards and hangers are printed for us and the price covers getting them here; signs and decals are made here. It is all collected from the shop."}
             </p>
           </div>
 

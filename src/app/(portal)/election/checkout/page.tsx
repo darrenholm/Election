@@ -131,8 +131,20 @@ export default async function CheckoutPage() {
               </div>
               {order.designFeeCents > 0 ? (
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted">Design</dt>
+                  <dt className="text-muted">Artwork</dt>
                   <dd className="tabular-nums">{formatCents(order.designFeeCents)}</dd>
+                </div>
+              ) : null}
+              {order.garmentSetupCents > 0 ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted">Apparel setup</dt>
+                  <dd className="tabular-nums">{formatCents(order.garmentSetupCents)}</dd>
+                </div>
+              ) : null}
+              {order.deliveryCents > 0 ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted">Shipping</dt>
+                  <dd className="tabular-nums">{formatCents(order.deliveryCents)}</dd>
                 </div>
               ) : null}
               <div className="flex justify-between gap-3">
@@ -153,10 +165,10 @@ export default async function CheckoutPage() {
           <div className="rounded-xl border border-line bg-raise/60 p-4 text-xs leading-relaxed text-muted">
             <p className="font-bold text-ink">Paying</p>
             <p className="mt-1">
-              When we have quoted it, send an Interac e-transfer to{" "}
+              When we have quoted it: Interac e-transfer to{" "}
               <span className="font-medium text-ink">{ETRANSFER_EMAIL}</span> with your order number
-              in the message — or settle up at the counter when you collect. Your order page will
-              show the number and the total.
+              in the message, or a cheque or debit at the counter when you collect. Your order page
+              will show the number and the total.
             </p>
           </div>
         </aside>

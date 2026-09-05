@@ -17,6 +17,7 @@
     "sinalite:catalog": "tsx scripts/sinalite-catalog.ts",
     "sinalite:check": "tsx scripts/sinalite-check.ts",
     "garments:import": "tsx scripts/garments-import.ts",
+    "sanmar:check": "tsx scripts/sanmar-check.ts",
     "sanmar:probe": "tsx scripts/sanmar-probe.ts",
     "sanmar:sync": "tsx scripts/sanmar-sync.ts"
   },

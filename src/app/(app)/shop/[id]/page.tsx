@@ -6,6 +6,8 @@ import {
   SHOP_FULFILMENTS,
   SHOP_ORDER_STATUSES,
   SHOP_ORDER_STATUS_OPTIONS,
+  SHOP_PAYMENT_METHODS,
+  SHOP_PAYMENT_METHOD_OPTIONS,
   SHOP_PAYMENT_STATUSES,
   label,
 } from "@/lib/enums";
@@ -90,11 +92,15 @@ export default async function ShopOrderPage({ params }: { params: Promise<{ id: 
         <Badge tone={order.status === "CANCELLED" ? "bad" : "brand"}>
           {label(SHOP_ORDER_STATUSES, order.status)}
         </Badge>
+        {order.paymentMethod ? (
+          <Badge>{label(SHOP_PAYMENT_METHODS, order.paymentMethod)}</Badge>
+        ) : null}
         <Badge tone={order.paymentStatus === "PAID" ? "good" : "warn"}>
           {label(SHOP_PAYMENT_STATUSES, order.paymentStatus)}
         </Badge>
         <Badge>{label(SHOP_FULFILMENTS, order.fulfilment)}</Badge>
-        {order.needsDesign ? <Badge tone="warn">Design service</Badge> : null}
+        {order.needsDesign ? <Badge tone="warn">Artwork to do</Badge> : null}
+        {order.artworkOnFile ? <Badge>Artwork on file</Badge> : null}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -251,8 +257,14 @@ export default async function ShopOrderPage({ params }: { params: Promise<{ id: 
               </div>
               {order.designFeeCents > 0 ? (
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted">Design</dt>
+                  <dt className="text-muted">Artwork</dt>
                   <dd className="tabular-nums">{formatCents(order.designFeeCents)}</dd>
+                </div>
+              ) : null}
+              {order.garmentSetupCents > 0 ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted">Apparel setup</dt>
+                  <dd className="tabular-nums">{formatCents(order.garmentSetupCents)}</dd>
                 </div>
               ) : null}
               {order.deliveryCents > 0 ? (
@@ -287,7 +299,7 @@ export default async function ShopOrderPage({ params }: { params: Promise<{ id: 
 
             <form action={recordPayment} className="mt-4 space-y-2 border-t border-line pt-3">
               <input type="hidden" name="orderId" value={order.id} />
-              <Field label="Record an e-transfer" hint={`Arrives at ${ETRANSFER_EMAIL}.`}>
+              <Field label="Record a payment" hint={`E-transfers arrive at ${ETRANSFER_EMAIL}.`}>
                 <input
                   name="amount"
                   inputMode="decimal"
@@ -295,6 +307,11 @@ export default async function ShopOrderPage({ params }: { params: Promise<{ id: 
                   className="field tabular-nums"
                 />
               </Field>
+              <Select
+                name="paymentMethod"
+                options={SHOP_PAYMENT_METHOD_OPTIONS}
+                defaultValue={order.paymentMethod || "ETRANSFER"}
+              />
               <button type="submit" className="btn-secondary w-full">
                 Add payment
               </button>

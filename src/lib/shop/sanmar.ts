@@ -4,57 +4,94 @@ import type { GarmentRow } from "./garment-import";
 /**
  * SanMar Canada — where the garment data comes from.
  *
- * Their services are SOAP, and they implement the PromoStandards suite: an
- * industry standard rather than a house format, which is why this can be
- * written at all without having watched a call go over the wire. The envelopes
- * below are the standard's own shapes; what is genuinely uncertain is which
- * endpoint URLs this account uses, and SanMar Canada's differ from SanMar US.
+ * Their services are SOAP and implement the PromoStandards suite. Two of them
+ * are used here:
  *
- * SO NOTHING HERE IS TRUSTED UNTIL IT HAS ANSWERED. `npm run sanmar:probe`
- * tries each candidate endpoint from wherever it is run — on Railway, where the
- * network reaches SanMar — and prints what came back, raw. That is how the
- * guesses below get replaced by facts, and why the endpoints are environment
- * variables rather than constants.
- *
- * Two services are used:
  *   Product data          colours, sizes, and the part ids that join the two
- *   Pricing and config    net cost per part
+ *   Pricing and config    cost per part
+ *
+ * This was originally written from the standard's published shapes and a guess
+ * at the endpoints. It is not any more: the endpoints, the envelope shape and
+ * the fixed request values below are all taken from
+ * darrenholm/holmgraphics-shop-api, which has been calling these same services
+ * in production on the same SanMar account. Where the standard allows two ways
+ * of doing something, this file does whichever one that service does, because
+ * that is the one known to answer.
+ *
+ * `npm run sanmar:probe` still exists and is still the thing to run when
+ * something stops working — it prints what came back, raw, from wherever it is
+ * run. It has to run where the network reaches SanMar: on Railway, not in a
+ * development container.
  *
  * Media content needs a separate password (SANMAR_MEDIA_PASSWORD) and is not
  * used yet — it is where product photography would come from.
  */
 
 /* -------------------------------------------------------------------------
- * ENDPOINTS — the uncertain part. An environment variable always wins; the
- * candidates are tried by the probe, in order, and the first that answers is
- * the one to put in the environment.
+ * ENDPOINTS — not guesses.
+ *
+ * These are lifted from darrenholm/holmgraphics-shop-api, which has been
+ * talking to SanMar Canada in production on the same account (#26562). Its
+ * suppliers/sanmar/config.js cites the SanMar Canada PromoStandards Web
+ * Services Integration Guide: UAT lives under /uat-ws/, production under
+ * /pstd/, each service on its own versioned subpath. Nothing is on
+ * sanmarcanada.com — the web services are on edi.atc-apparel.com.
+ *
+ * If they ever move, that repository is the place to look first: it is the
+ * one with an account rep and a live order flow behind it.
  * ---------------------------------------------------------------------- */
-const CANDIDATE_PRODUCT_URLS = [
-  "https://ws.sanmarcanada.com/promostandards/ProductDataServiceBinding",
-  "https://ws.sanmar.com:8080/promostandards/ProductDataServiceBinding",
-];
+const ENDPOINTS = {
+  uat: {
+    product:
+      "https://edi.atc-apparel.com/uat-ws/promostandards/productdata2.0/ProductDataServiceV2.php",
+    pricing:
+      "https://edi.atc-apparel.com/uat-ws/promostandards/productpricingconfiguration/PricingAndConfigurationService.php",
+  },
+  production: {
+    product: "https://edi.atc-apparel.com/pstd/productdata2.0/ProductDataServiceV2.php",
+    pricing:
+      "https://edi.atc-apparel.com/pstd/productpricingconfiguration/PricingAndConfigurationService.php",
+  },
+} as const;
 
-const CANDIDATE_PRICING_URLS = [
-  "https://ws.sanmarcanada.com/promostandards/PricingAndConfigurationServiceBinding",
-  "https://ws.sanmar.com:8080/promostandards/PricingAndConfigurationServiceBinding",
-];
+/**
+ * SanMar Canada's warehouses, by the FobId the pricing call asks for. 3 was
+ * retired. Mississauga serves Ontario, so it is what we quote from.
+ */
+export const SANMAR_WAREHOUSES: Record<string, string> = {
+  "1": "Vancouver",
+  "2": "Mississauga",
+  "4": "Calgary",
+};
 
 export type SanmarConfig = {
   configured: boolean;
   username: string;
   password: string;
   mediaPassword: string;
-  customerNumber: string;
-  environment: "sandbox" | "live";
+  environment: "uat" | "production";
   productUrls: string[];
   pricingUrls: string[];
+  /** Which warehouse the prices are quoted from. */
+  fobId: string;
   /** ISO code the prices come back in. */
   currency: string;
+  /** SanMar Canada quotes 'Customer' against a 'Blank' configuration. */
+  priceType: string;
+  configurationType: string;
 };
 
 export function sanmarConfig(): SanmarConfig {
   const username = process.env.SANMAR_USERNAME || "";
   const password = process.env.SANMAR_PASSWORD || "";
+
+  // The sibling service spells these 'uat' and 'production'. Keep the same
+  // vocabulary so one variable can be copied between them without thinking
+  // about it. Anything unrecognised is production: a wrong guess that fails to
+  // authenticate is better than one that quietly prices off a test catalogue.
+  const raw = (process.env.SANMAR_ENV || "production").toLowerCase();
+  const environment: "uat" | "production" =
+    raw === "uat" || raw === "sandbox" || raw === "test" ? "uat" : "production";
 
   const productUrl = process.env.SANMAR_PRODUCT_URL || "";
   const pricingUrl = process.env.SANMAR_PRICING_URL || "";
@@ -63,24 +100,23 @@ export function sanmarConfig(): SanmarConfig {
     configured: Boolean(username && password),
     username,
     password,
-    mediaPassword: process.env.SANMAR_MEDIA_PASSWORD || "",
-    customerNumber: process.env.SANMAR_CUSTOMER_NUMBER || "",
-    environment: process.env.SANMAR_ENV === "live" ? "live" : "sandbox",
-    productUrls: productUrl ? [productUrl] : CANDIDATE_PRODUCT_URLS,
-    pricingUrls: pricingUrl ? [pricingUrl] : CANDIDATE_PRICING_URLS,
+    // Media content has a password of its own — a SanMar quirk. Not used yet;
+    // it is where product photography would come from.
+    mediaPassword: process.env.SANMAR_MEDIA_PASSWORD || password,
+    environment,
+    productUrls: productUrl ? [productUrl] : [ENDPOINTS[environment].product],
+    pricingUrls: pricingUrl ? [pricingUrl] : [ENDPOINTS[environment].pricing],
+    fobId: process.env.SANMAR_FOB_ID || "2",
     currency: process.env.SANMAR_CURRENCY || "CAD",
+    priceType: process.env.SANMAR_PRICE_TYPE || "Customer",
+    configurationType: "Blank",
   };
 }
 
 /* ------------------------------------------------------------- envelopes -- */
 
 const PRODUCT_NS = "http://www.promostandards.org/WSDL/ProductDataService/2.0.0/";
-const PRODUCT_SHARED_NS =
-  "http://www.promostandards.org/WSDL/ProductDataService/2.0.0/SharedObjects/";
-const PRICING_NS =
-  "http://www.promostandards.org/WSDL/PricingAndConfiguration/1.0.0/";
-const PRICING_SHARED_NS =
-  "http://www.promostandards.org/WSDL/PricingAndConfiguration/1.0.0/SharedObjects/";
+const PRICING_NS = "http://www.promostandards.org/WSDL/PricingAndConfiguration/1.0.0/";
 
 function escapeXml(value: string): string {
   return value.replace(/[<>&'"]/g, (c) =>
@@ -88,44 +124,57 @@ function escapeXml(value: string): string {
   );
 }
 
-export function productEnvelope(styleCode: string): string {
-  const { username, password } = sanmarConfig();
+/**
+ * One request element, every child in the service's own namespace.
+ *
+ * The standard publishes a SharedObjects namespace for the common fields and
+ * it is tempting to put wsVersion and id in it. SanMar's implementation does
+ * not accept that. The shape below is what holmgraphics-shop-api sends in
+ * production — one `ns:` prefix on everything — and it is what answers.
+ */
+function envelope(namespace: string, operation: string, fields: [string, string][]): string {
+  const body = fields
+    .map(([key, value]) => `      <ns:${key}>${escapeXml(value)}</ns:${key}>`)
+    .join("\n");
   return `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns="${PRODUCT_NS}" xmlns:shar="${PRODUCT_SHARED_NS}">
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/">
   <soapenv:Header/>
   <soapenv:Body>
-    <ns:GetProductRequest>
-      <shar:wsVersion>2.0.0</shar:wsVersion>
-      <shar:id>${escapeXml(username)}</shar:id>
-      <shar:password>${escapeXml(password)}</shar:password>
-      <shar:localizationCountry>CA</shar:localizationCountry>
-      <shar:localizationLanguage>EN</shar:localizationLanguage>
-      <shar:productId>${escapeXml(styleCode)}</shar:productId>
-    </ns:GetProductRequest>
+    <ns:${operation}Request xmlns:ns="${namespace}">
+${body}
+    </ns:${operation}Request>
   </soapenv:Body>
 </soapenv:Envelope>`;
 }
 
+export function productEnvelope(styleCode: string): string {
+  const { username, password } = sanmarConfig();
+  return envelope(PRODUCT_NS, "GetProduct", [
+    ["wsVersion", "2.0.0"],
+    ["id", username],
+    ["password", password],
+    ["localizationCountry", "CA"],
+    ["localizationLanguage", "en"],
+    ["productId", styleCode],
+  ]);
+}
+
 export function pricingEnvelope(styleCode: string): string {
-  const { username, password, currency } = sanmarConfig();
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:ns="${PRICING_NS}" xmlns:shar="${PRICING_SHARED_NS}">
-  <soapenv:Header/>
-  <soapenv:Body>
-    <ns:GetConfigurationAndPricingRequest>
-      <shar:wsVersion>1.0.0</shar:wsVersion>
-      <shar:id>${escapeXml(username)}</shar:id>
-      <shar:password>${escapeXml(password)}</shar:password>
-      <shar:productId>${escapeXml(styleCode)}</shar:productId>
-      <shar:currency>${escapeXml(currency)}</shar:currency>
-      <shar:fobId>1</shar:fobId>
-      <shar:priceType>Net</shar:priceType>
-      <shar:localizationCountry>CA</shar:localizationCountry>
-      <shar:localizationLanguage>EN</shar:localizationLanguage>
-      <shar:configurationType>Blank</shar:configurationType>
-    </ns:GetConfigurationAndPricingRequest>
-  </soapenv:Body>
-</soapenv:Envelope>`;
+  const { username, password, currency, fobId, priceType, configurationType } = sanmarConfig();
+  // Lowercase 'g'. The product service capitalises its operation and this one
+  // does not — the standard is inconsistent and SanMar follow it exactly.
+  return envelope(PRICING_NS, "getConfigurationAndPricing", [
+    ["wsVersion", "1.0.0"],
+    ["id", username],
+    ["password", password],
+    ["productId", styleCode],
+    ["currency", currency],
+    ["fobId", fobId],
+    ["priceType", priceType],
+    ["configurationType", configurationType],
+    ["localizationCountry", "CA"],
+    ["localizationLanguage", "en"],
+  ]);
 }
 
 /* ------------------------------------------------------------------ call -- */
@@ -150,7 +199,10 @@ export async function soapCall(
       method: "POST",
       headers: {
         "Content-Type": "text/xml; charset=utf-8",
-        SOAPAction: soapAction,
+        // Quoted, and empty by default. SanMar's stack routes on the request
+        // element rather than this header, and a non-empty value it does not
+        // recognise is answered with a 500 instead of a fault.
+        SOAPAction: `"${soapAction}"`,
       },
       body: envelope,
       signal: AbortSignal.timeout(30_000),
@@ -195,7 +247,15 @@ export async function callFirstWorking(
 
 // Namespace prefixes are stripped, so the shapes below read as the standard
 // documents them rather than as whatever prefix SanMar happen to use.
-const parser = new XMLParser({ ignoreAttributes: false, removeNSPrefix: true, parseTagValue: true });
+// parseTagValue stays OFF. It would turn a colour hex of "000000" into the
+// number 0 and "123456" into 123456, losing the leading zeros a hex needs, and
+// nothing here wants the convenience: every field is either put through String
+// or through Number explicitly a few lines below.
+const parser = new XMLParser({
+  ignoreAttributes: false,
+  removeNSPrefix: true,
+  parseTagValue: false,
+});
 
 function asArray<T>(value: T | T[] | undefined | null): T[] {
   if (value === undefined || value === null) return [];
@@ -244,19 +304,36 @@ export function parseProduct(xml: string, styleCode: string): SanmarProduct {
 
   const parts = asArray(find(parsed, "ProductPart") as Record<string, unknown>[]).map((part) => {
     const colour = (find(part, "Color") ?? {}) as Record<string, unknown>;
-    const size = (find(part, "ApparelSize") ?? {}) as Record<string, unknown>;
+    // ApparelSize comes back as an element with an apparelSize child, but some
+    // parts carry it as a bare string. Handle both rather than losing the size.
+    const sizeNode = find(part, "ApparelSize");
+    const sizeRecord = (typeof sizeNode === "object" && sizeNode !== null ? sizeNode : {}) as Record<
+      string,
+      unknown
+    >;
+    const size =
+      sizeRecord.apparelSize ??
+      sizeRecord.labelSize ??
+      (typeof sizeNode === "string" || typeof sizeNode === "number" ? sizeNode : undefined) ??
+      part.size ??
+      part.labelSize ??
+      "";
     return {
       partId: String(part.partId ?? ""),
       colourName: String(colour.colorName ?? part.colorName ?? ""),
-      colourCode: String(colour.colorCode ?? part.colorCode ?? ""),
-      size: String(size.labelSize ?? size.apparelStyle ?? part.labelSize ?? ""),
+      // SanMar send `hex` on the colour; colorCode is the standard's own name
+      // for it and some suppliers use that instead.
+      colourCode: String(colour.hex ?? colour.colorCode ?? part.colorCode ?? ""),
+      size: String(size),
     };
   });
 
   return {
     styleCode,
     name: String(find(parsed, "productName") ?? ""),
-    brand: String(find(parsed, "primaryBrand") ?? find(parsed, "brandName") ?? ""),
+    brand: String(
+      find(parsed, "productBrand") ?? find(parsed, "primaryBrand") ?? find(parsed, "brandName") ?? "",
+    ),
     description: asArray(find(parsed, "description") as string[])
       .map(String)
       .join(" ")
@@ -265,30 +342,45 @@ export function parseProduct(xml: string, styleCode: string): SanmarProduct {
   };
 }
 
-/** Net cost per part id, in cents. */
+/**
+ * Cost per part id, in cents.
+ *
+ * The response nests one Part per colour/size, each carrying its own array of
+ * quantity breaks — the partId is on the Part, not on the price row, which is
+ * the detail that makes a naive read of this document come back empty.
+ *
+ * The lowest break is what we keep. These are quantity breaks on a net cost and
+ * a campaign order of any size reaches the bottom of a garment table; taking
+ * the top one would price every shirt as if one were being bought.
+ */
 export function parsePricing(xml: string): Map<string, number> {
   const parsed = parser.parse(xml);
   const costs = new Map<string, number>();
 
-  for (const part of asArray(find(parsed, "PartPrice") as Record<string, unknown>[])) {
+  function record(partId: string, price: unknown): void {
+    const value = Number(price);
+    if (!partId || !Number.isFinite(value) || value <= 0) return;
+    const cents = Math.round(value * 100);
+    const existing = costs.get(partId);
+    if (existing === undefined || cents < existing) costs.set(partId, cents);
+  }
+
+  for (const part of asArray(find(parsed, "Part") as Record<string, unknown>[])) {
     const partId = String(part.partId ?? "");
-    const price = Number(part.price ?? part.salePrice);
-    if (partId && Number.isFinite(price)) {
-      // The lowest break wins: these are net costs at a quantity, and the
-      // cheapest is the one a real order of any size reaches.
-      const cents = Math.round(price * 100);
-      const existing = costs.get(partId);
-      if (existing === undefined || cents < existing) costs.set(partId, cents);
+    const rows = asArray(find(part, "PartPrice") as Record<string, unknown>[]);
+    if (rows.length > 0) {
+      for (const row of rows) record(partId, row.price ?? row.salePrice);
+    } else {
+      // Some implementations put a single price on the part itself.
+      record(partId, find(part, "price"));
     }
   }
 
-  // Some implementations nest the price inside the part rather than in a
-  // PartPrice array, so fall back to that shape before giving up.
+  // Last resort: price rows that carry their own partId, which is how the
+  // standard allows it and how a different supplier might answer.
   if (costs.size === 0) {
-    for (const part of asArray(find(parsed, "Part") as Record<string, unknown>[])) {
-      const partId = String(part.partId ?? "");
-      const price = Number(find(part, "price"));
-      if (partId && Number.isFinite(price)) costs.set(partId, Math.round(price * 100));
+    for (const row of asArray(find(parsed, "PartPrice") as Record<string, unknown>[])) {
+      record(String(row.partId ?? ""), row.price ?? row.salePrice);
     }
   }
 
@@ -312,7 +404,7 @@ export async function fetchStyle(
 
   const productResults = await callFirstWorking(
     config.productUrls,
-    "getProduct",
+    "",
     productEnvelope(styleCode),
   );
   const productResult = productResults.find((r) => r.ok);
@@ -334,7 +426,7 @@ export async function fetchStyle(
 
   const pricingResults = await callFirstWorking(
     config.pricingUrls,
-    "getConfigurationAndPricing",
+    "",
     pricingEnvelope(styleCode),
   );
   const pricingResult = pricingResults.find((r) => r.ok);

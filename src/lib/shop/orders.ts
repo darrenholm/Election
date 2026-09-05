@@ -49,18 +49,34 @@ export async function recalcOrder(orderId: string): Promise<void> {
   const order = await db.shopOrder.findUnique({
     where: { id: orderId },
     select: {
+      status: true,
       needsDesign: true,
+      artworkOnFile: true,
       deliveryCents: true,
       adjustmentCents: true,
-      items: { select: { lineTotalCents: true } },
+      items: { select: { lineTotalCents: true, productSlug: true } },
     },
   });
   if (!order) return;
 
+  // Freight on bought-in work is inside the line prices, so the delivery line
+  // stays at whatever the shop put there — nothing, normally, and a figure of
+  // its own for a rush courier or a run out to a candidate.
+  const deliveryCents = order.deliveryCents;
+
+  // Apparel setup is charged once for the order, so what matters is whether
+  // there is any apparel on it at all — not how many garment lines there are.
+  const hasGarments = order.items.some((item) => {
+    const product = productBySlug(item.productSlug);
+    return Boolean(product?.sizes);
+  });
+
   const totals = orderTotals({
     lineTotals: order.items.map((i) => i.lineTotalCents),
     needsDesign: order.needsDesign,
-    deliveryCents: order.deliveryCents,
+    hasGarments,
+    artworkOnFile: order.artworkOnFile,
+    deliveryCents,
     adjustmentCents: order.adjustmentCents,
   });
 
@@ -69,6 +85,8 @@ export async function recalcOrder(orderId: string): Promise<void> {
     data: {
       subtotalCents: totals.subtotalCents,
       designFeeCents: totals.designFeeCents,
+      garmentSetupCents: totals.garmentSetupCents,
+      deliveryCents,
       taxCents: totals.taxCents,
       totalCents: totals.totalCents,
     },

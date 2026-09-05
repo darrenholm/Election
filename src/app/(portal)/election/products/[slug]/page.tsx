@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PRODUCTS, productBySlug } from "@/lib/shop/catalog";
 import { getCurrentCustomer } from "@/lib/shop/auth";
+import { garmentChoicesFor } from "@/lib/shop/garments";
 import { Configurator } from "./configurator";
 
 export function generateStaticParams() {
@@ -23,7 +24,12 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   const product = productBySlug(slug);
   if (!product) notFound();
 
-  const customer = await getCurrentCustomer();
+  const [customer, garments] = await Promise.all([
+    getCurrentCustomer(),
+    // Colours, sizes and prices for apparel. Empty until SanMar's data is
+    // loaded, which is what keeps these listed but unsellable.
+    garmentChoicesFor(product.variants),
+  ]);
 
   return (
     <div className="space-y-8">
@@ -48,39 +54,18 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section className="rounded-xl border border-line bg-surface p-5 shadow-sm">
-          {product.comingSoon ? (
-            <div>
-              <p className="text-sm font-bold">Not open for orders yet</p>
-              <p className="mt-2 text-sm leading-relaxed text-muted">
-                We are still setting this line up, so there is no price on it here
-                and nothing to add to a cart. Ring the shop and we will quote it by
-                hand in the meantime — it is the same press either way.
-              </p>
-              <div className="mt-4 flex flex-wrap gap-3">
-                <Link href="/election/products/signs" className="btn-primary">
-                  Order signs instead
-                </Link>
-                <Link href="/election" className="btn-secondary">
-                  Back to the catalogue
-                </Link>
-              </div>
-            </div>
-          ) : (
-            <>
           {product.pricingProvisional ? (
             <p className="mb-4 rounded-lg border border-line bg-raise px-3 py-2 text-xs leading-relaxed text-muted">
-              Prices on this one are indicative while we finish setting the line
-              up. Order it as normal — we confirm the figure when we quote it
-              back, before anything is paid or printed.
+              This one is not on the price list yet, so it is quoted rather than
+              ordered here. Ring the shop and we will price it while you are on
+              the phone.
             </p>
           ) : null}
-          <Configurator product={product} signedIn={customer !== null} />
-            </>
-          )}
+          <Configurator product={product} signedIn={customer !== null} garments={garments} />
         </section>
 
         <aside className="space-y-4 text-sm">
-          <div className={`rounded-xl border border-line bg-raise/60 p-4 ${product.comingSoon ? "hidden" : ""}`}>
+          <div className="rounded-xl border border-line bg-raise/60 p-4">
             <h2 className="text-xs font-bold uppercase tracking-wide text-muted">Turnaround</h2>
             <p className="mt-1.5 leading-relaxed">
               About {product.leadTimeDays} working days from an approved proof. Tell us your date at

@@ -1156,9 +1156,17 @@ model ShopOrder {
   /// CANCELLED. See SHOP_ORDER_STATUSES in src/lib/enums.ts.
   status String @default("DRAFT")
 
-  /// UNPAID → PARTIAL → PAID. Payment is by e-transfer, so this is what the
-  /// shop marks off by hand when the money lands; nothing automated moves it.
+  /// UNPAID → PARTIAL → PAID. Nothing automated moves this: every permitted
+  /// method lands somewhere a person has to look — an inbox, a chequebook, the
+  /// debit terminal — so the shop marks it off by hand.
   paymentStatus String @default("UNPAID")
+
+  /// ETRANSFER, CHEQUE or DEBIT. See SHOP_PAYMENT_METHODS in src/lib/enums.ts.
+  ///
+  /// Recorded because a campaign's financial statement is audited: the Form 4
+  /// wants the expense and the receipt should say how it was settled. Empty
+  /// until money actually lands.
+  paymentMethod String @default("")
 
   /// PICKUP or DELIVERY. Delivery is quoted by hand, which is why there is a
   /// deliveryCents the shop fills in rather than a rate table.
@@ -1178,10 +1186,19 @@ model ShopOrder {
   city          String @default("")
   postalCode    String @default("")
 
-  /// Ticked when the candidate wants the shop to design the piece rather than
-  /// supplying print-ready files. Priced once per order, not per item.
+  /// Ticked when the candidate wants the shop to do the artwork rather than
+  /// supplying print-ready files. Priced once per order, however many pieces
+  /// are on it — one campaign's look is one job.
   needsDesign Boolean @default(false)
   designBrief String  @default("")
+
+  /// The shop already has the artwork and, for apparel, the screens: this is a
+  /// repeat of something already made. No artwork fee and no screen setup.
+  ///
+  /// Set by the Reorder button, and by the candidate ticking it themselves.
+  /// Charging twice to print the same sign again is the kind of thing a
+  /// campaign notices and tells the other candidates about.
+  artworkOnFile Boolean @default(false)
 
   /// What has to be on every piece. The Municipal Elections Act requires an
   /// election campaign advertisement to say who authorised it, and it is the
@@ -1193,6 +1210,9 @@ model ShopOrder {
 
   subtotalCents   Int    @default(0)
   designFeeCents  Int    @default(0)
+  /// Screen setup for apparel. Once per order rather than per garment line: the
+  /// screens are burned once whether the campaign orders tees, hoodies or both.
+  garmentSetupCents Int  @default(0)
   deliveryCents   Int    @default(0)
   /// A discount or surcharge the shop applies by hand — negative is a discount.
   adjustmentCents Int    @default(0)

@@ -6,7 +6,15 @@ import { addToCart } from "@/app/actions/shop";
 import { formatCents } from "@/lib/money";
 import { mountingNotes, type Product } from "@/lib/shop/catalog";
 import {
+  DECAL_MINIMUM_CENTS,
+  describeNesting,
+  priceDecals,
+  ROLL_WIDTH_INCHES,
+} from "@/lib/shop/decals";
+import { priceGarmentChoice, type GarmentChoice } from "@/lib/shop/garments";
+import {
   applicableBreak,
+  describeLine,
   describeSizeRun,
   nextBreak,
   nextSheetDiscount,
@@ -24,7 +32,16 @@ import {
  * the order. Nothing about the price is posted — the form sends the choices and
  * the server prices them again.
  */
-export function Configurator({ product, signedIn }: { product: Product; signedIn: boolean }) {
+export function Configurator({
+  product,
+  signedIn,
+  garments = {},
+}: {
+  product: Product;
+  signedIn: boolean;
+  /** Apparel only: colours, sizes and prices per variant, from SanMar. */
+  garments?: Record<string, GarmentChoice>;
+}) {
   const [variantKey, setVariantKey] = useState(product.variants[0].key);
   const variant = product.variants.find((v) => v.key === variantKey) ?? product.variants[0];
 
@@ -37,10 +54,26 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
 
   const [quantity, setQuantity] = useState(variant.minQuantity);
   const [sizes, setSizes] = useState<Record<string, string>>({});
+
+  // Apparel: the garment itself decides which colours and sizes exist, and what
+  // each size costs. Nothing about a shirt is in the catalogue but its style.
+  const garment = garments[variant.key];
+  const [colour, setColour] = useState("");
+  const chosenColour =
+    garment?.colours.find((c) => c.name === colour)?.name ?? garment?.colours[0]?.name ?? "";
+  const garmentSizes = garment?.colours.find((c) => c.name === chosenColour)?.sizes ?? [];
   // Sheet-priced products are ordered in sheets, not in signs: the sheet is
   // what the shop buys and cuts, and a number of signs that is not a whole
   // number of sheets cannot be made.
   const [sheets, setSheets] = useState(1);
+
+  // Decals: the candidate gives the dimensions, and what it costs comes from
+  // how much roll that consumes.
+  const [decalWidth, setDecalWidth] = useState("20");
+  const [decalHeight, setDecalHeight] = useState("12");
+  const [decalQuantity, setDecalQuantity] = useState("2");
+  const isRound = options.shape === "ROUND";
+  const isSquare = options.shape === "SQUARE";
 
   const perSheet = variant.signsPerSheet ?? 0;
 
@@ -48,6 +81,45 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
     () => (product.sizes ? readSizeRun(product, sizes) : null),
     [product, sizes],
   );
+
+  /**
+   * The decoration, per garment: a second print location, another ink colour.
+   * Ours rather than SanMar's, so it is read off the catalogue and added on top
+   * of what the shirt itself costs.
+   */
+  const decalPrice = useMemo(() => {
+    if (!product.customSize) return null;
+    const w = Number(decalWidth);
+    // A square or a circle is one dimension: the second box would only be a
+    // way to contradict the first.
+    const h = isRound || isSquare ? Number(decalWidth) : Number(decalHeight);
+    return priceDecals({
+      widthInches: w,
+      heightInches: h,
+      quantity: Number(decalQuantity),
+    });
+  }, [product.customSize, decalWidth, decalHeight, decalQuantity, isRound, isSquare]);
+
+  const garmentSurchargeCents = useMemo(() => {
+    let total = 0;
+    for (const group of product.options) {
+      if (group.onlyForVariants && !group.onlyForVariants.includes(variant.key)) continue;
+      const choice = group.choices.find((c) => c.value === options[group.key]) ?? group.choices[0];
+      total += choice?.unitSurchargeCents ?? 0;
+    }
+    return total;
+  }, [product.options, variant.key, options]);
+
+  /** What a garment run comes to, priced exactly as the server will price it. */
+  const garmentPrice = useMemo(() => {
+    if (!garment || !sizeRun) return null;
+    const counts: Record<string, number> = {};
+    for (const [size, value] of Object.entries(sizes)) {
+      const n = Number(value);
+      if (Number.isFinite(n) && n > 0) counts[size] = Math.round(n);
+    }
+    return priceGarmentChoice(garment, chosenColour, counts, garmentSurchargeCents);
+  }, [garment, sizeRun, sizes, chosenColour, garmentSurchargeCents]);
 
   const effectiveQuantity = sizeRun ? sizeRun.quantity : perSheet > 0 ? sheets * perSheet : quantity;
   const priced = useMemo(
@@ -62,6 +134,13 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
   const upsell = variant.signsPerSheet
     ? nextSheetDiscount(variant, effectiveQuantity)
     : nextBreak(variant, effectiveQuantity);
+  // The list price of the run as chosen, before any option surcharge. The
+  // upsell compares list to list — a percentage surcharge applies to both runs
+  // and would otherwise make the extra look bigger than it is.
+  const currentRun = variant.breaks.find((b) => b.quantity === effectiveQuantity);
+  const currentRunCents = currentRun
+    ? (currentRun.lineTotalCents ?? currentRun.unitPriceCents * currentRun.quantity)
+    : 0;
 
   function choose(key: string, value: string) {
     setOptions((prev) => ({ ...prev, [key]: value }));
@@ -74,6 +153,22 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
     // sheets. A typed quantity only ever moves up to the new cut's minimum,
     // never silently down: a campaign that typed 200 means 200.
     if (next && !next.signsPerSheet && quantity < next.minQuantity) setQuantity(next.minQuantity);
+  }
+
+  // Apparel with nothing synced for it. `npm run sanmar:sync` fills this in;
+  // until it has run there is no cost to mark up, so the page says so rather
+  // than showing an empty size list.
+  if (product.sizes && Object.keys(garments).length === 0) {
+    return (
+      <div>
+        <p className="text-sm font-bold">Priced on request</p>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          Garment colours and sizes change with what the mill has, so these are
+          quoted rather than listed. Ring the shop with the style, the colour and
+          your size run and we will price it while you are on the phone.
+        </p>
+      </div>
+    );
   }
 
   return (
@@ -170,6 +265,31 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
         </div>
       ) : null}
 
+      {/* Colours come from SanMar's range for this style, never from a list
+          written here — a made-up colour is one a candidate cannot have. */}
+      {garment && garment.colours.length > 0 ? (
+        <fieldset>
+          <legend className="field-label">Garment colour</legend>
+          <input type="hidden" name="garmentColour" value={chosenColour} />
+          <div className="flex flex-wrap gap-2">
+            {garment.colours.map((c) => (
+              <button
+                key={c.name}
+                type="button"
+                onClick={() => setColour(c.name)}
+                className={`rounded-lg border px-3 py-2 text-sm font-medium transition-colors ${
+                  c.name === chosenColour
+                    ? "border-brand bg-brand-soft text-brand-ink"
+                    : "border-line bg-surface text-muted hover:bg-raise"
+                }`}
+              >
+                {c.name}
+              </button>
+            ))}
+          </div>
+        </fieldset>
+      ) : null}
+
       {product.options
         .filter((g) => !g.onlyForVariants || g.onlyForVariants.includes(variant.key))
         .map((group) => (
@@ -198,20 +318,34 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
             How many of each. What you enter is what gets printed — the total is the quantity.
           </p>
           <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-            {product.sizes.map((size) => (
-              <label key={size} className="block">
-                <span className="mb-1 block text-center text-xs font-bold">{size}</span>
-                <input
-                  type="number"
-                  min={0}
-                  name={`size_${size}`}
-                  value={sizes[size] ?? ""}
-                  placeholder="0"
-                  onChange={(e) => setSizes((prev) => ({ ...prev, [size]: e.target.value }))}
-                  className="field text-center tabular-nums"
-                />
-              </label>
-            ))}
+            {(garmentSizes.length > 0
+              ? garmentSizes.map((s) => s.size)
+              : product.sizes
+            ).map((size) => {
+              const sku = garmentSizes.find((s) => s.size === size);
+              return (
+                <label key={size} className="block">
+                  <span className="mb-1 block text-center text-xs font-bold">{size}</span>
+                  <input
+                    type="number"
+                    min={0}
+                    name={`size_${size}`}
+                    value={sizes[size] ?? ""}
+                    placeholder="0"
+                    onChange={(e) => setSizes((prev) => ({ ...prev, [size]: e.target.value }))}
+                    className="field text-center tabular-nums"
+                  />
+                  {/* The bigger sizes cost the shop more, so they cost more
+                      here. Saying so beside the box is kinder than a total
+                      that moves by an amount nobody can account for. */}
+                  {sku ? (
+                    <span className="mt-1 block text-center text-[0.7rem] text-muted tabular-nums">
+                      {formatCents(sku.retailCents + garmentSurchargeCents)}
+                    </span>
+                  ) : null}
+                </label>
+              );
+            })}
           </div>
           <p className="mt-2 text-sm text-muted">
             {sizeRun && sizeRun.quantity > 0
@@ -219,6 +353,65 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
               : "Nothing entered yet."}
           </p>
         </fieldset>
+      ) : product.customSize ? (
+          <fieldset>
+            <legend className="field-label">Size and quantity</legend>
+            <input type="hidden" name="decalWidth" value={decalWidth} />
+            <input
+              type="hidden"
+              name="decalHeight"
+              value={isRound || isSquare ? decalWidth : decalHeight}
+            />
+            <input type="hidden" name="quantity" value={decalQuantity} />
+
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="block">
+                <span className="mb-1 block text-xs text-muted">
+                  {isRound ? "Diameter" : isSquare ? "Side" : "Width"}
+                </span>
+                <input
+                  type="number"
+                  min={0.5}
+                  step={0.25}
+                  value={decalWidth}
+                  onChange={(e) => setDecalWidth(e.target.value)}
+                  className="field w-24 tabular-nums"
+                />
+              </label>
+
+              {isRound || isSquare ? null : (
+                <label className="block">
+                  <span className="mb-1 block text-xs text-muted">Height</span>
+                  <input
+                    type="number"
+                    min={0.5}
+                    step={0.25}
+                    value={decalHeight}
+                    onChange={(e) => setDecalHeight(e.target.value)}
+                    className="field w-24 tabular-nums"
+                  />
+                </label>
+              )}
+
+              <span className="pb-2 text-sm text-muted">inches</span>
+
+              <label className="block">
+                <span className="mb-1 block text-xs text-muted">How many</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={decalQuantity}
+                  onChange={(e) => setDecalQuantity(e.target.value)}
+                  className="field w-24 tabular-nums"
+                />
+              </label>
+            </div>
+
+            <p className="mt-2 text-xs text-muted">
+              A car door decal is usually about 20 × 12 inches. Anything wider than{" "}
+              {ROLL_WIDTH_INCHES} inches has to be panelled — ring us.
+            </p>
+          </fieldset>
       ) : (
         <fieldset>
           <legend className="field-label">How many</legend>
@@ -265,7 +458,8 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
             >
               {variant.breaks.map((b) => (
                 <option key={b.quantity} value={b.quantity}>
-                  {b.quantity.toLocaleString("en-CA")} — {formatCents(b.unitPriceCents)} each
+                  {b.quantity.toLocaleString("en-CA")} —{" "}
+                  {formatCents(b.lineTotalCents ?? b.unitPriceCents * b.quantity)}
                 </option>
               ))}
             </select>
@@ -307,14 +501,39 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
       {/* --------------------------------------------------------- the price */}
       <div className="rounded-xl border border-line bg-raise/60 p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          <span className="text-sm text-muted">
-            {effectiveQuantity} × {formatCents(priced.unitPriceCents)}
-            {priced.setupFeeCents > 0 ? ` + ${formatCents(priced.setupFeeCents)} setup` : ""}
-          </span>
+          {product.customSize ? (
+            <span className="text-sm text-muted">
+              {decalPrice
+                ? describeNesting(decalPrice.nesting)
+                : "That size will not come off the roll — ring us."}
+            </span>
+          ) : garment ? (
+            <span className="text-sm text-muted">
+              {garmentPrice
+                ? `${garmentPrice.quantity} garments`
+                : "Enter how many of each size"}
+            </span>
+          ) : (
+            <span className="text-sm text-muted">{describeLine(priced)}</span>
+          )}
           <span className="text-2xl font-extrabold tabular-nums tracking-tight">
-            {formatCents(priced.lineTotalCents)}
+            {formatCents(
+              product.customSize
+                ? (decalPrice?.totalCents ?? 0) + priced.setupFeeCents
+                : garment
+                  ? (garmentPrice?.totalCents ?? 0)
+                  : priced.lineTotalCents,
+            )}
           </span>
         </div>
+
+        {decalPrice?.minimumApplied ? (
+          <p className="mt-2 text-xs text-muted">
+            Charged at the {formatCents(DECAL_MINIMUM_CENTS)} minimum — a print run
+            costs what it costs whether it is one decal or twenty. More of them at
+            this size cost very little extra.
+          </p>
+        ) : null}
 
         {priced.sheetsUsed > 0 ? (
           <p className="mt-2 text-xs text-muted">
@@ -333,7 +552,13 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
           <p className="mt-1 text-xs text-accent-ink">
             {"moreSigns" in upsell
               ? `Another ${upsell.moreSigns} takes ${upsell.percent}% off the whole order.`
-              : `${upsell.more} more brings each one down to ${formatCents(upsell.unitPriceCents)}.`}
+              : product.quantitiesFixed
+                ? `${upsell.quantity.toLocaleString("en-CA")} is ${formatCents(
+                    upsell.lineTotalCents,
+                  )} — ${upsell.more.toLocaleString("en-CA")} more for ${formatCents(
+                    upsell.lineTotalCents - currentRunCents,
+                  )}.`
+                : `${upsell.more} more brings each one down to ${formatCents(upsell.unitPriceCents)}.`}
           </p>
         ) : null}
 
@@ -346,8 +571,10 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
         <p className="mt-2 text-xs text-muted">
           Before HST.{" "}
           {product.pickupOnly
-            ? "Collected from the shop — signs travel badly by courier."
-            : "Delivery, if you want it, is quoted with the order."}
+            ? "Collected from the shop — these are made here."
+            : product.shippingIncluded
+              ? "Shipping is in the price — nothing is added at the end."
+              : "Collected from the shop, or delivered locally by arrangement."}
         </p>
       </div>
 
@@ -362,8 +589,22 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
       </label>
 
       {signedIn ? (
-        <button type="submit" className="btn-primary w-full sm:w-auto">
-          Add to cart — {formatCents(priced.lineTotalCents)}
+        <button
+          type="submit"
+          disabled={
+            (garment !== undefined && garmentPrice === null) ||
+            (product.customSize === true && decalPrice === null)
+          }
+          className="btn-primary w-full sm:w-auto"
+        >
+          Add to cart —{" "}
+          {formatCents(
+            product.customSize
+              ? (decalPrice?.totalCents ?? 0) + priced.setupFeeCents
+              : garment
+                ? (garmentPrice?.totalCents ?? 0)
+                : priced.lineTotalCents,
+          )}
         </button>
       ) : (
         <div className="flex flex-wrap items-center gap-3">

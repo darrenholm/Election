@@ -21,34 +21,90 @@
  * ---------------------------------------------------------------------------
  * WHICH OF THESE PRICES ARE REAL
  *
- *   Signs            The shop's own sheet prices. Real. The wire stand is the
- *                    one figure still made up.
- *   Post cards       Placeholder, until SinaLite's trade cost comes back and
- *   Door hangers     the tables are re-derived as cost doubled plus prep.
+ *   Signs            The shop's own sheet prices, and the shop's own $2.10
+ *                    wire stand. Real, all of it.
+ *   Decals           The shop's own: $12 a square foot of roll consumed, $50
+ *                    minimum. Live.
+ *   Post cards       SinaLite's own trade cost, taken off the trade site on
+ *   Door hangers     5 September 2026, plus freight, marked up by
+ *                    PRINT_MARKUP_PERCENT. Live, and shipping is inside the
+ *                    price.
  *   T-shirts         The styles are settled — SanMar ATC1000, the three ATCF
- *   Hoodies          fleece styles, and the S365 / SL365 polos — but every
- *   Polos            figure is a placeholder until the dealer costs are in,
- *   Decals           and no garment colours are listed because inventing a
- *                    range would have candidates picking colours that cannot
- *                    be had. Decal stocks are still to be settled.
+ *   Hoodies          fleece styles, and the S365 / SL365 polos — but no prices
+ *   Polos            are shown at all until SanMar's own costs are loaded.
+ *                    These carry pricingProvisional, which puts "priced on
+ *                    request" on the card and refuses an add-to-cart, so
+ *                    nobody is quoted a figure the shop has not agreed to.
  *
- * Only the signs are orderable today. Everything else carries `comingSoon:
- * true`, which lists it without a price and without a cart button — a candidate
- * working out a budget still learns the shop does hoodies, and nobody is quoted
- * a figure that is not ready. Clear the flag on a product once its real prices
- * are in, and clear `pricingProvisional` with it.
+ * Clear pricingProvisional on a product the moment its real costs are in —
+ * `npm run sanmar:sync` is what fills the apparel tables — and it becomes
+ * orderable with no other change.
  * ---------------------------------------------------------------------------
  */
 
-/** A quantity break: at `quantity` or more, each piece costs `unitPriceCents`. */
-export type PriceBreak = { quantity: number; unitPriceCents: number };
+/**
+ * A quantity break: at `quantity` or more, each piece costs `unitPriceCents`.
+ *
+ * On a fixed-quantity product the run has a price of its own, and
+ * `lineTotalCents` carries it. That is not a nicety: 5000 small cards work out
+ * at 6.72 cents each, and a unit price rounded to the nearest cent puts the
+ * line up to fifty dollars out in one direction or the other. Where it is set,
+ * it is the authoritative figure and the per-piece price is derived from it for
+ * display — the same rule signs follow with the sheet.
+ */
+export type PriceBreak = {
+  quantity: number;
+  unitPriceCents: number;
+  lineTotalCents?: number;
+  /** What the trade printer charges for this run. Never shown to a candidate. */
+  tradeCostCents?: number;
+};
+
+/**
+ * What the shop adds to a trade printer's price.
+ *
+ * One number, in one place, because it has already changed once mid-flight and
+ * will change again. The catalogue records what SinaLite charge and derives
+ * what the candidate pays, so a new markup is an edit here rather than a dozen
+ * figures retyped — and the cost stays visible for the margin arithmetic.
+ *
+ * PRINT, not apparel. Garments are doubled and floored at $12, in
+ * src/lib/shop/garments.ts, and that difference is on purpose — a shirt is
+ * handled one at a time here, a pallet of cards is not.
+ */
+export const PRINT_MARKUP_PERCENT = 50;
+
+/**
+ * A run at a trade cost, marked up.
+ *
+ * The line is the real figure and the per-piece price is derived from it, for
+ * the same reason it is on the sheet-priced signs: 5000 small cards work out at
+ * a fraction of a cent each, and rounding that before multiplying puts the
+ * total tens of dollars out.
+ */
+function tradeRun(quantity: number, tradeCostCents: number): PriceBreak {
+  const landedCents = tradeCostCents + TRADE_FREIGHT_CENTS;
+  const lineTotalCents = Math.round(landedCents * (1 + PRINT_MARKUP_PERCENT / 100));
+  return {
+    quantity,
+    // The goods alone, which is what the margin check in the queue measures
+    // against when the real invoice arrives.
+    tradeCostCents,
+    lineTotalCents,
+    unitPriceCents: Math.round(lineTotalCents / quantity),
+  };
+}
 
 export type Variant = {
   key: string;
   name: string;
   /** The specification, in the words a printer would use. */
   detail: string;
-  /** Proof, file prep and press or screen setup. Charged once per line. */
+  /**
+   * Press setup on this line, if any. Zero everywhere at present: the artwork
+   * fee and the apparel setup are both charged once on the order instead —
+   * see orderTotals. Kept because a future product may genuinely need one.
+   */
   setupFeeCents: number;
   minQuantity: number;
   /** Ascending by quantity. The last break at or below the order decides.
@@ -80,6 +136,13 @@ export type OptionChoice = {
   unitSurchargeCents?: number;
   /** Added once to the line. */
   flatSurchargeCents?: number;
+  /**
+   * Added as a percentage of the printed goods — not of the setup fee, and not
+   * of the shipping. Printing the second side of a card costs a proportion of
+   * the job rather than a fixed amount, and a flat figure would be wrong at
+   * both 500 and 5000.
+   */
+  surchargePercent?: number;
 };
 
 export type OptionGroup = {
@@ -150,28 +213,106 @@ export type Product = {
   /** What the shop needs from the candidate if they are supplying files. */
   artworkHint: string;
   /**
-   * The prices on this product are not the shop's final ones yet, so the page
-   * says so rather than letting a placeholder read as a quote.
+   * No settled price yet, so nothing is quoted and nothing can be ordered.
+   *
+   * The catalogue still lists it — a candidate working out a budget wants to
+   * know the shop does hoodies — but the card says "priced on request" and the
+   * add-to-cart is refused server-side as well as hidden. Better than a figure
+   * the shop has not agreed to.
    */
   pricingProvisional?: boolean;
-  /**
-   * Listed, but not orderable yet.
-   *
-   * The catalogue still carries it — a candidate deciding what to spend on
-   * wants to know the shop does hoodies — but no price is shown and nothing can
-   * be added to a cart. Cheaper than hiding it and better than quoting a figure
-   * that is not ready.
-   */
-  comingSoon?: boolean;
   /**
    * Collected from the shop, never shipped. Signs are cut here and go out on a
    * trailer or in the back of a car; nothing about them wants a courier.
    */
   pickupOnly?: boolean;
+  /** Freight is inside the price, so the portal can say so and mean it. */
+  shippingIncluded?: boolean;
+  /**
+   * The candidate gives the dimensions and the price is worked out from them.
+   *
+   * Decals only. Everything else in this catalogue is a fixed thing at a fixed
+   * price; a decal is whatever size somebody asks for, and what it costs comes
+   * from how much roll that consumes. See src/lib/shop/decals.ts.
+   */
+  customSize?: boolean;
 };
 
-/** Design service, charged once per order when the shop is doing the artwork. */
-export const DESIGN_FEE_CENTS = 9500;
+/**
+ * Printing the back as well as the front.
+ *
+ * The trade prices this catalogue carries are for 4/0 — printed and coated one
+ * side — and the second side adds 8% to the printing. A percentage rather than
+ * a fixed amount because that is how the press charges it: the second side of
+ * 5000 cards is not the same work as the second side of 500.
+ */
+export const DOUBLE_SIDED_PERCENT = 8;
+
+export function printedSidesOption(): OptionGroup {
+  return {
+    key: "sides",
+    label: "Printed sides",
+    hint: "Most campaign pieces use the back — a platform, a map, a list of dates.",
+    choices: [
+      { value: "SINGLE", label: "Front only" },
+      {
+        value: "DOUBLE",
+        label: `Front and back (+${DOUBLE_SIDED_PERCENT}%)`,
+        surchargePercent: DOUBLE_SIDED_PERCENT,
+      },
+    ],
+  };
+}
+
+/**
+ * Getting a trade-printed job here.
+ *
+ * Built into the price rather than added at the end, so the figure on the
+ * product page is the figure on the invoice and the portal can say shipping is
+ * included. A candidate deciding between two printers should not have to get to
+ * a checkout to find out what it really costs.
+ *
+ * It goes in as cost, before the markup, because it is cost: the freight, and
+ * the receiving, checking and repacking at this end that comes with it.
+ *
+ * Per run rather than per order, which is the price of showing a real number on
+ * a product page. An order with cards and hangers on it carries it twice for
+ * one box — in the shop's favour, and invisible to the candidate either way.
+ */
+export const TRADE_FREIGHT_CENTS = 2500;
+
+/**
+ * Artwork. One fee, once, for the whole order.
+ *
+ * Charged when the candidate is not supplying print-ready files — whether that
+ * means designing the piece from nothing or straightening out a logo pulled off
+ * a website. It is the same job either way and it is one job: a campaign's
+ * signs, cards and hangers are one look, drawn once and adapted, not three
+ * separate pieces of work.
+ *
+ * It used to be charged per item as well, which meant a candidate ordering
+ * signs in two sizes paid twice to have one thing drawn. Darren's call, on
+ * 5 September 2026: once per order, and apparel keeps its own screen setup
+ * because burning a screen is a different job from drawing the artwork.
+ *
+ * Not charged at all when the shop already has the file — see artworkOnFile on
+ * ShopOrder. Printing the same sign again is not artwork.
+ */
+export const DESIGN_FEE_CENTS = 4500;
+
+/**
+ * Apparel setup. Once per order, not per garment line.
+ *
+ * The shop prints garments direct-to-film, not with screens: the design is
+ * output to transfer film and heat-pressed on. So there is nothing to charge by
+ * the ink colour — full colour costs what one colour costs — and no screen to
+ * burn per garment style. What the setup covers is getting the artwork onto
+ * film at the right size for each placement, and that is one job for the order.
+ *
+ * Separate from the artwork fee, and both can land on the same order: one is
+ * drawing the design, the other is putting it on film.
+ */
+export const GARMENT_SETUP_CENTS = 4500;
 
 /** Ontario HST. Municipal campaign purchases are taxable like any other. */
 export const TAX_RATE = 0.13;
@@ -307,7 +448,9 @@ export const PRODUCTS: Product[] = [
           "under the price.",
         onlyForVariants: ["12x12", "12x16", "16x24"],
         choices: [
-          { value: "WITH", label: "One wire stand per sign (+$2.00 each)", unitSurchargeCents: 200 },
+          // $2.10, set by Darren on 5 September 2026. The shop's own figure, not
+          // a placeholder — it was the last invented number in the price list.
+          { value: "WITH", label: "One wire stand per sign (+$2.10 each)", unitSurchargeCents: 210 },
           { value: "WITHOUT", label: "No stands — I have them" },
         ],
       },
@@ -318,118 +461,103 @@ export const PRODUCTS: Product[] = [
     name: "Post cards",
     tagline: "Mailers and hand-outs, printed both sides",
     description:
-      "14pt card with a UV high gloss coating both sides, printed full colour " +
-      "and trimmed square. The 4×6 is the workhorse — it fits a letterbox, a " +
-      "canvasser's hand and Canada Post's Neighbourhood Mail dimensions. The " +
-      "5×7 is what candidates order when the piece has to carry a platform " +
-      "rather than a name. One stock, because a gloss card is what stands up " +
-      "to a wet mailbox in October.",
+      "14pt card with a UV high gloss coating, printed full colour on one side " +
+      "or both, and trimmed square. The 4.25 × 5.5 is the hand-out — it fits a " +
+      "letterbox, " +
+      "a canvasser's hand and Canada Post's Neighbourhood Mail dimensions. The " +
+      "8.5 × 5.5 is the half-page a candidate orders when the piece has to carry " +
+      "a platform rather than a name. One stock, because a gloss card is what " +
+      "stands up to a wet mailbox in October.",
     icon: "▭",
-    leadTimeDays: 4,
-    comingSoon: true,
-    pricingProvisional: true,
+    // 2-4 business days at the press, plus getting it here.
+    leadTimeDays: 6,
     quantitiesFixed: true,
+    shippingIncluded: true,
     artworkHint:
-      "PDF, both sides, 0.125\" bleed. The UV coating is glossy and sealed, so " +
-      "nothing can be written on these afterwards — if a canvasser needs to add " +
-      "a name at the door, order door hangers instead.",
+      "PDF at 0.125\" bleed — both sides if you are having the back printed. The " +
+      "UV coating is glossy and sealed, so nothing can be written on these " +
+      "afterwards.",
+    // Runs and costs are SinaLite's own, off the trade site on 5 September 2026.
+    // What a candidate pays is derived from them by PRINT_MARKUP_PERCENT.
     variants: [
       {
-        key: "4x6",
-        name: "4\" × 6\" post card",
-        detail: "14pt card, UV high gloss both sides, full colour",
-        setupFeeCents: 2000,
-        minQuantity: 250,
+        key: "4.25x5.5",
+        name: '4.25" × 5.5" hand-out',
+        detail: "14pt card, UV high gloss",
+        setupFeeCents: 0,
+        minQuantity: 500,
         breaks: [
-          { quantity: 250, unitPriceCents: 42 },
-          { quantity: 500, unitPriceCents: 28 },
-          { quantity: 1000, unitPriceCents: 21 },
-          { quantity: 2500, unitPriceCents: 16 },
-          { quantity: 5000, unitPriceCents: 13 },
+          tradeRun(500, 4395),
+          tradeRun(1000, 4880),
+          tradeRun(2500, 9775),
+          tradeRun(5000, 16800),
         ],
       },
       {
-        key: "5x7",
-        name: "5\" × 7\" post card",
-        detail: "14pt card, UV high gloss both sides, full colour",
-        setupFeeCents: 2000,
-        minQuantity: 250,
+        key: "8.5x5.5",
+        name: '8.5" × 5.5" half page',
+        detail: "14pt card, UV high gloss",
+        setupFeeCents: 0,
+        minQuantity: 500,
         breaks: [
-          { quantity: 250, unitPriceCents: 58 },
-          { quantity: 500, unitPriceCents: 39 },
-          { quantity: 1000, unitPriceCents: 29 },
-          { quantity: 2500, unitPriceCents: 23 },
+          tradeRun(500, 7250),
+          tradeRun(1000, 9340),
+          tradeRun(2500, 19550),
+          tradeRun(5000, 29150),
         ],
       },
     ],
     // No coating choice: the shop buys one stock for these, and offering a
     // finish it does not buy would take an order it cannot place.
-    options: [],
+    options: [printedSidesOption()],
   },
   {
     slug: "door-hangers",
     name: "Door hangers",
     tagline: "What gets left when nobody answers",
     description:
-      "14pt card with a UV high gloss coating both sides, die-cut with a " +
-      "hanging hole, printed full colour. Order more of these than you think: " +
-      "a canvass reaches an answered door about one time in three, and the " +
-      "hanger is what does the work at the other two.",
+      "14pt card, die-cut with a hanging hole, printed full colour. Order more " +
+      "of these than you think: a canvass reaches an answered door about one " +
+      "time in three, and the hanger is what does the work at the other two.",
     icon: "⌸",
-    leadTimeDays: 5,
-    comingSoon: true,
-    pricingProvisional: true,
+    leadTimeDays: 6,
     quantitiesFixed: true,
+    shippingIncluded: true,
     artworkHint:
-      "PDF, both sides, 0.125\" bleed. Keep the top 1.5\" clear of anything that " +
-      "matters — that is where the die cuts the hole. The gloss coating cannot " +
-      "be written on, so print the blanks you need rather than leaving space " +
-      "for a pen.",
+      "PDF at 0.125\" bleed. Keep the top 1.5\" clear of anything that matters — " +
+      "that is where the die cuts the hole.",
+    // SinaLite's runs and costs, 5 September 2026, marked up by
+    // PRINT_MARKUP_PERCENT.
     variants: [
       {
-        key: "4.25x11",
-        name: "4.25\" × 11\" door hanger",
-        detail: "14pt card, UV high gloss both sides, die-cut hanging hole",
-        setupFeeCents: 3500,
+        key: "8.5x3.5",
+        name: '8.5" × 3.5" door hanger',
+        detail: "14pt card, full colour, die-cut hanging hole",
+        setupFeeCents: 0,
         minQuantity: 250,
         breaks: [
-          { quantity: 250, unitPriceCents: 62 },
-          { quantity: 500, unitPriceCents: 46 },
-          { quantity: 1000, unitPriceCents: 36 },
-          { quantity: 2500, unitPriceCents: 29 },
-        ],
-      },
-      {
-        key: "3.5x8.5",
-        name: "3.5\" × 8.5\" door hanger",
-        detail: "14pt card, UV high gloss both sides, die-cut hanging hole",
-        setupFeeCents: 3500,
-        minQuantity: 250,
-        breaks: [
-          { quantity: 250, unitPriceCents: 52 },
-          { quantity: 500, unitPriceCents: 38 },
-          { quantity: 1000, unitPriceCents: 30 },
-          { quantity: 2500, unitPriceCents: 24 },
+          tradeRun(250, 7022),
+          tradeRun(500, 10197),
+          tradeRun(1000, 11304),
+          tradeRun(2500, 19755),
         ],
       },
     ],
-    // The write-on panel is gone with the stock: a UV gloss sheet cannot be
-    // written on, and there is no uncoated option on the product the shop buys.
-    options: [],
+    options: [printedSidesOption()],
   },
   {
     slug: "t-shirts",
     name: "T-shirts",
     tagline: "For the door-knocking team",
     description:
-      "Screen printed tees for the people knocking on doors. Order by the size " +
-      "run — the counts you enter are what gets printed, so a team of twelve " +
-      "with three larges gets three larges. Screen setup is charged once per " +
-      "design, which is why the price per shirt falls away so sharply once you " +
-      "are past a dozen.",
+      "Tees for the people knocking on doors, printed direct-to-film. Full " +
+      "colour for one price — a photograph costs no more than a wordmark, and " +
+      "nothing here is charged by the ink colour. Order by the size run: the " +
+      "counts you enter are what gets printed, so a team of twelve with three " +
+      "larges gets three larges. Setup is charged once for the order rather " +
+      "than per garment, which is why a second style costs so little more.",
     icon: "♟",
     leadTimeDays: 10,
-    comingSoon: true,
     pricingProvisional: true,
     // Sizes differ by style and by cut, and these are not confirmed against
     // SanMar's size run for the ATC1000 yet.
@@ -445,7 +573,7 @@ export const PRODUCTS: Product[] = [
         garmentStyleCode: "ATC1000",
         name: "ATC1000",
         detail: "SanMar ATC1000",
-        setupFeeCents: 4500,
+        setupFeeCents: 0,
         minQuantity: 12,
         breaks: [
           { quantity: 12, unitPriceCents: 2250 },
@@ -469,15 +597,6 @@ export const PRODUCTS: Product[] = [
           },
         ],
       },
-      {
-        key: "colours",
-        label: "Ink colours",
-        choices: [
-          { value: "ONE", label: "One colour" },
-          { value: "TWO", label: "Two colours (+$2.00 each)", unitSurchargeCents: 200 },
-          { value: "FULL", label: "Full colour (+$3.50 each)", unitSurchargeCents: 350 },
-        ],
-      },
       // Garment colour is deliberately not listed. The choice is SanMar's
       // range for this style, and a made-up list of six colours would be worse
       // than none: a candidate would pick one that cannot be had.
@@ -488,12 +607,12 @@ export const PRODUCTS: Product[] = [
     name: "Hoodies",
     tagline: "October doors are cold",
     description:
-      "Screen printed fleece. A municipal campaign runs into November in " +
-      "Ontario, and a hoodie is the thing a volunteer keeps wearing after " +
-      "voting day — which is worth more than most advertising.",
+      "Fleece, printed direct-to-film in full colour. A municipal campaign " +
+      "runs into November in Ontario, and a hoodie is the thing a volunteer " +
+      "keeps wearing after voting day — which is worth more than most " +
+      "advertising.",
     icon: "♜",
     leadTimeDays: 12,
-    comingSoon: true,
     pricingProvisional: true,
     sizes: ["S", "M", "L", "XL", "2XL", "3XL"],
     artworkHint:
@@ -508,7 +627,7 @@ export const PRODUCTS: Product[] = [
         garmentStyleCode: "ATCF6500",
         name: "ATCF6500",
         detail: "SanMar ATCF6500",
-        setupFeeCents: 4500,
+        setupFeeCents: 0,
         minQuantity: 6,
         breaks: [
           { quantity: 6, unitPriceCents: 5200 },
@@ -522,7 +641,7 @@ export const PRODUCTS: Product[] = [
         garmentStyleCode: "ATCF6600",
         name: "ATCF6600",
         detail: "SanMar ATCF6600",
-        setupFeeCents: 4500,
+        setupFeeCents: 0,
         minQuantity: 6,
         breaks: [
           { quantity: 6, unitPriceCents: 5600 },
@@ -536,7 +655,7 @@ export const PRODUCTS: Product[] = [
         garmentStyleCode: "ATCF6700",
         name: "ATCF6700",
         detail: "SanMar ATCF6700",
-        setupFeeCents: 4500,
+        setupFeeCents: 0,
         minQuantity: 6,
         breaks: [
           { quantity: 6, unitPriceCents: 6200 },
@@ -569,7 +688,6 @@ export const PRODUCTS: Product[] = [
       "Ordered as a size run, the same way the shirts are.",
     icon: "♛",
     leadTimeDays: 12,
-    comingSoon: true,
     pricingProvisional: true,
     sizes: ["S", "M", "L", "XL", "2XL", "3XL"],
     artworkHint:
@@ -583,7 +701,7 @@ export const PRODUCTS: Product[] = [
         garmentStyleCode: "S365",
         name: "S365",
         detail: "SanMar S365",
-        setupFeeCents: 6500,
+        setupFeeCents: 0,
         minQuantity: 6,
         breaks: [
           { quantity: 6, unitPriceCents: 4800 },
@@ -597,7 +715,7 @@ export const PRODUCTS: Product[] = [
         garmentStyleCode: "SL365",
         name: "SL365",
         detail: "SanMar SL365",
-        setupFeeCents: 6500,
+        setupFeeCents: 0,
         minQuantity: 6,
         breaks: [
           { quantity: 6, unitPriceCents: 4800 },
@@ -613,7 +731,7 @@ export const PRODUCTS: Product[] = [
         label: "How it is decorated",
         choices: [
           { value: "EMBROIDERY", label: "Embroidered" },
-          { value: "PRINT", label: "Screen printed" },
+          { value: "PRINT", label: "Printed (direct-to-film)" },
         ],
       },
       {
@@ -629,75 +747,51 @@ export const PRODUCTS: Product[] = [
   {
     slug: "decals",
     name: "Decals",
-    tagline: "Bumpers, tailgates and shop windows",
+    tagline: "Any size, any shape — bumpers, tailgates and shop windows",
     description:
-      "Printed vinyl with an adhesive back. Bumper decals are the cheapest " +
-      "impression a campaign buys and they travel; the larger vehicle and " +
-      "window decals are what goes on a supporter's truck door or a business " +
-      "that has agreed to display one.",
+      "Printed vinyl cut to whatever size and shape you want. Say how big and " +
+      "how many and the price works itself out: decals are nested across a 54 " +
+      "inch roll with an inch between them, and what is charged is the roll that " +
+      "gets used. A car door decal is usually about 20 × 12 inches. Minimum " +
+      "order $50, because a print run costs what it costs whether it is one " +
+      "decal or twenty.",
     icon: "◈",
     leadTimeDays: 6,
-    comingSoon: true,
-    pricingProvisional: true,
+    customSize: true,
+    pickupOnly: true,
     artworkHint:
-      "Vector artwork holds up best at these sizes. Say whether the decal goes " +
-      "on the outside of the glass or the inside — a window decal reading from " +
-      "inside has to be printed reversed.",
+      "Vector artwork holds up best, and it has to be, for anything contour cut " +
+      "— the cutter follows a path, not a picture. Say whether the decal goes on " +
+      "the outside of the glass or the inside, because one of those is printed " +
+      "in reverse.",
     variants: [
       {
-        key: "bumper",
-        name: "3\" × 7.5\" bumper decal",
-        detail: "Printed white vinyl, outdoor adhesive, laminated",
-        setupFeeCents: 2000,
-        minQuantity: 50,
-        breaks: [
-          { quantity: 50, unitPriceCents: 240 },
-          { quantity: 100, unitPriceCents: 185 },
-          { quantity: 250, unitPriceCents: 135 },
-          { quantity: 500, unitPriceCents: 110 },
-        ],
-      },
-      {
-        key: "vehicle-12",
-        name: "12\" × 12\" vehicle decal",
-        detail: "Printed vinyl, laminated, removable adhesive",
-        setupFeeCents: 2000,
-        minQuantity: 10,
-        breaks: [
-          { quantity: 10, unitPriceCents: 1800 },
-          { quantity: 25, unitPriceCents: 1450 },
-          { quantity: 50, unitPriceCents: 1200 },
-        ],
-      },
-      {
-        key: "window-18",
-        name: "18\" × 24\" window decal",
-        detail: "Printed vinyl for a shop window or a truck door",
-        setupFeeCents: 2000,
-        minQuantity: 5,
-        breaks: [
-          { quantity: 5, unitPriceCents: 3900 },
-          { quantity: 15, unitPriceCents: 3300 },
-          { quantity: 30, unitPriceCents: 2850 },
-        ],
+        key: "custom",
+        name: "Cut to your size",
+        detail: "Printed vinyl, laminated, off a 54\" roll",
+        setupFeeCents: 0,
+        minQuantity: 1,
+        breaks: [],
       },
     ],
     options: [
       {
-        key: "surface",
-        label: "Where it goes",
-        hint: "Reverse-printed decals are read through the glass from outside.",
+        key: "shape",
+        label: "Shape",
+        hint: "Round and custom shapes are contour cut; the size you give is the space it takes up.",
         choices: [
-          { value: "OUTSIDE", label: "Outside surface" },
-          { value: "INSIDE_GLASS", label: "Inside the glass, reverse printed (+$0.75 each)", unitSurchargeCents: 75 },
+          { value: "RECTANGLE", label: "Rectangle" },
+          { value: "SQUARE", label: "Square" },
+          { value: "ROUND", label: "Round" },
         ],
       },
       {
-        key: "shape",
-        label: "Cut",
+        key: "surface",
+        label: "Where it goes",
+        hint: "A decal read through glass from outside has to be printed in reverse.",
         choices: [
-          { value: "SQUARE", label: "Square cut" },
-          { value: "CONTOUR", label: "Contour cut to the artwork (+$0.60 each)", unitSurchargeCents: 60 },
+          { value: "OUTSIDE", label: "Outside surface" },
+          { value: "INSIDE_GLASS", label: "Inside the glass, reverse printed" },
         ],
       },
     ],
@@ -781,7 +875,35 @@ export function optionChoice(
   return group.choices.find((c) => c.value === value) ?? null;
 }
 
-/** The cheapest a product can be had for, for the "from $x" on a catalogue card. */
+/**
+ * The cheapest a product can be had for, for the "from $x" on a catalogue card.
+ *
+ * Zero for anything without a price table — a custom-sized product is quoted
+ * from its dimensions, and the card says so rather than showing nothing.
+ */
+/**
+ * The cheapest whole run of a product sold in fixed quantities.
+ *
+ * Cards and hangers are bought by the run, not by the piece, and a per-piece
+ * "from $0.06 each" on a catalogue card tells a candidate nothing about what
+ * the cheque will be. This gives the card the figure they actually pay.
+ */
+export function startingRunPrice(
+  product: Product,
+): { quantity: number; totalCents: number } | null {
+  if (!product.quantitiesFixed) return null;
+  let cheapest: { quantity: number; totalCents: number } | null = null;
+  for (const variant of product.variants) {
+    for (const brk of variant.breaks) {
+      const totalCents = brk.lineTotalCents ?? brk.unitPriceCents * brk.quantity;
+      if (!cheapest || totalCents < cheapest.totalCents) {
+        cheapest = { quantity: brk.quantity, totalCents };
+      }
+    }
+  }
+  return cheapest;
+}
+
 export function startingUnitPriceCents(product: Product): number {
   const sheets = product.sheetPricing;
   const prices = product.variants.flatMap((v) =>

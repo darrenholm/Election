@@ -5,6 +5,7 @@ import { requireCustomer } from "@/lib/shop/auth";
 import {
   SHOP_FULFILMENTS,
   SHOP_ORDER_STATUSES,
+  SHOP_PAYMENT_METHODS,
   SHOP_PAYMENT_STATUSES,
   label,
   type ShopOrderStatus,
@@ -16,6 +17,7 @@ import { formatDate } from "@/lib/dates";
 import { deleteArtwork, reorder } from "@/app/actions/shop";
 import { ArtworkUploader } from "@/components/shop/artwork-uploader";
 import { Badge, Note } from "@/components/ui";
+import { describeLine } from "@/lib/shop/pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -85,6 +87,9 @@ export default async function OrderPage({
           </Badge>
           <Badge tone={order.paymentStatus === "PAID" ? "good" : "warn"}>
             {label(SHOP_PAYMENT_STATUSES, order.paymentStatus)}
+            {order.paymentMethod
+              ? ` · ${label(SHOP_PAYMENT_METHODS, order.paymentMethod)}`
+              : ""}
           </Badge>
         </div>
       </header>
@@ -126,13 +131,12 @@ export default async function OrderPage({
             {order.status === "SUBMITTED" ? "Payment — once we have quoted it" : "Payment"}
           </h2>
           <p className="mt-2 text-sm leading-relaxed text-accent-ink">
-            Send an Interac e-transfer to{" "}
-            <span className="font-bold">{ETRANSFER_EMAIL}</span> for{" "}
-            <span className="font-bold tabular-nums">{formatCents(owing)}</span>, and put{" "}
+            Interac e-transfer to <span className="font-bold">{ETRANSFER_EMAIL}</span> for{" "}
+            <span className="font-bold tabular-nums">{formatCents(owing)}</span>, with{" "}
             <span className="font-bold tabular-nums">{order.number}</span> in the message so it
             lands against this job.
             {order.fulfilment === "PICKUP" ? (
-              <> Or settle up at the counter when you collect — either is fine.</>
+              <> Or a cheque or debit at the counter when you collect — whichever suits.</>
             ) : null}
           </p>
           {order.status === "SUBMITTED" && order.fulfilment === "DELIVERY" ? (
@@ -146,6 +150,10 @@ export default async function OrderPage({
               {formatCents(order.paidCents)} received so far.
             </p>
           ) : null}
+          <p className="mt-2 text-xs text-accent-ink">
+            Pay from the campaign account rather than your own. This is a campaign expense and it
+            has to be able to be traced to the account your financial statement reports on.
+          </p>
         </section>
       ) : null}
 
@@ -175,10 +183,7 @@ export default async function OrderPage({
               </div>
               <div className="text-right">
                 <p className="font-semibold tabular-nums">{formatCents(item.lineTotalCents)}</p>
-                <p className="text-xs text-muted tabular-nums">
-                  {item.quantity} × {formatCents(item.unitPriceCents)}
-                  {item.setupFeeCents > 0 ? ` + ${formatCents(item.setupFeeCents)} setup` : ""}
-                </p>
+                <p className="text-xs text-muted tabular-nums">{describeLine(item)}</p>
               </div>
             </li>
           ))}
@@ -191,8 +196,14 @@ export default async function OrderPage({
           </div>
           {order.designFeeCents > 0 ? (
             <div className="flex justify-between gap-3">
-              <dt className="text-muted">Design</dt>
+              <dt className="text-muted">Artwork</dt>
               <dd className="tabular-nums">{formatCents(order.designFeeCents)}</dd>
+            </div>
+          ) : null}
+          {order.garmentSetupCents > 0 ? (
+            <div className="flex justify-between gap-3">
+              <dt className="text-muted">Apparel setup</dt>
+              <dd className="tabular-nums">{formatCents(order.garmentSetupCents)}</dd>
             </div>
           ) : null}
           {order.deliveryCents > 0 ? (

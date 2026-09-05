@@ -1,5 +1,7 @@
+import { formatCents } from "@/lib/money";
 import {
   DESIGN_FEE_CENTS,
+  GARMENT_SETUP_CENTS,
   TAX_RATE,
   type OptionChoice,
   type PriceBreak,
@@ -48,12 +50,22 @@ export function applicableBreak(variant: Variant, quantity: number): PriceBreak 
 export function nextBreak(
   variant: Variant,
   quantity: number,
-): { more: number; unitPriceCents: number } | null {
+): {
+  more: number;
+  quantity: number;
+  unitPriceCents: number;
+  lineTotalCents: number;
+} | null {
   const next = variant.breaks.find((b) => b.quantity > quantity);
   // Sheet-priced products have no breaks to climb: the price per sign is the
   // same at one sheet as at ten.
   if (!next) return null;
-  return { more: next.quantity - quantity, unitPriceCents: next.unitPriceCents };
+  return {
+    more: next.quantity - quantity,
+    quantity: next.quantity,
+    unitPriceCents: next.unitPriceCents,
+    lineTotalCents: next.lineTotalCents ?? next.unitPriceCents * next.quantity,
+  };
 }
 
 /* ------------------------------------------------------------ sheet discount */
@@ -141,6 +153,25 @@ export function snapQuantity(product: Product, variant: Variant, requested: numb
 
 export type ChosenOptions = Record<string, string>;
 
+/**
+ * How a line reads under its total: "1,000 for $110.70 + $45.00 setup".
+ *
+ * Never "quantity × per-piece". A run of cards and a sheet of signs each have
+ * a price of their own and the per-piece figure is derived from it, so the
+ * multiplication does not come back to the total — a candidate checking the
+ * arithmetic on screen would find it out by a few cents and stop trusting the
+ * rest of the page. The goods figure is the one that adds up.
+ */
+export function describeLine(line: {
+  quantity: number;
+  setupFeeCents: number;
+  lineTotalCents: number;
+}): string {
+  const goods = formatCents(line.lineTotalCents - line.setupFeeCents);
+  const setup = line.setupFeeCents > 0 ? ` + ${formatCents(line.setupFeeCents)} setup` : "";
+  return `${line.quantity.toLocaleString("en-CA")} for ${goods}${setup}`;
+}
+
 export type PricedLine = {
   quantity: number;
   /** One piece, with the per-unit surcharges of the chosen options folded in. */
@@ -177,6 +208,7 @@ export function priceLine(
   const labels: string[] = [];
   let unitSurcharge = 0;
   let flatSurcharge = 0;
+  let percentSurcharge = 0;
 
   const safeQuantity = Math.max(1, Math.round(quantity));
 
@@ -191,6 +223,8 @@ export function priceLine(
   // what the shop buys and what the candidate orders, and a total that is not a
   // whole number of them would put every order a few cents out.
   let sheetGoodsCents: number | null = null;
+  /** Set when the run itself carries a price. Same rule, different unit. */
+  let lineGoodsCents: number | null = null;
 
   const sheetPricing = product.sheetPricing;
   if (sheetPricing && variant.signsPerSheet) {
@@ -210,7 +244,15 @@ export function priceLine(
     // sheet that costs $270.
     baseUnitCents = Math.round(sheetGoodsCents / safeQuantity);
   } else {
-    baseUnitCents = applicableBreak(variant, safeQuantity).unitPriceCents;
+    const step = applicableBreak(variant, safeQuantity);
+    // A run with a price of its own: that price is the line, and the per-piece
+    // figure is derived from it rather than the other way round.
+    if (step.lineTotalCents !== undefined && step.quantity === safeQuantity) {
+      lineGoodsCents = step.lineTotalCents;
+      baseUnitCents = Math.round(step.lineTotalCents / safeQuantity);
+    } else {
+      baseUnitCents = step.unitPriceCents;
+    }
   }
 
   for (const group of product.options) {
@@ -225,6 +267,7 @@ export function priceLine(
     labels.push(choice.label.replace(/\s*\(\+\$[^)]*\)\s*$/, ""));
     unitSurcharge += choice.unitSurchargeCents ?? 0;
     flatSurcharge += choice.flatSurchargeCents ?? 0;
+    percentSurcharge += choice.surchargePercent ?? 0;
   }
 
   const unitPriceCents = baseUnitCents + unitSurcharge;
@@ -233,10 +276,13 @@ export function priceLine(
   // Sheets first, then the per-sign extras, then setup — so a whole-sheet order
   // comes to exactly what the sheets cost. Everything not priced by the sheet
   // multiplies out as usual.
+  const fixedGoods = sheetGoodsCents ?? lineGoodsCents;
+  // The percentage rides on the printing alone. Not on the setup fee, which is
+  // file work and the same either way, and not on anything charged per piece.
+  const printedGoods =
+    fixedGoods === null ? baseUnitCents * safeQuantity : fixedGoods;
   const goodsCents =
-    sheetGoodsCents === null
-      ? unitPriceCents * safeQuantity
-      : sheetGoodsCents + unitSurcharge * safeQuantity;
+    Math.round(printedGoods * (1 + percentSurcharge / 100)) + unitSurcharge * safeQuantity;
 
   return {
     quantity: safeQuantity,
@@ -287,6 +333,7 @@ export function describeSizeRun(sizes: Record<string, number>): string {
 export type OrderTotals = {
   subtotalCents: number;
   designFeeCents: number;
+  garmentSetupCents: number;
   deliveryCents: number;
   adjustmentCents: number;
   taxableCents: number;
@@ -297,32 +344,53 @@ export type OrderTotals = {
 /**
  * What the whole order comes to.
  *
- * Design is charged once per order, not per line: a candidate having their
- * signs, cards and hangers designed is having one identity designed. Delivery
- * and the adjustment are the shop's to fill in — delivery because a rural
- * drop is not a rate table, and the adjustment because a printer has always
- * been able to take something off a price.
+ * Two setup fees, both charged once for the order and neither per line:
  *
- * Tax goes on everything, including the design work and the delivery, which is
+ *   Artwork          when the candidate is not supplying print-ready files. A
+ *                    campaign's signs, cards and hangers are one look, drawn
+ *                    once and adapted — not three pieces of work.
+ *   Screen setup     when there is apparel on the order. A different job from
+ *                    drawing the artwork, which is why both can land together,
+ *                    and burned once whether it is tees, hoodies or both.
+ *
+ * Neither is charged when the shop already has the file and the screens —
+ * `artworkOnFile`, which is what the Reorder button sets. Printing the same
+ * sign again is not artwork, and a campaign that came back for more would
+ * notice being charged for it twice.
+ *
+ * Delivery and the adjustment are the shop's to fill in — delivery because a
+ * rural drop is not a rate table, and the adjustment because a printer has
+ * always been able to take something off a price.
+ *
+ * Tax goes on everything, including the setup work and the delivery, which is
  * how HST works on a single supply.
  */
 export function orderTotals(input: {
   lineTotals: number[];
   needsDesign: boolean;
+  /** There is apparel on this order, so the screens have to be burned. */
+  hasGarments?: boolean;
+  /** A repeat: the shop has the artwork and the screens already. */
+  artworkOnFile?: boolean;
   deliveryCents?: number;
   adjustmentCents?: number;
 }): OrderTotals {
   const subtotalCents = input.lineTotals.reduce((sum, n) => sum + n, 0);
-  const designFeeCents = input.needsDesign ? DESIGN_FEE_CENTS : 0;
+  const onFile = input.artworkOnFile === true;
+
+  const designFeeCents = input.needsDesign && !onFile ? DESIGN_FEE_CENTS : 0;
+  const garmentSetupCents = input.hasGarments && !onFile ? GARMENT_SETUP_CENTS : 0;
   const deliveryCents = input.deliveryCents ?? 0;
   const adjustmentCents = input.adjustmentCents ?? 0;
 
-  const taxableCents = subtotalCents + designFeeCents + deliveryCents + adjustmentCents;
+  const taxableCents =
+    subtotalCents + designFeeCents + garmentSetupCents + deliveryCents + adjustmentCents;
   const taxCents = Math.round(taxableCents * TAX_RATE);
 
   return {
     subtotalCents,
     designFeeCents,
+    garmentSetupCents,
     deliveryCents,
     adjustmentCents,
     taxableCents,
