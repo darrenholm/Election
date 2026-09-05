@@ -44,7 +44,7 @@ export default async function SignsPage() {
 
   // The link across to the shop, carrying a signed handoff so the storefront
   // can fill the candidate's details in for them.
-  const orderPrintUrl = portalOrderUrl(campaignId);
+  const orderPrintUrl = portalOrderUrl();
 
   const [signs, inventory, volunteers, wantsSign] = await Promise.all([
     db.signRequest.findMany({

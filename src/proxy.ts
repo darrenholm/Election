@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { SESSION_COOKIE, readSessionToken } from "@/lib/session";
+import { electionShopUrl } from "@/lib/shop/handoff";
 
 /**
  * The front door.
@@ -12,8 +13,9 @@ import { SESSION_COOKIE, readSessionToken } from "@/lib/session";
  */
 export default async function proxy(request: NextRequest) {
   // A domain that exists to serve the storefront should serve it at its own
-  // root. Without this, a candidate who types election.holmgraphics.ca lands on
-  // the campaign manager's sign-in page, which is both wrong and alarming.
+  // root rather than the campaign manager's sign-in page. The storefront is a
+  // Holm Graphics shop now, so that is where such a domain goes; the /election
+  // paths themselves are redirected in next.config.ts.
   //
   // Set PORTAL_HOST to that domain. Unset, nothing changes.
   const portalHost = process.env.PORTAL_HOST;
@@ -22,7 +24,7 @@ export default async function proxy(request: NextRequest) {
     request.nextUrl.pathname === "/" &&
     request.headers.get("host")?.split(":")[0]?.toLowerCase() === portalHost.toLowerCase()
   ) {
-    return NextResponse.redirect(new URL("/election", request.url));
+    return NextResponse.redirect(electionShopUrl());
   }
 
   const claims = readSessionToken(request.cookies.get(SESSION_COOKIE)?.value);
