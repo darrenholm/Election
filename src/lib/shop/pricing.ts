@@ -106,6 +106,28 @@ export function nextSheetDiscount(
   return { moreSigns: (sheets + 1) * perSheet - quantity, percent };
 }
 
+/**
+ * The quantity that will actually be ordered.
+ *
+ * On a product with fixed quantities, anything typed drops to the largest run
+ * at or below it — never up, because a campaign that asked for 500 should not
+ * be billed for 1000. Everything else is free to order any number above the
+ * minimum.
+ */
+export function snapQuantity(product: Product, variant: Variant, requested: number): number {
+  const wanted = Math.max(1, Math.round(requested));
+  if (!product.quantitiesFixed || variant.breaks.length === 0) {
+    return Math.max(wanted, variant.minQuantity);
+  }
+
+  const runs = variant.breaks.map((b) => b.quantity).sort((a, b) => a - b);
+  let chosen = runs[0];
+  for (const run of runs) {
+    if (wanted >= run) chosen = run;
+  }
+  return chosen;
+}
+
 export type ChosenOptions = Record<string, string>;
 
 export type PricedLine = {

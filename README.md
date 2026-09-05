@@ -197,31 +197,45 @@ than runs, so those lines are costed against **SinaLite's** trade price and, onc
 the candidate has paid, sent to them to print and drop-ship. Signs never go near
 it — they are cut from sheets in the shop.
 
+Their model shapes ours in three ways, and all three are visible to a candidate:
+
+- **Every choice is an option id, including the quantity.** An order sends
+  `{ "Stock": "30", "size": "4", "qty": "105", "Turnaround": "140" }` — their
+  group names, their ids. So we can only sell runs they run, which is why the
+  trade-printed products offer a fixed set of quantities rather than a box to
+  type a number into. A quantity typed anywhere else drops to the largest run at
+  or below it, never up.
+- **A price is looked up by combination key** — the chosen option ids ascending,
+  hyphen-joined — through `/pricedbykey/{id}/{key}`. That is documented down to
+  the example, so there is no guesswork left in what a line costs.
+- **There is no order-status endpoint.** What we know about a job is what they
+  said when they took it; the tracking number arrives in their dispatch email
+  and is typed into the queue, which is what puts it on the candidate's own
+  order page.
+
+The rest:
+
 - **Nothing outside `src/lib/shop/sinalite.ts` knows SinaLite exists**, except
   `vendor-map.ts`, which says which of our products are theirs.
-- The endpoints and store codes come from their published API index — store is a
-  *number*, 6 for Canada and 9 for the US; orders go to `/order/new`; freight is
-  its own `/order/shippingEstimate` returning carrier, method, price and days.
-  The field names *inside* those bodies are a best reading of collapsed
-  examples, collected in one `BODY` block to be corrected against their own
-  documentation. **Their API has no order-status endpoint**, so tracking is
-  typed in from their dispatch email rather than polled.
-- The mapping table in `src/lib/shop/vendor-map.ts` **has no product ids in it
-  yet** — they cannot be guessed. Run `npm run sinalite:catalog` with
-  credentials set to print their products, then
-  `npm run sinalite:catalog -- --product <id>` for one product's option groups.
-  Until an entry has an id, the queue shows the line as unmapped and refuses to
-  send it, which is the safe failure.
+- The mapping table **has no ids in it yet** — they cannot be guessed. With
+  credentials set, `npm run sinalite:catalog -- --find "post"` finds the
+  product and `-- --product <id>` prints its option groups, including a
+  ready-made `quantityOptions` line to paste. Until an entry is mapped, the
+  queue shows the line as unmapped and refuses to send it, which is the safe
+  failure.
 - **Without credentials the whole pipeline is a dry run**, like the Twilio and
   Facebook ones: quotes come back marked, sending records what would have gone,
   and the order page says so.
 - Pricing a job fills in what it costs us and what it would have to sell for —
   **their cost doubled, plus our file-prep charge** — and flags any line sold
-  below that floor. Freight is quoted once for the job, not per line.
-- Artwork goes over as a **signed, expiring link** to one file. The print files
-  live in Postgres behind a session check, which a printer's fetcher cannot
-  satisfy, so a job carries a token that names one file and stops working a
-  fortnight later.
+  below that floor. Freight is quoted once for the whole job, and the shop can
+  take a dearer, faster service than the cheapest.
+- The candidate never appears on the trade order except as an address:
+  **billing is always the shop**, because they are buying from Holm Graphics and
+  must never see a trade price.
+- Artwork goes over as a **signed, expiring link** to one file, sent as their
+  `front` and `back`. The print files live in Postgres behind a session check,
+  which a printer's fetcher cannot satisfy.
 
 Prices live in one file, `src/lib/shop/catalog.ts`, and ship in a commit rather
 than being edited in a database. Orders snapshot the names and the cents they
@@ -298,7 +312,7 @@ levels and consent are not.
 | `npm run db:migrate` | Create a new migration after a schema change |
 | `npm run db:seed` | Load the demo campaigns |
 | `npm run db:studio` | Prisma Studio, for poking at the data directly |
-| `npm run sinalite:catalog` | Print SinaLite's products and option groups, to fill in the vendor map |
+| `npm run sinalite:catalog` | Print SinaLite's products, option ids and priced combinations, to fill in the vendor map |
 
 ## Accounts and who sees what
 

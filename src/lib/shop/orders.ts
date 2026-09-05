@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
 import { productBySlug, variantByKey } from "./catalog";
-import { orderTotals, priceLine, type ChosenOptions } from "./pricing";
+import { orderTotals, priceLine, snapQuantity, type ChosenOptions } from "./pricing";
 
 /**
  * The cart, the totals and the order number.
@@ -97,7 +97,7 @@ export async function repriceItem(itemId: string, quantity: number): Promise<voi
     return;
   }
 
-  const wanted = Math.max(variant.minQuantity, quantity);
+  const wanted = snapQuantity(product, variant, quantity);
   const priced = priceLine(product, variant, wanted, (item.options ?? {}) as ChosenOptions);
 
   await db.shopOrderItem.update({

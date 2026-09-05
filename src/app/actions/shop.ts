@@ -14,7 +14,13 @@ import {
   createShopSessionToken,
 } from "@/lib/shop/session";
 import { productBySlug, variantByKey } from "@/lib/shop/catalog";
-import { priceLine, readSizeRun, describeSizeRun, type ChosenOptions } from "@/lib/shop/pricing";
+import {
+  priceLine,
+  readSizeRun,
+  describeSizeRun,
+  snapQuantity,
+  type ChosenOptions,
+} from "@/lib/shop/pricing";
 import {
   allocateOrderNumber,
   artworkProblem,
@@ -191,7 +197,8 @@ export async function addToCart(formData: FormData) {
     quantity = int(formData, "quantity", variant.minQuantity);
   }
 
-  if (quantity < variant.minQuantity) quantity = variant.minQuantity;
+  // On a trade-printed product this drops to a run the printer actually does.
+  quantity = snapQuantity(product, variant, quantity);
 
   const priced = priceLine(product, variant, quantity, chosen);
   const summary = sizeBreakdown
@@ -420,7 +427,7 @@ export async function reorder(formData: FormData) {
     const priced = priceLine(
       product,
       variant,
-      Math.max(item.quantity, variant.minQuantity),
+      snapQuantity(product, variant, item.quantity),
       (item.options ?? {}) as ChosenOptions,
     );
 

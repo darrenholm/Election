@@ -3,13 +3,19 @@ import { productBySlug, variantByKey } from "./catalog";
 import {
   estimateShipping,
   placeOrder,
-  quoteLine,
+  quoteByKey,
   sinaliteConfig,
   type ShipTo,
   type ShippingOption,
   type VendorLine,
 } from "./sinalite";
-import { isVendorProduct, resolveVendorLine, shopShipTo } from "./vendor-map";
+import {
+  candidateShipTo,
+  isVendorProduct,
+  resolveVendorLine,
+  shopBillTo,
+  shopShipTo,
+} from "./vendor-map";
 import { signedArtworkUrl } from "./artwork-links";
 
 /**
@@ -37,11 +43,9 @@ export function floorPriceCents(costCents: number, setupFeeCents: number): numbe
 }
 
 export type VendorQuoteResult = {
-  /** Lines that were quoted, with what each costs us and what it was sold for. */
   lines: {
     itemId: string;
     description: string;
-    quantity: number;
     costCents: number;
     chargedCents: number;
     floorCents: number;
@@ -50,37 +54,30 @@ export type VendorQuoteResult = {
   shippingCents: number;
   /** Every carrier and service they offered for the whole job. */
   shippingOptions: ShippingOption[];
-  /** Problems that stopped a line being quoted — unmapped ids, mostly. */
+  /** What stopped a line being quoted — an unmapped id, a run they do not do. */
   problems: string[];
   dryRun: boolean;
 };
 
-/** Where a job has to be delivered: the candidate, or the shop for collection. */
-export function shipToFor(order: {
+type OrderAddress = {
   fulfilment: string;
   contactName: string;
+  email: string;
+  phone: string;
   addressLine: string;
   city: string;
   postalCode: string;
-  phone: string;
-}): { shipTo: ShipTo } | { problem: string } {
+};
+
+export type Destination = { shipTo: ShipTo; problem?: undefined } | { problem: string; shipTo?: undefined };
+
+/** Where a job has to go: the candidate, or the shop for collection. */
+export function shipToFor(order: OrderAddress): Destination {
   if (order.fulfilment === "DELIVERY") {
     if (!order.addressLine || !order.city || !order.postalCode) {
       return { problem: "This order is for delivery but has no full address on it." };
     }
-    return {
-      shipTo: {
-        name: order.contactName,
-        addressLine: order.addressLine,
-        city: order.city,
-        // The portal does not ask for a province: every candidate on it is
-        // running in an Ontario municipality. Revisit if that stops being true.
-        province: "ON",
-        postalCode: order.postalCode,
-        country: "CA",
-        phone: order.phone,
-      },
-    };
+    return { shipTo: candidateShipTo(order) };
   }
 
   const shop = shopShipTo();
@@ -96,40 +93,32 @@ export function shipToFor(order: {
 /**
  * Ask the trade printer what the bought-in lines on an order cost.
  *
- * Stores the cost and the resolved vendor ids on each line, so sending the job
- * later uses exactly what was quoted rather than resolving it a second time and
- * possibly differently.
+ * Prices each line by its combination key and gets one freight quote for the
+ * whole job, then stores the cost and the resolved ids on each line — so
+ * sending it later uses exactly what was quoted rather than resolving it a
+ * second time and possibly differently.
  */
 export async function quoteOrderWithVendor(orderId: string): Promise<VendorQuoteResult> {
   const order = await db.shopOrder.findUnique({
     where: { id: orderId },
     include: { items: { orderBy: { createdAt: "asc" } } },
   });
-  if (!order) {
-    return {
-      lines: [],
-      goodsCents: 0,
-      shippingCents: 0,
-      shippingOptions: [],
-      problems: ["No such order."],
-      dryRun: false,
-    };
-  }
 
-  const destination = shipToFor(order);
-
-  const result: VendorQuoteResult = {
+  const empty = (problems: string[]): VendorQuoteResult => ({
     lines: [],
     goodsCents: 0,
     shippingCents: 0,
     shippingOptions: [],
-    problems: "problem" in destination ? [destination.problem] : [],
+    problems,
     dryRun: !sinaliteConfig().configured,
-  };
+  });
+  if (!order) return empty(["No such order."]);
 
-  // Resolved lines are kept, because the shipping estimate wants the whole job
-  // in one call rather than a rate per line.
-  const resolvedLines: { productId: string; options: Record<string, string>; quantity: number }[] = [];
+  const destination = shipToFor(order);
+  const result = empty(destination.problem ? [destination.problem] : []);
+
+  // Kept, because the freight estimate takes the whole job in one call.
+  const resolvedLines: { productId: string; options: Record<string, string> }[] = [];
 
   for (const item of order.items) {
     if (!isVendorProduct(item.productSlug)) continue;
@@ -137,6 +126,7 @@ export async function quoteOrderWithVendor(orderId: string): Promise<VendorQuote
     const resolved = resolveVendorLine(
       item.productSlug,
       item.variantKey,
+      item.quantity,
       (item.options ?? {}) as Record<string, string>,
     );
     if (!resolved.ok) {
@@ -145,10 +135,9 @@ export async function quoteOrderWithVendor(orderId: string): Promise<VendorQuote
     }
 
     try {
-      const quote = await quoteLine({
+      const quote = await quoteByKey({
         productId: resolved.productId,
-        options: resolved.options,
-        quantity: item.quantity,
+        optionIds: resolved.optionIds,
       });
 
       const product = productBySlug(item.productSlug);
@@ -167,33 +156,30 @@ export async function quoteOrderWithVendor(orderId: string): Promise<VendorQuote
       result.lines.push({
         itemId: item.id,
         description: `${item.quantity} × ${item.productName} · ${item.variantName}`,
-        quantity: item.quantity,
         costCents: quote.costCents,
         chargedCents: item.lineTotalCents,
         floorCents: floorPriceCents(quote.costCents, setupFeeCents),
       });
       result.goodsCents += quote.costCents;
-
-      resolvedLines.push({
-        productId: resolved.productId,
-        options: resolved.options,
-        quantity: item.quantity,
-      });
+      resolvedLines.push({ productId: resolved.productId, options: resolved.options });
     } catch (error) {
       result.problems.push(error instanceof Error ? error.message : String(error));
     }
   }
 
-  // One freight quote for the job. The cheapest service is taken as the
-  // working figure — the shop can pick another before sending, and what the
-  // candidate is charged for delivery is a separate field they set by hand.
+  // One freight quote for the job. The cheapest service is taken as the working
+  // figure; the shop can pick another before sending, and what the candidate
+  // pays for delivery is a separate figure they set by hand.
   let carrier = "";
   let method = "";
-  if (resolvedLines.length > 0 && "shipTo" in destination) {
+  const shipTo = destination.shipTo;
+  if (resolvedLines.length > 0 && shipTo) {
     try {
       const estimate = await estimateShipping({
         lines: resolvedLines,
-        shipTo: destination.shipTo,
+        province: shipTo.province,
+        postalCode: shipTo.postalCode,
+        country: shipTo.country,
       });
       result.shippingOptions = [...estimate.options].sort((a, b) => a.priceCents - b.priceCents);
 
@@ -226,12 +212,12 @@ export async function quoteOrderWithVendor(orderId: string): Promise<VendorQuote
 }
 
 /**
- * Send the job.
+ * Send the job to press.
  *
- * Deliberately not automatic on payment. A candidate's artwork is checked by
- * eye before it goes to press — that is most of what the file-prep charge pays
- * for — so this is a button somebody presses, and it refuses to fire twice on
- * the same order.
+ * Deliberately not automatic on payment. A candidate's artwork is looked at by
+ * eye before it goes over — that is most of what the file-prep charge pays for —
+ * so this is a button somebody presses, and it refuses to fire twice on the
+ * same order.
  */
 export async function sendOrderToVendor(orderId: string): Promise<{ ok: boolean; message: string }> {
   const order = await db.shopOrder.findUnique({
@@ -247,7 +233,12 @@ export async function sendOrderToVendor(orderId: string): Promise<{ ok: boolean;
   }
 
   const destination = shipToFor(order);
-  if ("problem" in destination) return { ok: false, message: destination.problem };
+  if (!destination.shipTo) return { ok: false, message: destination.problem };
+
+  const billTo = shopBillTo();
+  if (!billTo) {
+    return { ok: false, message: "The shop's own billing address is not set — see SHOP_SHIP_*." };
+  }
 
   const lines: VendorLine[] = [];
   for (const item of order.items) {
@@ -256,38 +247,44 @@ export async function sendOrderToVendor(orderId: string): Promise<{ ok: boolean;
     const resolved = resolveVendorLine(
       item.productSlug,
       item.variantKey,
+      item.quantity,
       (item.options ?? {}) as Record<string, string>,
     );
     if (!resolved.ok) return { ok: false, message: resolved.problem };
 
-    // The file for this line, or the order's first file when nothing was
+    // Files attached to this line, or the order's files when nothing was
     // attached to the line itself — which is the common case, since most
-    // candidates send one PDF for the whole job.
-    const file =
-      order.artwork.find((a) => a.orderItemId === item.id) ?? order.artwork[0] ?? null;
+    // candidates send one PDF for the whole job. The first is the front and
+    // the second, if there is one, is the back.
+    const forLine = order.artwork.filter((a) => a.orderItemId === item.id);
+    const files = (forLine.length > 0 ? forLine : order.artwork).slice(0, 2);
+    if (files.length === 0) {
+      return { ok: false, message: `No artwork for ${item.productName} — nothing to send to press.` };
+    }
 
     lines.push({
       productId: resolved.productId,
       options: resolved.options,
-      quantity: item.quantity,
-      artworkUrl: file ? signedArtworkUrl(file.id) : undefined,
+      files: files.map((file, index) => ({
+        type: index === 0 ? ("front" as const) : ("back" as const),
+        url: signedArtworkUrl(file.id),
+      })),
+      extra: `${order.number ?? order.id} — ${item.productName} for ${order.candidateName}`,
     });
   }
 
   if (lines.length === 0) return { ok: false, message: "Nothing on this order is trade printed." };
-  if (lines.some((line) => !line.artworkUrl)) {
-    return { ok: false, message: "No artwork on the order yet — nothing to send to press." };
-  }
   if (!order.vendorShipMethod && sinaliteConfig().configured) {
     return { ok: false, message: "Price it with SinaLite first — the order needs a shipping service." };
   }
 
   try {
     const placed = await placeOrder({
-      reference: order.number ?? order.id,
       lines,
       shipTo: destination.shipTo,
-      shippingMethod: order.vendorShipMethod,
+      billTo,
+      shippingMethod: order.vendorShipMethod || "UPS Standard",
+      notes: `${order.number ?? ""} — ${order.candidateName}, ${order.municipality}`.trim(),
     });
 
     await db.shopOrder.update({
@@ -305,7 +302,7 @@ export async function sendOrderToVendor(orderId: string): Promise<{ ok: boolean;
       ok: true,
       message: placed.dryRun
         ? "Dry run — no SinaLite credentials are set, so nothing was really sent."
-        : `Sent. Their reference is ${placed.vendorOrderId}.`,
+        : `Sent. Their order id is ${placed.vendorOrderId}.`,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -329,9 +326,6 @@ export async function recordVendorTracking(
 ): Promise<void> {
   await db.shopOrder.update({
     where: { id: orderId },
-    data: {
-      vendorTracking: tracking,
-      vendorStatus: status || undefined,
-    },
+    data: { vendorTracking: tracking, vendorStatus: status || undefined },
   });
 }

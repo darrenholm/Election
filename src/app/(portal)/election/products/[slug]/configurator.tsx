@@ -191,26 +191,43 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
       ) : (
         <fieldset>
           <legend className="field-label">How many</legend>
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              type="number"
+          {product.quantitiesFixed ? (
+            // These are printed in fixed runs, so the runs are the choice. A
+            // box to type in would take orders nobody can fill.
+            <select
               name="quantity"
-              min={variant.minQuantity}
               value={quantity}
               onChange={(e) => setQuantity(Number(e.target.value))}
-              className="field w-32 tabular-nums"
-            />
-            <span className="text-xs text-muted">
-              Minimum {variant.minQuantity}
-              {variant.signsPerSheet
-                ? variant.signsPerSheet > 1
-                  ? ` — one sheet's worth of this cut`
-                  : " — one sheet"
-                : ""}
-            </span>
-          </div>
+              className="field w-full sm:w-64 tabular-nums"
+            >
+              {variant.breaks.map((b) => (
+                <option key={b.quantity} value={b.quantity}>
+                  {b.quantity.toLocaleString("en-CA")} — {formatCents(b.unitPriceCents)} each
+                </option>
+              ))}
+            </select>
+          ) : (
+            <div className="flex flex-wrap items-center gap-3">
+              <input
+                type="number"
+                name="quantity"
+                min={variant.minQuantity}
+                value={quantity}
+                onChange={(e) => setQuantity(Number(e.target.value))}
+                className="field w-32 tabular-nums"
+              />
+              <span className="text-xs text-muted">
+                Minimum {variant.minQuantity}
+                {variant.signsPerSheet
+                  ? variant.signsPerSheet > 1
+                    ? ` — one sheet's worth of this cut`
+                    : " — one sheet"
+                  : ""}
+              </span>
+            </div>
+          )}
 
-          {variant.breaks.length > 1 ? (
+          {variant.breaks.length > 1 && !product.quantitiesFixed ? (
             <div className="mt-3 flex flex-wrap gap-2">
               {variant.breaks.map((b) => (
                 <button

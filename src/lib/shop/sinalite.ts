@@ -6,38 +6,38 @@
  * candidate has paid, sent to them to print and drop-ship. Signs never come
  * through here: they are cut from sheets in the shop.
  *
- * WHAT IS VERIFIED AND WHAT IS NOT
- * --------------------------------
- * From SinaLite's published API index (liveapi.sinalite.com), and taken as
- * fact by the code below:
+ * Written against their published documentation, examples and all. Four things
+ * in it shape everything below:
  *
- *   POST /auth/token                     client-credentials exchange
- *   GET  /product                        every product
- *   GET  /product/{id}                   one product's general data
- *   GET  /product/{id}/{storeCode}       three arrays: options, pricing
- *                                        combinations, meta
- *   POST /price/{id}/{storeCode}         price and shipping for a combination
- *   GET  /variants/{id}/{offset}         variants, 1000 at a time
- *   GET  /pricedbykey/{id}/{key}         one variant's price
- *   POST /order/new                      place an order
- *   POST /order/shippingEstimate         carrier, method, price, shipping days
+ *   1. EVERY CHOICE IS AN OPTION ID, INCLUDING THE QUANTITY. A product's
+ *      options come back as { id, group, name } — group "qty" name "50",
+ *      group "Stock" name "Brown Cardboard" — and an order carries
+ *      { "qty": "105", "Stock": "30" }: their group names, their ids as
+ *      strings. So we can only sell the quantities they sell, which is why the
+ *      trade-printed products in our catalogue offer fixed quantities rather
+ *      than a box to type in.
  *
- *   storeCode is a NUMBER: 6 is Canada, 9 is the United States.
- *   Provinces and states are two-letter codes; country is CA or US.
- *   Shipping methods are named strings — "UPS Standard", "FedEx Economy" …
+ *   2. A PRICE IS LOOKED UP BY A COMBINATION KEY. /variants lists every
+ *      combination as { price, key } where the key is the chosen option ids in
+ *      ascending order, joined with hyphens — "5-140-447-448" — and
+ *      /pricedbykey/{id}/{key} prices one of them. That is how this adapter
+ *      prices a line: it is documented down to the example, where
+ *      /price/{id}/{storeCode} is not.
  *
- * NOT verified: the field names inside the request and response bodies. The
- * documentation's examples are collapsed, so every body this file builds or
- * reads is a best reading, collected in the BODY block below and nowhere else.
- * Correct them there and nothing outside this file changes.
+ *   3. SHIPPING RATES COME BACK AS TUPLES, not objects:
+ *      [ "UPS", "UPS Standard", 9.1, 1 ] — carrier, method, price, days.
  *
- * There is NO order-status endpoint in their API. Once a job is accepted, what
- * we know is what they said at the time; tracking arrives by email and is typed
- * into the queue by hand. Do not add polling that cannot work.
+ *   4. THERE IS NO ORDER-STATUS ENDPOINT. What we know about a job is what
+ *      they said when they took it; tracking arrives by email and is typed in.
+ *      Do not add polling that cannot work.
  *
- * WITHOUT CREDENTIALS THE WHOLE THING RUNS AS A DRY RUN, like the Twilio and
- * Facebook pipelines next door: quotes come back marked, orders record what
- * would have gone, and the queue says so on the page.
+ * Money arrives as dollars and is converted to integer cents here, so nothing
+ * downstream ever sees a float.
+ *
+ * Nothing outside this file knows SinaLite exists except src/lib/shop/
+ * vendor-map.ts, which says which of our products are theirs. WITHOUT
+ * CREDENTIALS THE WHOLE THING RUNS AS A DRY RUN, like the Twilio and Facebook
+ * pipelines next door.
  */
 
 const HOSTS = {
@@ -49,26 +49,14 @@ const HOSTS = {
 export const STORE_CANADA = 6;
 export const STORE_UNITED_STATES = 9;
 
-/* -------------------------------------------------------------------------
- * BODY — the unverified half: what goes inside the requests, and what is
- * read back out. Correct against SinaLite's examples.
- * ---------------------------------------------------------------------- */
-const BODY = {
-  /** Keys a price response might carry the goods total under. */
-  priceKeys: ["price", "subtotal", "total", "amount"],
-  /** …and the shipping figure, when the price call returns one. */
-  shippingKeys: ["shipping", "shippingCost", "freight"],
-  /** Keys an order response might carry their order id under. */
-  orderIdKeys: ["id", "orderId", "order_id", "orderNumber"],
-} as const;
-
 export type SinaliteConfig = {
   configured: boolean;
   host: string;
-  /** 6 for Canada, 9 for the US. */
+  /** 6 for Canada, 9 for the US. Only appears in URLs, never in a body. */
   store: number;
   clientId: string;
   clientSecret: string;
+  audience: string;
   /** Percent added to trade cost to reach retail. 100 means cost doubled. */
   markupPercent: number;
 };
@@ -87,6 +75,9 @@ export function sinaliteConfig(): SinaliteConfig {
     store: Number.isFinite(store) && store > 0 ? store : STORE_CANADA,
     clientId,
     clientSecret,
+    // A fixed value in their documentation, and NOT the host — the sandbox and
+    // the live API both authenticate against this audience.
+    audience: process.env.SINALITE_AUDIENCE || "https://apiconnect.sinalite.com",
     // Doubling trade cost is the shop's rule; the file-prep charge is added on
     // top of it, in src/lib/shop/fulfilment.ts.
     markupPercent: Number.isFinite(markup) ? markup : 100,
@@ -97,6 +88,27 @@ export function sinaliteConfig(): SinaliteConfig {
 
 let cached: { token: string; expiresAt: number } | null = null;
 
+/**
+ * When the token runs out.
+ *
+ * Their token response carries no expires_in, only the JWT itself, so the
+ * expiry is read out of the token's own `exp` claim. Nothing is verified here —
+ * the signature is theirs to check, and this is only deciding when to ask for a
+ * new one — and an unreadable token simply gets the conservative hour.
+ */
+function expiryOf(jwt: string): number {
+  try {
+    const payload = jwt.split(".")[1];
+    if (!payload) return Date.now() + 55 * 60_000;
+
+    const claims = JSON.parse(Buffer.from(payload, "base64url").toString()) as { exp?: number };
+    if (typeof claims.exp === "number") return claims.exp * 1000;
+  } catch {
+    // Not a readable JWT. Fall through.
+  }
+  return Date.now() + 55 * 60_000;
+}
+
 async function accessToken(config: SinaliteConfig): Promise<string> {
   // A minute of slack, so a token that expires mid-request is not used.
   if (cached && cached.expiresAt > Date.now() + 60_000) return cached.token;
@@ -105,10 +117,10 @@ async function accessToken(config: SinaliteConfig): Promise<string> {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      grant_type: "client_credentials",
       client_id: config.clientId,
       client_secret: config.clientSecret,
-      audience: config.host,
+      audience: config.audience,
+      grant_type: "client_credentials",
     }),
   });
 
@@ -116,10 +128,10 @@ async function accessToken(config: SinaliteConfig): Promise<string> {
     throw new Error(`SinaLite refused the credentials (${response.status}).`);
   }
 
-  const body = (await response.json()) as { access_token?: string; expires_in?: number };
+  const body = (await response.json()) as { access_token?: string };
   if (!body.access_token) throw new Error("SinaLite returned no access token.");
 
-  cached = { token: body.access_token, expiresAt: Date.now() + (body.expires_in ?? 3600) * 1000 };
+  cached = { token: body.access_token, expiresAt: expiryOf(body.access_token) };
   return cached.token;
 }
 
@@ -152,114 +164,127 @@ async function call<T>(path: string, init?: { method?: string; body?: unknown })
   return (text ? JSON.parse(text) : {}) as T;
 }
 
-/**
- * Read a money value that may arrive as a number or a string, under any of
- * several names. Defensive on purpose: this is the field most likely to be
- * called something other than what is guessed above, and a silent zero here
- * would quote a job at cost.
- */
-function readCents(source: unknown, keys: readonly string[]): number | null {
-  if (typeof source !== "object" || source === null) return null;
-  const record = source as Record<string, unknown>;
-
-  for (const key of keys) {
-    const value = record[key];
-    const amount = typeof value === "string" ? Number(value) : value;
-    if (typeof amount === "number" && Number.isFinite(amount)) return Math.round(amount * 100);
-  }
-  return null;
+/** Dollars to integer cents, however the number arrives. */
+function toCents(value: unknown): number | null {
+  const amount = typeof value === "string" ? Number(value) : value;
+  if (typeof amount !== "number" || !Number.isFinite(amount)) return null;
+  return Math.round(amount * 100);
 }
 
 /* ------------------------------------------------------------- catalogue -- */
 
-export type SinaliteProduct = { id: string; name: string; category?: string };
+export type SinaliteProduct = {
+  id: string;
+  sku: string;
+  name: string;
+  category: string;
+  enabled: boolean;
+};
 
 export async function fetchProducts(): Promise<SinaliteProduct[]> {
-  const body = await call<unknown>("/product");
-  const rows = Array.isArray(body) ? body : ((body as { data?: unknown[] }).data ?? []);
+  const rows = await call<unknown[]>("/product");
 
-  return rows.map((row) => {
+  return (Array.isArray(rows) ? rows : []).map((row) => {
     const r = (row ?? {}) as Record<string, unknown>;
     return {
-      id: String(r.id ?? r.product_id ?? ""),
-      name: String(r.name ?? r.title ?? ""),
-      category: r.category ? String(r.category) : undefined,
+      id: String(r.id ?? ""),
+      sku: String(r.sku ?? ""),
+      name: String(r.name ?? ""),
+      category: String(r.category ?? ""),
+      // Their examples show 0 on products that are still listed, so this is
+      // reported rather than filtered on.
+      enabled: Boolean(Number(r.enabled ?? 0)),
     };
   });
 }
 
+/** One choosable value: its id, the group it belongs to, and what it is called. */
+export type SinaliteOption = { id: string; group: string; name: string };
+
 /**
- * One product's option set.
+ * A product's options, its priced combinations, and its metadata.
  *
- * Documented to return three arrays — the options, the pricing combinations,
- * and the product's metadata — so it is handed back in those parts rather than
- * flattened. This is what fills in src/lib/shop/vendor-map.ts; see
+ * Documented to return exactly three arrays, so they are handed back in those
+ * parts. The first is what fills in src/lib/shop/vendor-map.ts; see
  * scripts/sinalite-catalog.ts.
  */
-export async function fetchProductOptions(
-  productId: string,
-): Promise<{ options: unknown; combinations: unknown; meta: unknown }> {
+export async function fetchProductOptions(productId: string): Promise<{
+  options: SinaliteOption[];
+  combinations: unknown;
+  meta: unknown;
+}> {
   const config = sinaliteConfig();
   const body = await call<unknown>(`/product/${productId}/${config.store}`);
+  const parts = Array.isArray(body) ? body : [body, null, null];
 
-  if (Array.isArray(body)) {
-    return { options: body[0] ?? null, combinations: body[1] ?? null, meta: body[2] ?? null };
-  }
-  return { options: body, combinations: null, meta: null };
+  const options = Array.isArray(parts[0])
+    ? parts[0].map((row) => {
+        const r = (row ?? {}) as Record<string, unknown>;
+        return {
+          id: String(r.id ?? ""),
+          group: String(r.group ?? ""),
+          name: String(r.name ?? ""),
+        };
+      })
+    : [];
+
+  return { options, combinations: parts[1] ?? null, meta: parts[2] ?? null };
+}
+
+/** Every priced combination of a product, 1000 at a time. */
+export async function fetchVariants(
+  productId: string,
+  offset = 0,
+): Promise<{ key: string; priceCents: number }[]> {
+  const rows = await call<unknown[]>(`/variants/${productId}/${offset}`);
+
+  return (Array.isArray(rows) ? rows : []).flatMap((row) => {
+    const r = (row ?? {}) as Record<string, unknown>;
+    const priceCents = toCents(r.price);
+    const key = String(r.key ?? "");
+    return key && priceCents !== null ? [{ key, priceCents }] : [];
+  });
 }
 
 /* ----------------------------------------------------------------- price -- */
 
-export type VendorQuote = {
-  /** Trade cost of the goods, in cents. */
-  costCents: number;
-  /** Shipping, when the price call returned one. Zero otherwise — ask
-   *  estimateShipping() for a real figure. */
-  shippingCents: number;
-  dryRun: boolean;
-  /** Kept so a surprising figure can be argued with. */
-  raw?: unknown;
-};
+/**
+ * The key that names one combination: the chosen option ids, ascending,
+ * hyphen-joined. Their own keys are in that order — "5-140-447-448" — and a key
+ * in any other order is a key that will not be found.
+ */
+export function combinationKey(optionIds: string[]): string {
+  return [...optionIds]
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id))
+    .sort((a, b) => a - b)
+    .join("-");
+}
 
-export type ShipTo = {
-  name: string;
-  addressLine: string;
-  city: string;
-  /** Two letters: ON, BC, NY. */
-  province: string;
-  postalCode: string;
-  /** CA or US. */
-  country: string;
-  phone: string;
-};
+export type VendorQuote = { costCents: number; dryRun: boolean; key: string };
 
 /** What one configured line costs us. */
-export async function quoteLine(input: {
+export async function quoteByKey(input: {
   productId: string;
-  options: Record<string, string>;
-  quantity: number;
+  optionIds: string[];
 }): Promise<VendorQuote> {
+  const key = combinationKey(input.optionIds);
   const config = sinaliteConfig();
-  if (!config.configured) return { costCents: 0, shippingCents: 0, dryRun: true };
+  if (!config.configured) return { costCents: 0, dryRun: true, key };
 
-  const body = await call<unknown>(`/price/${input.productId}/${config.store}`, {
-    method: "POST",
-    body: { productOptions: input.options, quantity: input.quantity },
-  });
+  const rows = await call<unknown[]>(`/pricedbykey/${input.productId}/${key}`);
+  const first = (Array.isArray(rows) ? rows[0] : rows) as Record<string, unknown> | undefined;
+  const costCents = toCents(first?.price);
 
-  const costCents = readCents(body, BODY.priceKeys);
   if (costCents === null) {
     throw new Error(
-      "SinaLite priced the job but this adapter could not find the amount — check BODY.priceKeys in src/lib/shop/sinalite.ts against their example response.",
+      `SinaLite returned no price for combination ${key} on product ${input.productId}. ` +
+        "Usually that means one of the option ids in src/lib/shop/vendor-map.ts is wrong, " +
+        "or that combination is not sold.",
     );
   }
 
-  return {
-    costCents,
-    shippingCents: readCents(body, BODY.shippingKeys) ?? 0,
-    dryRun: false,
-    raw: body,
-  };
+  return { costCents, dryRun: false, key };
 }
 
 /* -------------------------------------------------------------- shipping -- */
@@ -271,16 +296,33 @@ export type ShippingOption = {
   days: number | null;
 };
 
+export type ShipTo = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  addressLine: string;
+  addressLine2: string;
+  city: string;
+  /** Two letters: ON, BC, NY. */
+  province: string;
+  postalCode: string;
+  /** CA or US. */
+  country: string;
+  phone: string;
+};
+
 /**
  * What it costs to get the whole job to an address.
  *
- * Asked once for the order rather than once per line: the lines ship together,
- * and summing per-line freight would quote a candidate for three parcels that
- * arrive as one box.
+ * Asked once for the order rather than once per line — the lines ship together,
+ * and their estimate takes every item in one call. Only the province, postal
+ * code and country are needed to get a rate.
  */
 export async function estimateShipping(input: {
-  lines: { productId: string; options: Record<string, string>; quantity: number }[];
-  shipTo: ShipTo;
+  lines: { productId: string; options: Record<string, string> }[];
+  province: string;
+  postalCode: string;
+  country: string;
 }): Promise<{ options: ShippingOption[]; dryRun: boolean }> {
   const config = sinaliteConfig();
   if (!config.configured) return { options: [], dryRun: true };
@@ -288,108 +330,138 @@ export async function estimateShipping(input: {
   const body = await call<unknown>("/order/shippingEstimate", {
     method: "POST",
     body: {
-      storeCode: config.store,
       items: input.lines.map((line) => ({
-        productId: line.productId,
-        productOptions: line.options,
-        quantity: line.quantity,
+        productId: Number(line.productId),
+        options: line.options,
       })),
-      shippingAddress: addressBody(input.shipTo),
+      shippingInfo: {
+        ShipState: input.province,
+        ShipZip: input.postalCode,
+        ShipCountry: input.country,
+      },
     },
   });
 
-  const rows = Array.isArray(body) ? body : ((body as { data?: unknown[] }).data ?? []);
+  // [ "UPS", "UPS Standard", 9.1, 1 ] — carrier, method, price, days.
+  const rows = ((body ?? {}) as { body?: unknown }).body;
 
   return {
-    options: rows
-      .map((row) => {
-        const r = (row ?? {}) as Record<string, unknown>;
-        const priceCents = readCents(r, ["price", "cost", "rate", "amount"]);
-        const days = Number(r.shippingDays ?? r.days ?? r.transitDays);
-        return {
-          carrier: String(r.carrierName ?? r.carrier ?? ""),
-          method: String(r.carrierMethod ?? r.method ?? r.service ?? ""),
-          priceCents: priceCents ?? 0,
+    options: (Array.isArray(rows) ? rows : []).flatMap((row) => {
+      if (!Array.isArray(row)) return [];
+      const priceCents = toCents(row[2]);
+      if (priceCents === null) return [];
+
+      const days = Number(row[3]);
+      return [
+        {
+          carrier: String(row[0] ?? ""),
+          method: String(row[1] ?? ""),
+          priceCents,
           days: Number.isFinite(days) ? days : null,
-        };
-      })
-      // A rate with no price is not a rate.
-      .filter((option) => option.priceCents > 0),
+        },
+      ];
+    }),
     dryRun: false,
   };
 }
 
 /* ----------------------------------------------------------------- order -- */
 
-function addressBody(shipTo: ShipTo) {
-  return {
-    name: shipTo.name,
-    address: shipTo.addressLine,
-    city: shipTo.city,
-    province: shipTo.province,
-    postalCode: shipTo.postalCode,
-    country: shipTo.country,
-    phone: shipTo.phone,
-  };
-}
-
 export type VendorLine = {
   productId: string;
   options: Record<string, string>;
-  quantity: number;
-  /** A URL SinaLite can fetch the print file from, unauthenticated and expiring. */
-  artworkUrl?: string;
+  /** Print files. The front is required; a back is sent when there is one. */
+  files: { type: "front" | "back"; url: string }[];
+  /** Our own reference for the line, so their job ticket names it. */
+  extra: string;
+};
+
+export type BillTo = {
+  firstName: string;
+  lastName: string;
+  email: string;
+  addressLine: string;
+  addressLine2: string;
+  city: string;
+  province: string;
+  postalCode: string;
+  country: string;
+  phone: string;
 };
 
 export type VendorOrderResult = {
   vendorOrderId: string;
   status: string;
+  message: string;
   dryRun: boolean;
-  raw?: unknown;
 };
 
 export async function placeOrder(input: {
-  reference: string;
   lines: VendorLine[];
   shipTo: ShipTo;
-  /** One of the methods estimateShipping() returned, verbatim. */
+  billTo: BillTo;
+  /** One of their named services, verbatim: "UPS Standard" and the like. */
   shippingMethod: string;
+  notes: string;
 }): Promise<VendorOrderResult> {
   const config = sinaliteConfig();
   if (!config.configured) {
-    return { vendorOrderId: `DRYRUN-${input.reference}`, status: "DRY_RUN", dryRun: true };
+    return {
+      vendorOrderId: `DRYRUN-${Date.now().toString(36).toUpperCase()}`,
+      status: "dry-run",
+      message: "Nothing was sent — SinaLite has no credentials configured.",
+      dryRun: true,
+    };
   }
 
   const body = await call<unknown>("/order/new", {
     method: "POST",
     body: {
-      storeCode: config.store,
-      // Our own order number, so a job can be found from either end.
-      externalId: input.reference,
-      shippingMethod: input.shippingMethod,
       items: input.lines.map((line) => ({
-        productId: line.productId,
-        productOptions: line.options,
-        quantity: line.quantity,
-        artworkUrl: line.artworkUrl,
+        productId: Number(line.productId),
+        options: line.options,
+        files: line.files,
+        extra: line.extra,
       })),
-      shippingAddress: addressBody(input.shipTo),
+      shippingInfo: {
+        ShipFName: input.shipTo.firstName,
+        ShipLName: input.shipTo.lastName,
+        ShipEmail: input.shipTo.email,
+        ShipAddr: input.shipTo.addressLine,
+        ShipAddr2: input.shipTo.addressLine2,
+        ShipCity: input.shipTo.city,
+        ShipState: input.shipTo.province,
+        ShipZip: input.shipTo.postalCode,
+        ShipCountry: input.shipTo.country,
+        ShipPhone: input.shipTo.phone,
+        ShipMethod: input.shippingMethod,
+      },
+      billingInfo: {
+        BillFName: input.billTo.firstName,
+        BillLName: input.billTo.lastName,
+        BillEmail: input.billTo.email,
+        BillAddr: input.billTo.addressLine,
+        BillAddr2: input.billTo.addressLine2,
+        BillCity: input.billTo.city,
+        BillState: input.billTo.province,
+        BillZip: input.billTo.postalCode,
+        BillCountry: input.billTo.country,
+        BillPhone: input.billTo.phone,
+      },
+      notes: input.notes,
     },
   });
 
   const r = (body ?? {}) as Record<string, unknown>;
-  let vendorOrderId = "";
-  for (const key of BODY.orderIdKeys) {
-    if (r[key] !== undefined && r[key] !== null && String(r[key]) !== "") {
-      vendorOrderId = String(r[key]);
-      break;
-    }
-  }
+  const vendorOrderId = r.orderId === undefined || r.orderId === null ? "" : String(r.orderId);
   if (!vendorOrderId) {
-    throw new Error(
-      "SinaLite accepted the order but this adapter could not find their order id — check BODY.orderIdKeys in src/lib/shop/sinalite.ts.",
-    );
+    throw new Error(`SinaLite did not return an order id: ${JSON.stringify(r).slice(0, 300)}`);
   }
 
-  return { vendorOrderId, status: String(r.status ?? "RECEIVED"), dryRun: false, raw: body };
+  return {
+    vendorOrderId,
+    status: String(r.status ?? ""),
+    message: String(r.message ?? ""),
+    dryRun: false,
+  };
 }

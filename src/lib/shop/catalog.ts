@@ -115,6 +115,16 @@ export type Product = {
   sheetPricing?: SheetPricing;
   /** Apparel is ordered as a run of sizes rather than a single count. */
   sizes?: string[];
+  /**
+   * Only the quantities in the price breaks can be ordered — no box to type a
+   * number into.
+   *
+   * True for anything bought from the trade printer, because at their end the
+   * quantity is not a number at all: it is one of a fixed set of option ids
+   * (see src/lib/shop/vendor-map.ts). Offering 400 post cards when they run
+   * 250 and 500 would take an order nobody can fill.
+   */
+  quantitiesFixed?: boolean;
   /** What the shop needs from the candidate if they are supplying files. */
   artworkHint: string;
 };
@@ -275,6 +285,7 @@ export const PRODUCTS: Product[] = [
       "when the piece has to carry a platform rather than a name.",
     icon: "▭",
     leadTimeDays: 4,
+    quantitiesFixed: true,
     artworkHint:
       "PDF, both sides, 0.125\" bleed. If you are mailing these through Canada " +
       "Post, leave the bottom third of the address side clear.",
@@ -333,6 +344,7 @@ export const PRODUCTS: Product[] = [
       "one time in three, and the hanger is what does the work at the other two.",
     icon: "⌸",
     leadTimeDays: 5,
+    quantitiesFixed: true,
     artworkHint:
       "PDF, both sides, 0.125\" bleed. Keep the top 1.5\" clear of anything that " +
       "matters — that is where the die cuts the hole.",
