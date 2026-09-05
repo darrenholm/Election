@@ -191,6 +191,8 @@ export function priceLine(
   // what the shop buys and what the candidate orders, and a total that is not a
   // whole number of them would put every order a few cents out.
   let sheetGoodsCents: number | null = null;
+  /** Set when the run itself carries a price. Same rule, different unit. */
+  let lineGoodsCents: number | null = null;
 
   const sheetPricing = product.sheetPricing;
   if (sheetPricing && variant.signsPerSheet) {
@@ -210,7 +212,15 @@ export function priceLine(
     // sheet that costs $270.
     baseUnitCents = Math.round(sheetGoodsCents / safeQuantity);
   } else {
-    baseUnitCents = applicableBreak(variant, safeQuantity).unitPriceCents;
+    const step = applicableBreak(variant, safeQuantity);
+    // A run with a price of its own: that price is the line, and the per-piece
+    // figure is derived from it rather than the other way round.
+    if (step.lineTotalCents !== undefined && step.quantity === safeQuantity) {
+      lineGoodsCents = step.lineTotalCents;
+      baseUnitCents = Math.round(step.lineTotalCents / safeQuantity);
+    } else {
+      baseUnitCents = step.unitPriceCents;
+    }
   }
 
   for (const group of product.options) {
@@ -233,10 +243,11 @@ export function priceLine(
   // Sheets first, then the per-sign extras, then setup — so a whole-sheet order
   // comes to exactly what the sheets cost. Everything not priced by the sheet
   // multiplies out as usual.
+  const fixedGoods = sheetGoodsCents ?? lineGoodsCents;
   const goodsCents =
-    sheetGoodsCents === null
+    fixedGoods === null
       ? unitPriceCents * safeQuantity
-      : sheetGoodsCents + unitSurcharge * safeQuantity;
+      : fixedGoods + unitSurcharge * safeQuantity;
 
   return {
     quantity: safeQuantity,

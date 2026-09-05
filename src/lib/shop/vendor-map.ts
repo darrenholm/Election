@@ -72,14 +72,14 @@ const DOOR_HANGER_URL =
  */
 const SINALITE: Record<string, Record<string, VendorLineMapping>> = {
   "post-cards": {
-    "4x6": {
+    "4.25x5.5": {
       productId: "",
       productHint: { nameContains: ["postcard", "14pt", "uv"], url: POSTCARD_URL },
       fixedOptions: {},
       quantityOptions: {},
       optionValues: {},
     },
-    "5x7": {
+    "8.5x5.5": {
       productId: "",
       productHint: { nameContains: ["postcard", "14pt", "uv"], url: POSTCARD_URL },
       fixedOptions: {},

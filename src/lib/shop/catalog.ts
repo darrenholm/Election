@@ -40,8 +40,21 @@
  * ---------------------------------------------------------------------------
  */
 
-/** A quantity break: at `quantity` or more, each piece costs `unitPriceCents`. */
-export type PriceBreak = { quantity: number; unitPriceCents: number };
+/**
+ * A quantity break: at `quantity` or more, each piece costs `unitPriceCents`.
+ *
+ * On a fixed-quantity product the run has a price of its own, and
+ * `lineTotalCents` carries it. That is not a nicety: 5000 small cards work out
+ * at 6.72 cents each, and a unit price rounded to the nearest cent puts the
+ * line up to fifty dollars out in one direction or the other. Where it is set,
+ * it is the authoritative figure and the per-piece price is derived from it for
+ * display — the same rule signs follow with the sheet.
+ */
+export type PriceBreak = {
+  quantity: number;
+  unitPriceCents: number;
+  lineTotalCents?: number;
+};
 
 export type Variant = {
   key: string;
@@ -319,11 +332,11 @@ export const PRODUCTS: Product[] = [
     tagline: "Mailers and hand-outs, printed both sides",
     description:
       "14pt card with a UV high gloss coating both sides, printed full colour " +
-      "and trimmed square. The 4×6 is the workhorse — it fits a letterbox, a " +
-      "canvasser's hand and Canada Post's Neighbourhood Mail dimensions. The " +
-      "5×7 is what candidates order when the piece has to carry a platform " +
-      "rather than a name. One stock, because a gloss card is what stands up " +
-      "to a wet mailbox in October.",
+      "and trimmed square. The 4.25 × 5.5 is the hand-out — it fits a letterbox, " +
+      "a canvasser's hand and Canada Post's Neighbourhood Mail dimensions. The " +
+      "8.5 × 5.5 is the half-page a candidate orders when the piece has to carry " +
+      "a platform rather than a name. One stock, because a gloss card is what " +
+      "stands up to a wet mailbox in October.",
     icon: "▭",
     leadTimeDays: 4,
     comingSoon: true,
@@ -333,32 +346,38 @@ export const PRODUCTS: Product[] = [
       "PDF, both sides, 0.125\" bleed. The UV coating is glossy and sealed, so " +
       "nothing can be written on these afterwards — if a canvasser needs to add " +
       "a name at the door, order door hangers instead.",
+    // Runs and prices are SinaLite's own, taken off the trade site on
+    // 5 September 2026. lineTotalCents is trade cost DOUBLED; the per-piece
+    // figure beside it is that line divided up, for display only, because at
+    // 5000 a rounded unit price puts the total fifty dollars out.
+    //
+    // TO CONFIRM: that those figures are cost rather than retail, and the
+    // file-prep fee below.
     variants: [
       {
-        key: "4x6",
-        name: "4\" × 6\" post card",
+        key: "4.25x5.5",
+        name: '4.25" × 5.5" hand-out',
         detail: "14pt card, UV high gloss both sides, full colour",
         setupFeeCents: 2000,
-        minQuantity: 250,
+        minQuantity: 500,
         breaks: [
-          { quantity: 250, unitPriceCents: 42 },
-          { quantity: 500, unitPriceCents: 28 },
-          { quantity: 1000, unitPriceCents: 21 },
-          { quantity: 2500, unitPriceCents: 16 },
-          { quantity: 5000, unitPriceCents: 13 },
+          { quantity: 500, unitPriceCents: 18, lineTotalCents: 8780 },
+          { quantity: 1000, unitPriceCents: 10, lineTotalCents: 9760 },
+          { quantity: 2500, unitPriceCents: 8, lineTotalCents: 19550 },
+          { quantity: 5000, unitPriceCents: 7, lineTotalCents: 33600 },
         ],
       },
       {
-        key: "5x7",
-        name: "5\" × 7\" post card",
+        key: "8.5x5.5",
+        name: '8.5" × 5.5" half page',
         detail: "14pt card, UV high gloss both sides, full colour",
         setupFeeCents: 2000,
-        minQuantity: 250,
+        minQuantity: 500,
         breaks: [
-          { quantity: 250, unitPriceCents: 58 },
-          { quantity: 500, unitPriceCents: 39 },
-          { quantity: 1000, unitPriceCents: 29 },
-          { quantity: 2500, unitPriceCents: 23 },
+          { quantity: 500, unitPriceCents: 29, lineTotalCents: 14500 },
+          { quantity: 1000, unitPriceCents: 19, lineTotalCents: 18680 },
+          { quantity: 2500, unitPriceCents: 16, lineTotalCents: 39100 },
+          { quantity: 5000, unitPriceCents: 12, lineTotalCents: 58300 },
         ],
       },
     ],
