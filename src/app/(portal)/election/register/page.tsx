@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentCustomer } from "@/lib/shop/auth";
+import { pendingPrefill } from "@/lib/shop/handoff";
 import { RegisterForm } from "./register-form";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +14,7 @@ export default async function RegisterPage({
 }) {
   if (await getCurrentCustomer()) redirect("/election/orders");
   const { next } = await searchParams;
+  const prefill = await pendingPrefill();
 
   return (
     <div className="mx-auto max-w-lg">
@@ -21,7 +23,7 @@ export default async function RegisterPage({
         So your details are already filled in the next time — campaigns reorder signs more than
         they expect to.
       </p>
-      <RegisterForm next={next ?? "/election/cart"} />
+      <RegisterForm next={next ?? "/election/cart"} prefill={prefill} />
       <p className="mt-6 text-sm text-muted">
         Already have one?{" "}
         <Link href="/election/sign-in" className="font-medium text-brand-ink underline">

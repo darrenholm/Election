@@ -11,6 +11,20 @@ import { SESSION_COOKIE, readSessionToken } from "@/lib/session";
  * cookie until it expires.
  */
 export default async function proxy(request: NextRequest) {
+  // A domain that exists to serve the storefront should serve it at its own
+  // root. Without this, a candidate who types election.holmgraphics.ca lands on
+  // the campaign manager's sign-in page, which is both wrong and alarming.
+  //
+  // Set PORTAL_HOST to that domain. Unset, nothing changes.
+  const portalHost = process.env.PORTAL_HOST;
+  if (
+    portalHost &&
+    request.nextUrl.pathname === "/" &&
+    request.headers.get("host")?.split(":")[0]?.toLowerCase() === portalHost.toLowerCase()
+  ) {
+    return NextResponse.redirect(new URL("/election", request.url));
+  }
+
   const claims = readSessionToken(request.cookies.get(SESSION_COOKIE)?.value);
   if (claims) return NextResponse.next();
 

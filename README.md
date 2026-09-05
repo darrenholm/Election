@@ -190,6 +190,30 @@ candidate — no campaign-manager account, no sign-in to look around.
   bought and the tax, because campaign material is an election expense and the
   filing wants exactly that.
 
+#### Arriving from the campaign manager
+
+The portal is open to anybody. A candidate who has never touched the campaign
+manager registers, orders and pays exactly as described above — there is no
+gate, and no account on one side is needed to use the other.
+
+But a candidate who *is* running their campaign in this app has already typed
+their name, their office, their town and their ward, and making them type it
+again to buy signs is the kind of small insult software is full of. So the
+campaign manager's sign page carries an **Order more signs** link that hands
+across a signed token naming the campaign, and the registration and checkout
+forms come up filled in, with a line saying where the details came from.
+
+- It works **across domains** — the manager on one, the shop on another — because
+  the token travels in the link rather than in a shared cookie. Set `PORTAL_URL`
+  when the two are apart.
+- **It is not a sign-in.** It fills in a form and nothing else. Somebody holding
+  a stolen link gets a registration page carrying a candidate's name and town —
+  facts that are on the ballot — and no access to the campaign, its voters, its
+  money, or the shop account they would still have to create with a password of
+  their own.
+- The account always wins at checkout: a detail corrected in the shop is not
+  overwritten by the campaign record on the next order.
+
 #### Apparel, and where garment data comes from
 
 Shirts are not priced like print. A sign's price comes out of a sheet bought by
@@ -442,6 +466,8 @@ levels and consent are not.
 | `npm run sinalite:catalog` | Print SinaLite's products, option ids and priced combinations, to fill in the vendor map |
 | `npm run sinalite:check` | Check the catalogue and the vendor map still agree. No credentials needed |
 | `npm run garments:import` | Load garment colours, sizes and costs from a CSV export. `--dry-run` shows what it read |
+| `npm run sanmar:probe` | Ask SanMar what answers and print what came back. Run it on Railway |
+| `npm run sanmar:sync` | Pull colours, sizes and costs from SanMar into the database |
 
 ## Accounts and who sees what
 

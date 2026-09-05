@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireCustomer } from "@/lib/shop/auth";
+import { pendingPrefill } from "@/lib/shop/handoff";
 import { draftOrderId } from "@/lib/shop/orders";
 import { TAX_LABEL, productBySlug } from "@/lib/shop/catalog";
 import { ETRANSFER_EMAIL } from "@/lib/shop/config";
@@ -38,6 +39,12 @@ export default async function CheckoutPage() {
     (item) => !productBySlug(item.productSlug)?.pickupOnly,
   );
 
+  // What the campaign knows, for any field the account has not filled in. The
+  // account always wins: a candidate who has corrected something here should
+  // not have it overwritten by the campaign record on the next order.
+  const prefill = await pendingPrefill();
+  const or = (own: string, fromCampaign: string | undefined) => own || fromCampaign || "";
+
   return (
     <div className="space-y-6">
       <header>
@@ -52,12 +59,12 @@ export default async function CheckoutPage() {
         <div className="space-y-6">
           <CheckoutForm
             defaults={{
-              contactName: account.contactName,
-              phone: account.phone,
-              candidateName: account.candidateName,
-              office: account.office,
-              municipality: account.municipality,
-              ward: account.ward,
+              contactName: or(account.contactName, prefill?.contactName),
+              phone: or(account.phone, prefill?.phone),
+              candidateName: or(account.candidateName, prefill?.candidateName),
+              office: account.office || prefill?.office || "COUNCILLOR",
+              municipality: or(account.municipality, prefill?.municipality),
+              ward: or(account.ward, prefill?.ward),
               addressLine: account.addressLine,
               city: account.city,
               postalCode: account.postalCode,
