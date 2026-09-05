@@ -203,10 +203,10 @@ model Voter {
   firstName  String @default("")
   middleName String @default("")
   lastName   String @default("")
-  email     String @default("")
-  phone     String @default("")
-  language  String @default("")
-  birthYear Int?
+  email      String @default("")
+  phone      String @default("")
+  language   String @default("")
+  birthYear  Int?
 
   householdId String?
   household   Household? @relation(fields: [householdId], references: [id], onDelete: SetNull)
@@ -458,8 +458,8 @@ model Volunteer {
   assignments    ShiftAssignment[]
   contacts       ContactAttempt[]
   turfs          Turf[]
-  signsInstalled SignRequest[] @relation("SignInstalledBy")
-  signsRemoved   SignRequest[] @relation("SignRemovedBy")
+  signsInstalled SignRequest[]     @relation("SignInstalledBy")
+  signsRemoved   SignRequest[]     @relation("SignRemovedBy")
   canvassPhotos  CanvassPhoto[]
 
   createdAt DateTime @default(now())
@@ -1081,4 +1081,332 @@ model CanvassInsight {
   createdAt DateTime @default(now())
 
   @@index([campaignId, generatedAt])
+}
+
+/**
+ * ---------------------------------------------------------------------------
+ * The election print portal
+ * A different audience from everything above. The campaign manager serves the
+ * consultant and their candidates; this serves anyone who lands on
+ * holmgraphics.ca looking to buy signs, cards, hangers, shirts and decals for a
+ * municipal run. They are customers of the print shop, not users of the
+ * campaign manager, so they get their own accounts and their own session cookie
+ * rather than a role on a Campaign — a customer must never end up holding a key
+ * to a voters' list.
+ * The catalogue itself is not in the database. Products, variants and the price
+ * breaks live in src/lib/shop/catalog.ts, because a price list is something
+ * Darren edits and ships, and every order snapshots the names and the cents it
+ * was quoted at so a later price change never rewrites an old order.
+ * -------------------------------------------------------------------------
+ */
+
+/// A candidate with an account on the print portal.
+model ShopCustomer {
+  id    String @id @default(cuid())
+  email String @unique
+
+  /// scrypt, stored as "salt:derivedKey" in hex — the same hashing as User,
+  /// deliberately a separate table. See src/lib/password.ts.
+  passwordHash String
+
+  /// The person the shop rings. Often but not always the candidate.
+  contactName String @default("")
+  phone       String @default("")
+
+  /// How the name is to be set on the artwork. Kept on the account because it
+  /// is the same on every order and nobody should retype it.
+  candidateName String @default("")
+  office        String @default("COUNCILLOR")
+  municipality  String @default("")
+  ward          String @default("")
+
+  addressLine String @default("")
+  city        String @default("")
+  postalCode  String @default("")
+
+  isActive Boolean @default(true)
+
+  lastSignInAt DateTime?
+  orders       ShopOrder[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([isActive])
+}
+
+/// One order, from the cart it started as to the job that came off the press.
+///
+/// A DRAFT order *is* the cart: one per customer, filled by adding items and
+/// frozen into a real order at submission. That keeps a half-built order alive
+/// across devices — a candidate who starts on a phone at a kitchen table
+/// finishes on a laptop — and means there is one shape of thing to price,
+/// display and total rather than two.
+model ShopOrder {
+  id String @id @default(cuid())
+
+  /// Human reference, and the memo line on the e-transfer: HG-2026-K4Q7M2.
+  /// Assigned at submission, because a cart nobody sent has nothing to quote.
+  number String? @unique
+
+  customerId String
+  customer   ShopCustomer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  /// DRAFT → SUBMITTED → QUOTED → IN_PRODUCTION → READY → COMPLETED, or
+  /// CANCELLED. See SHOP_ORDER_STATUSES in src/lib/enums.ts.
+  status String @default("DRAFT")
+
+  /// UNPAID → PARTIAL → PAID. Payment is by e-transfer, so this is what the
+  /// shop marks off by hand when the money lands; nothing automated moves it.
+  paymentStatus String @default("UNPAID")
+
+  /// PICKUP or DELIVERY. Delivery is quoted by hand, which is why there is a
+  /// deliveryCents the shop fills in rather than a rate table.
+  fulfilment String @default("PICKUP")
+
+  /// Who and where, snapshotted at submission. The account can change later —
+  /// a candidate moves, a manager takes over the phone — and an order is a
+  /// record of what was agreed at the time.
+  contactName   String @default("")
+  email         String @default("")
+  phone         String @default("")
+  candidateName String @default("")
+  office        String @default("")
+  municipality  String @default("")
+  ward          String @default("")
+  addressLine   String @default("")
+  city          String @default("")
+  postalCode    String @default("")
+
+  /// Ticked when the candidate wants the shop to design the piece rather than
+  /// supplying print-ready files. Priced once per order, not per item.
+  needsDesign Boolean @default(false)
+  designBrief String  @default("")
+
+  /// What has to be on every piece. The Municipal Elections Act requires an
+  /// election campaign advertisement to say who authorised it, and it is the
+  /// thing most often missing from a file a candidate sends in.
+  authorisationLine String @default("")
+
+  neededBy DateTime?
+  notes    String    @default("")
+
+  subtotalCents   Int    @default(0)
+  designFeeCents  Int    @default(0)
+  deliveryCents   Int    @default(0)
+  /// A discount or surcharge the shop applies by hand — negative is a discount.
+  adjustmentCents Int    @default(0)
+  adjustmentNote  String @default("")
+  taxCents        Int    @default(0)
+  totalCents      Int    @default(0)
+  paidCents       Int    @default(0)
+
+  submittedAt DateTime?
+  quotedAt    DateTime?
+  paidAt      DateTime?
+  completedAt DateTime?
+
+  /// Only ever shown in the shop's own queue, never on the customer's page.
+  staffNotes String @default("")
+
+  /// Trade fulfilment.
+  ///
+  /// NONE — the shop prints it. SINALITE — it is sent to the trade printer and
+  /// drop-shipped. Which one an order takes is decided per product (signs are
+  /// cut in the shop; cards and hangers are not), so this records what actually
+  /// happened to this order rather than what the catalogue would prefer.
+  vendor String @default("NONE")
+
+  /// The trade order was placed by hand — on the printer's own website, or over
+  /// the phone — rather than through their API.
+  ///
+  /// Not a temporary state to be cleaned up later. A shop takes orders before
+  /// it has API credentials, and goes on placing the odd job by hand
+  /// afterwards: an unusual stock, a rush, a line the catalogue does not carry.
+  /// Recording which way a job went is what keeps the margin arithmetic honest
+  /// either way.
+  vendorManual Boolean @default(false)
+
+  /// Their id for the job, and what they last told us about it. Kept as free
+  /// text: a vendor's status vocabulary is theirs to change, and pinning it to
+  /// our own enum would mean a migration every time they add one.
+  ///
+  /// SinaLite's API publishes no order-status endpoint, so vendorStatus is
+  /// whatever they said when the order was accepted, and tracking arrives by
+  /// email and is typed in. Both are here rather than in a note so the queue
+  /// can show them and the candidate's page can carry the tracking number.
+  vendorOrderId  String @default("")
+  vendorStatus   String @default("")
+  vendorTracking String @default("")
+
+  /// The shipping service chosen from their estimate — "UPS Standard" and the
+  /// like. Their rate quote is per carrier and method, so which one was picked
+  /// is part of what was quoted.
+  vendorShipCarrier String @default("")
+  vendorShipMethod  String @default("")
+
+  /// Every service they offered, as [{carrier, method, priceCents, days}].
+  /// Kept so the shop can take a dearer, faster one without re-quoting the
+  /// whole job — a candidate whose signs are late does not want the cheapest.
+  vendorShipOptions Json?
+
+  /// What the trade printer charges us, in cents — the goods and their
+  /// shipping, kept apart so margin is legible. Never shown to the candidate.
+  vendorCostCents     Int @default(0)
+  vendorShippingCents Int @default(0)
+
+  vendorQuotedAt DateTime?
+  vendorSentAt   DateTime?
+
+  /// The last failure, kept rather than thrown away, so the queue can show why
+  /// a job did not go over instead of silently looking unsent.
+  vendorError String @default("")
+
+  items   ShopOrderItem[]
+  artwork ShopArtwork[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([customerId, status])
+  @@index([status, submittedAt])
+}
+
+/// One product on an order, priced as it was when it was added.
+model ShopOrderItem {
+  id String @id @default(cuid())
+
+  orderId String
+  order   ShopOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// Keys into src/lib/shop/catalog.ts. The names beside them are snapshots, so
+  /// an order still reads correctly after the catalogue is edited — and an item
+  /// whose product has been retired still prices and prints.
+  productSlug String
+  productName String @default("")
+  variantKey  String @default("")
+  variantName String @default("")
+
+  /// Chosen option values, keyed by option group — {"sides":"DOUBLE"}. Rendered
+  /// into optionsSummary at the same moment, so nothing has to re-read the
+  /// catalogue to show the line.
+  options        Json?
+  optionsSummary String @default("")
+
+  /// Per-size counts for apparel — {"M":12,"L":8}. Null for everything else.
+  sizeBreakdown Json?
+
+  quantity       Int @default(1)
+  unitPriceCents Int @default(0)
+  setupFeeCents  Int @default(0)
+  lineTotalCents Int @default(0)
+
+  artworkNote String @default("")
+
+  /// What this line maps to at the trade printer, resolved when it was priced —
+  /// their product id and the option ids they wanted. Snapshotted for the same
+  /// reason the price is: their catalogue is not ours to keep still.
+  vendorProductId String @default("")
+  vendorOptions   Json?
+  /// Trade cost for this line alone, excluding shipping. Never shown to the
+  /// candidate.
+  vendorCostCents Int    @default(0)
+
+  artwork ShopArtwork[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+}
+
+/// A file the candidate sent in — a logo, a print-ready PDF, a photo of the
+/// sign they had last time.
+///
+/// Bytes in the database, like CanvassPhoto and SignPhoto: the volumes are
+/// small and it keeps deployment to one Postgres URL with no object store to
+/// configure. The ceiling is enforced at upload in src/lib/shop/artwork.ts.
+model ShopArtwork {
+  id String @id @default(cuid())
+
+  orderId String
+  order   ShopOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  /// Set when the file belongs to one line rather than the order as a whole.
+  orderItemId String?
+  orderItem   ShopOrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+
+  filename String @default("artwork")
+  mimeType String @default("application/octet-stream")
+  bytes    Bytes
+  byteSize Int    @default(0)
+
+  note String @default("")
+
+  uploadedAt DateTime @default(now())
+
+  @@index([orderId])
+}
+
+/// A garment style the shop sells — SanMar's ATC1000, ATCF6600, S365.
+///
+/// Apparel is not priced like print. A sign's price comes out of a sheet the
+/// shop buys by the sheet; a shirt's comes from a supplier's cost for that
+/// style, in that colour, in that size, which changes when they change it. So
+/// the garment data lives in the database and is refreshed from SanMar rather
+/// than being typed into the catalogue: src/lib/shop/catalog.ts names the style
+/// and nothing more.
+model GarmentStyle {
+  id String @id @default(cuid())
+
+  /// SanMar's style number, as printed in their catalogue: ATC1000.
+  styleCode   String @unique
+  brand       String @default("")
+  name        String @default("")
+  description String @default("")
+
+  /// Where the row came from — SANMAR_API, CSV, or MANUAL. Kept because a hand
+  /// entered cost and one pulled from the supplier deserve different trust when
+  /// a price looks wrong.
+  source String @default("MANUAL")
+
+  /// Set when the shop stops offering the style, rather than deleting it: past
+  /// orders still name it.
+  isActive Boolean @default(true)
+
+  syncedAt  DateTime?
+  skus      GarmentSku[]
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  @@index([isActive])
+}
+
+/// One colour and size of a style, with what it costs the shop.
+///
+/// The grain SanMar sells at: a 2XL costs more than a medium, and a heather
+/// costs more than a white, so a single price per style would be wrong in both
+/// directions.
+model GarmentSku {
+  id String @id @default(cuid())
+
+  styleId String
+  style   GarmentStyle @relation(fields: [styleId], references: [id], onDelete: Cascade)
+
+  colourName String @default("")
+  /// Their code for the colour, which is what an order has to quote.
+  colourCode String @default("")
+  size       String @default("")
+
+  /// What the shop pays, in cents. Never shown to a candidate.
+  costCents Int @default(0)
+
+  /// False when the supplier shows it out of stock or discontinued. Kept rather
+  /// than deleted so a colour that comes back does not lose its history.
+  available Boolean @default(true)
+
+  updatedAt DateTime @updatedAt
+
+  @@unique([styleId, colourName, size])
+  @@index([styleId, available])
 }

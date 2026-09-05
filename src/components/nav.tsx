@@ -21,11 +21,19 @@ const ITEMS: Item[] = [
   { href: "/texting", label: "Texting", icon: "✉" },
   { href: "/social", label: "Facebook", icon: "◐" },
   { href: "/events", label: "Events", icon: "★" },
+  { href: "/shop", label: "Print orders", icon: "▦" },
   { href: "/campaigns", label: "Campaigns", icon: "◫" },
   { href: "/municipalities", label: "Municipalities", icon: "⌂" },
   { href: "/team", label: "Team", icon: "☗" },
   { href: "/settings", label: "Settings", icon: "⚙" },
 ];
+
+/**
+ * Sections that belong to the consultant running the operation rather than to a
+ * campaign. The print queue holds every candidate's orders — including those of
+ * people running against each other — so it sits behind the same bar as Team.
+ */
+const ADMIN_ONLY = new Set(["/team", "/shop"]);
 
 function isActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
@@ -36,10 +44,14 @@ export function SideNav({
   active,
   campaigns,
   user,
+  counts = {},
 }: {
   active: SwitcherCampaign | null;
   campaigns: SwitcherCampaign[];
   user: { name: string; email: string; isAdmin: boolean } | null;
+  /** Anything waiting, by href. A print order nobody has looked at is the one
+   *  thing in this app that costs money to miss. */
+  counts?: Record<string, number>;
 }) {
   const pathname = usePathname();
 
@@ -50,7 +62,7 @@ export function SideNav({
         <div className="sticky top-0 flex h-dvh flex-col">
           <CampaignSwitcher active={active} campaigns={campaigns} />
           <ul className="flex-1 space-y-0.5 overflow-y-auto p-2">
-            {ITEMS.filter((item) => item.href !== "/team" || user?.isAdmin).map((item) => (
+            {ITEMS.filter((item) => !ADMIN_ONLY.has(item.href) || user?.isAdmin).map((item) => (
               <li key={item.href}>
                 <Link
                   href={item.href}
@@ -66,6 +78,11 @@ export function SideNav({
                     {item.icon}
                   </span>
                   {item.label}
+                  {counts[item.href] ? (
+                    <span className="ml-auto rounded-full bg-accent px-1.5 text-[0.7rem] font-bold tabular-nums text-white">
+                      {counts[item.href]}
+                    </span>
+                  ) : null}
                 </Link>
               </li>
             ))}
@@ -92,7 +109,7 @@ export function SideNav({
       <nav className="no-print sticky top-0 z-20 border-b border-line bg-surface md:hidden">
         <CampaignSwitcher active={active} campaigns={campaigns} />
         <div className="flex items-center gap-2 overflow-x-auto px-3 py-2">
-          {ITEMS.map((item) => (
+          {ITEMS.filter((item) => !ADMIN_ONLY.has(item.href) || user?.isAdmin).map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -103,6 +120,11 @@ export function SideNav({
               }`}
             >
               {item.label}
+              {counts[item.href] ? (
+                <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[0.7rem] font-bold tabular-nums text-white">
+                  {counts[item.href]}
+                </span>
+              ) : null}
             </Link>
           ))}
         </div>

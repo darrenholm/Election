@@ -13,10 +13,16 @@
     "db:studio": "prisma studio",
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy"
+    "db:deploy": "prisma migrate deploy",
+    "sinalite:catalog": "tsx scripts/sinalite-catalog.ts",
+    "sinalite:check": "tsx scripts/sinalite-check.ts",
+    "garments:import": "tsx scripts/garments-import.ts",
+    "sanmar:probe": "tsx scripts/sanmar-probe.ts",
+    "sanmar:sync": "tsx scripts/sanmar-sync.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
+    "fast-xml-parser": "^5.11.1",
     "leaflet": "^1.9.4",
     "next": "16.3.2",
     "papaparse": "^5.5.3",

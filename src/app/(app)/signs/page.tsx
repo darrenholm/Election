@@ -22,6 +22,7 @@ import {
   setSignStatus,
   updateSignRequest,
 } from "@/app/actions/signs";
+import { portalOrderUrl } from "@/lib/shop/handoff";
 import { Badge, Card, Check, EmptyState, Field, PageHeader, Select, StatTile } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
@@ -37,8 +38,13 @@ const COLUMNS: { status: string; tone: "neutral" | "brand" | "good" | "warn" }[]
 
 export default async function SignsPage() {
   const campaign = await getActiveCampaign();
+
   if (!campaign) redirect("/campaigns");
   const campaignId = campaign.id;
+
+  // The link across to the shop, carrying a signed handoff so the storefront
+  // can fill the candidate's details in for them.
+  const orderPrintUrl = portalOrderUrl(campaignId);
 
   const [signs, inventory, volunteers, wantsSign] = await Promise.all([
     db.signRequest.findMany({
@@ -87,6 +93,12 @@ export default async function SignsPage() {
         subtitle={`${deployed} up · ${pending} waiting on the crew`}
         actions={
           <>
+            {/* Across to the print shop with the campaign's details in hand, so
+                a candidate ordering more signs does not retype what this app
+                already knows. It fills in a form; it is not a sign-in. */}
+            <a href={orderPrintUrl} className="btn-secondary">
+              Order more signs
+            </a>
             <Link href="/signs/roadside" className="btn-secondary">
               Roadside signs
             </Link>
