@@ -25,9 +25,12 @@
  *                    one figure still made up.
  *   Post cards       Placeholder, until SinaLite's trade cost comes back and
  *   Door hangers     the tables are re-derived as cost doubled plus prep.
- *   T-shirts         Placeholder, and the specifications are provisional too —
- *   Hoodies          garments and decal stocks are still to be settled.
- *   Decals
+ *   T-shirts         The styles are settled — SanMar ATC1000, the three ATCF
+ *   Hoodies          fleece styles, and the S365 / SL365 polos — but every
+ *   Polos            figure is a placeholder until the dealer costs are in,
+ *   Decals           and no garment colours are listed because inventing a
+ *                    range would have candidates picking colours that cannot
+ *                    be had. Decal stocks are still to be settled.
  *
  * Only the signs are orderable today. Everything else carries `comingSoon:
  * true`, which lists it without a price and without a cart button — a candidate
@@ -410,23 +413,28 @@ export const PRODUCTS: Product[] = [
     name: "T-shirts",
     tagline: "For the door-knocking team",
     description:
-      "Softstyle cotton tees, screen printed. Order by the size run — the counts " +
-      "you enter are what gets printed, so a team of twelve with three larges " +
-      "gets three larges. Screen setup is charged once per design, which is why " +
-      "the price per shirt falls away so sharply at 24.",
+      "Screen printed tees for the people knocking on doors. Order by the size " +
+      "run — the counts you enter are what gets printed, so a team of twelve " +
+      "with three larges gets three larges. Screen setup is charged once per " +
+      "design, which is why the price per shirt falls away so sharply once you " +
+      "are past a dozen.",
     icon: "♟",
     leadTimeDays: 10,
     comingSoon: true,
     pricingProvisional: true,
+    // Sizes differ by style and by cut, and these are not confirmed against
+    // SanMar's size run for the ATC1000 yet.
     sizes: ["S", "M", "L", "XL", "2XL", "3XL"],
     artworkHint:
       "Vector artwork (AI, EPS or PDF) if you have it. Screen printing wants " +
       "solid colours and clean edges — a photograph does not screen well.",
     variants: [
       {
-        key: "softstyle",
-        name: "Softstyle cotton tee",
-        detail: "Gildan 64000, ring-spun cotton, unisex sizing",
+        // SanMar ATC1000. Garment cost, colours and the real size run come from
+        // the SanMar dealer portal; the figures below are placeholders.
+        key: "atc1000",
+        name: "ATC1000",
+        detail: "SanMar ATC1000",
         setupFeeCents: 4500,
         minQuantity: 12,
         breaks: [
@@ -434,19 +442,6 @@ export const PRODUCTS: Product[] = [
           { quantity: 24, unitPriceCents: 1875 },
           { quantity: 50, unitPriceCents: 1625 },
           { quantity: 100, unitPriceCents: 1450 },
-        ],
-      },
-      {
-        key: "performance",
-        name: "Performance tee",
-        detail: "Moisture-wicking polyester — for canvassing in August",
-        setupFeeCents: 4500,
-        minQuantity: 12,
-        breaks: [
-          { quantity: 12, unitPriceCents: 2750 },
-          { quantity: 24, unitPriceCents: 2350 },
-          { quantity: 50, unitPriceCents: 2050 },
-          { quantity: 100, unitPriceCents: 1850 },
         ],
       },
     ],
@@ -473,18 +468,9 @@ export const PRODUCTS: Product[] = [
           { value: "FULL", label: "Full colour (+$3.50 each)", unitSurchargeCents: 350 },
         ],
       },
-      {
-        key: "shirtColour",
-        label: "Shirt colour",
-        choices: [
-          { value: "WHITE", label: "White" },
-          { value: "NAVY", label: "Navy" },
-          { value: "BLACK", label: "Black" },
-          { value: "RED", label: "Red" },
-          { value: "ROYAL", label: "Royal blue" },
-          { value: "SAFETY_GREEN", label: "Safety green" },
-        ],
-      },
+      // Garment colour is deliberately not listed. The choice is SanMar's
+      // range for this style, and a made-up list of six colours would be worse
+      // than none: a candidate would pick one that cannot be had.
     ],
   },
   {
@@ -492,9 +478,9 @@ export const PRODUCTS: Product[] = [
     name: "Hoodies",
     tagline: "October doors are cold",
     description:
-      "Pullover hooded sweatshirts, screen printed. A municipal campaign runs " +
-      "into November in Ontario, and a hoodie is the thing a volunteer keeps " +
-      "wearing after voting day — which is worth more than most advertising.",
+      "Screen printed fleece. A municipal campaign runs into November in " +
+      "Ontario, and a hoodie is the thing a volunteer keeps wearing after " +
+      "voting day — which is worth more than most advertising.",
     icon: "♜",
     leadTimeDays: 12,
     comingSoon: true,
@@ -503,11 +489,14 @@ export const PRODUCTS: Product[] = [
     artworkHint:
       "Vector artwork (AI, EPS or PDF). A front-left-chest mark and a larger " +
       "back print is the usual layout, and the one that reads at a distance.",
+    // The three SanMar ATCF fleece styles the shop carries. Which is which —
+    // pullover, full zip, crewneck — and the cost of each come from the SanMar
+    // dealer portal; the figures below are placeholders.
     variants: [
       {
-        key: "pullover",
-        name: "Pullover hoodie",
-        detail: "Gildan 18500, cotton-poly fleece, unisex sizing",
+        key: "atcf6500",
+        name: "ATCF6500",
+        detail: "SanMar ATCF6500",
         setupFeeCents: 4500,
         minQuantity: 6,
         breaks: [
@@ -518,9 +507,22 @@ export const PRODUCTS: Product[] = [
         ],
       },
       {
-        key: "full-zip",
-        name: "Full-zip hoodie",
-        detail: "Cotton-poly fleece with a full zip — easier on and off at doors",
+        key: "atcf6600",
+        name: "ATCF6600",
+        detail: "SanMar ATCF6600",
+        setupFeeCents: 4500,
+        minQuantity: 6,
+        breaks: [
+          { quantity: 6, unitPriceCents: 5600 },
+          { quantity: 12, unitPriceCents: 4950 },
+          { quantity: 24, unitPriceCents: 4450 },
+          { quantity: 50, unitPriceCents: 4050 },
+        ],
+      },
+      {
+        key: "atcf6700",
+        name: "ATCF6700",
+        detail: "SanMar ATCF6700",
         setupFeeCents: 4500,
         minQuantity: 6,
         breaks: [
@@ -541,15 +543,70 @@ export const PRODUCTS: Product[] = [
           { value: "FULL_FRONT", label: "Full front (+$3.00 each)", unitSurchargeCents: 300 },
         ],
       },
+    ],
+  },
+  {
+    slug: "polos",
+    name: "Polos",
+    tagline: "For the candidate, and for anyone at a booth",
+    description:
+      "An embroidered or printed polo is what a candidate wears to an all-" +
+      "candidates meeting, a plowing match or a booth at the fall fair, where a " +
+      "campaign t-shirt reads as too much and a suit reads as too little. " +
+      "Ordered as a size run, the same way the shirts are.",
+    icon: "♛",
+    leadTimeDays: 12,
+    comingSoon: true,
+    pricingProvisional: true,
+    sizes: ["S", "M", "L", "XL", "2XL", "3XL"],
+    artworkHint:
+      "Vector artwork for embroidery, and keep it simple — thin lines and small " +
+      "text do not survive being stitched. A left-chest mark is the usual place.",
+    // SanMar S365 and SL365. Cost, colours and the size run of each — the
+    // ladies' cut in particular — come from the SanMar dealer portal.
+    variants: [
       {
-        key: "hoodieColour",
-        label: "Garment colour",
+        key: "s365",
+        name: "S365",
+        detail: "SanMar S365",
+        setupFeeCents: 6500,
+        minQuantity: 6,
+        breaks: [
+          { quantity: 6, unitPriceCents: 4800 },
+          { quantity: 12, unitPriceCents: 4300 },
+          { quantity: 24, unitPriceCents: 3900 },
+          { quantity: 50, unitPriceCents: 3600 },
+        ],
+      },
+      {
+        key: "sl365",
+        name: "SL365",
+        detail: "SanMar SL365",
+        setupFeeCents: 6500,
+        minQuantity: 6,
+        breaks: [
+          { quantity: 6, unitPriceCents: 4800 },
+          { quantity: 12, unitPriceCents: 4300 },
+          { quantity: 24, unitPriceCents: 3900 },
+          { quantity: 50, unitPriceCents: 3600 },
+        ],
+      },
+    ],
+    options: [
+      {
+        key: "decoration",
+        label: "How it is decorated",
         choices: [
-          { value: "NAVY", label: "Navy" },
-          { value: "BLACK", label: "Black" },
-          { value: "CHARCOAL", label: "Charcoal" },
-          { value: "RED", label: "Red" },
-          { value: "ROYAL", label: "Royal blue" },
+          { value: "EMBROIDERY", label: "Embroidered" },
+          { value: "PRINT", label: "Screen printed" },
+        ],
+      },
+      {
+        key: "placement",
+        label: "Placement",
+        choices: [
+          { value: "LEFT_CHEST", label: "Left chest" },
+          { value: "LEFT_CHEST_BACK", label: "Left chest and back (+$6.00 each)", unitSurchargeCents: 600 },
         ],
       },
     ],
