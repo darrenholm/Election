@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   HANDOFF_COOKIE,
   HANDOFF_COOKIE_OPTIONS,
+  portalBase,
   readCampaignHandoff,
 } from "@/lib/shop/handoff";
 
@@ -26,7 +27,9 @@ export async function GET(request: Request) {
   const destination =
     next && next.startsWith("/election") && !next.startsWith("//") ? next : "/election/register";
 
-  const response = NextResponse.redirect(new URL(destination, url.origin));
+  // Not url.origin: behind the proxy that is the container's own
+  // http://localhost:8080, which sent every visitor to a dead address.
+  const response = NextResponse.redirect(new URL(destination, portalBase() || url.origin));
   if (campaignId) {
     response.cookies.set(HANDOFF_COOKIE, url.searchParams.get("token") ?? "", HANDOFF_COOKIE_OPTIONS);
   }
