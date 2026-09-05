@@ -21,7 +21,14 @@ export type CheckoutDefaults = {
   authorisationLine: string;
 };
 
-export function CheckoutForm({ defaults }: { defaults: CheckoutDefaults }) {
+export function CheckoutForm({
+  defaults,
+  deliveryOffered,
+}: {
+  defaults: CheckoutDefaults;
+  /** False when everything in the cart is collected from the shop. */
+  deliveryOffered: boolean;
+}) {
   const [error, action, pending] = useActionState(submitOrder, null);
   const [needsDesign, setNeedsDesign] = useState(defaults.needsDesign);
   const [delivery, setDelivery] = useState(false);
@@ -112,17 +119,27 @@ export function CheckoutForm({ defaults }: { defaults: CheckoutDefaults }) {
           <Field label="Needed by" hint="We will say straight away whether it is on.">
             <input type="date" name="neededBy" className="field" />
           </Field>
-          <Field label="Pickup or delivery">
-            <select
-              name="fulfilment"
-              className="field"
-              value={delivery ? "DELIVERY" : "PICKUP"}
-              onChange={(e) => setDelivery(e.target.value === "DELIVERY")}
-            >
-              <option value="PICKUP">Pick up at the shop</option>
-              <option value="DELIVERY">Deliver it — quote me</option>
-            </select>
-          </Field>
+          {deliveryOffered ? (
+            <Field label="Pickup or delivery">
+              <select
+                name="fulfilment"
+                className="field"
+                value={delivery ? "DELIVERY" : "PICKUP"}
+                onChange={(e) => setDelivery(e.target.value === "DELIVERY")}
+              >
+                <option value="PICKUP">Pick up at the shop</option>
+                <option value="DELIVERY">Deliver it — quote me</option>
+              </select>
+            </Field>
+          ) : (
+            <Field label="Collection">
+              <input type="hidden" name="fulfilment" value="PICKUP" />
+              <p className="rounded-lg border border-line bg-raise/60 px-3 py-2 text-sm text-muted">
+                Picked up at the shop. Signs travel badly by courier and go out
+                on a trailer or in the back of a car.
+              </p>
+            </Field>
+          )}
         </div>
 
         {delivery ? (
@@ -162,8 +179,8 @@ export function CheckoutForm({ defaults }: { defaults: CheckoutDefaults }) {
         {pending ? "Sending…" : "Submit the order"}
       </button>
       <p className="text-xs text-muted">
-        Submitting does not charge you anything. We quote it back with delivery, and you pay by
-        e-transfer once you are happy with the price.
+        Submitting does not charge you anything. We quote it back, and you pay by e-transfer once
+        you are happy with the price — or settle up at the counter when you collect.
       </p>
     </form>
   );

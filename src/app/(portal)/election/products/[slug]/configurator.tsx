@@ -12,6 +12,7 @@ import {
   nextSheetDiscount,
   priceLine,
   readSizeRun,
+  sheetDiscountPercent,
   type ChosenOptions,
 } from "@/lib/shop/pricing";
 
@@ -36,19 +37,25 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
 
   const [quantity, setQuantity] = useState(variant.minQuantity);
   const [sizes, setSizes] = useState<Record<string, string>>({});
+  // Sheet-priced products are ordered in sheets, not in signs: the sheet is
+  // what the shop buys and cuts, and a number of signs that is not a whole
+  // number of sheets cannot be made.
+  const [sheets, setSheets] = useState(1);
+
+  const perSheet = variant.signsPerSheet ?? 0;
 
   const sizeRun = useMemo(
     () => (product.sizes ? readSizeRun(product, sizes) : null),
     [product, sizes],
   );
 
-  const effectiveQuantity = sizeRun ? sizeRun.quantity : quantity;
+  const effectiveQuantity = sizeRun ? sizeRun.quantity : perSheet > 0 ? sheets * perSheet : quantity;
   const priced = useMemo(
     () => priceLine(product, variant, Math.max(effectiveQuantity, 1), options),
     [product, variant, effectiveQuantity, options],
   );
 
-  const belowMinimum = effectiveQuantity < variant.minQuantity;
+  const belowMinimum = perSheet === 0 && effectiveQuantity < variant.minQuantity;
   const upsell = variant.signsPerSheet
     ? nextSheetDiscount(variant, effectiveQuantity)
     : nextBreak(variant, effectiveQuantity);
@@ -60,9 +67,10 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
   function chooseVariant(key: string) {
     setVariantKey(key);
     const next = product.variants.find((v) => v.key === key);
-    // Jump the quantity up to the new cut's minimum, never silently down: a
-    // campaign that typed 200 means 200.
-    if (next && quantity < next.minQuantity) setQuantity(next.minQuantity);
+    // A sheet count carries across cuts untouched — three sheets is three
+    // sheets. A typed quantity only ever moves up to the new cut's minimum,
+    // never silently down: a campaign that typed 200 means 200.
+    if (next && !next.signsPerSheet && quantity < next.minQuantity) setQuantity(next.minQuantity);
   }
 
   return (
@@ -190,8 +198,47 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
         </fieldset>
       ) : (
         <fieldset>
-          <legend className="field-label">How many</legend>
-          {product.quantitiesFixed ? (
+          <legend className="field-label">{perSheet > 0 ? "How many sheets" : "How many"}</legend>
+          {perSheet > 0 ? (
+            <>
+              <input type="hidden" name="quantity" value={effectiveQuantity} />
+              <div className="flex flex-wrap items-center gap-3">
+                <input
+                  type="number"
+                  min={1}
+                  value={sheets}
+                  onChange={(e) => setSheets(Math.max(1, Math.round(Number(e.target.value) || 1)))}
+                  className="field w-28 tabular-nums"
+                />
+                <span className="text-sm">
+                  <span className="font-semibold">
+                    {effectiveQuantity} {effectiveQuantity === 1 ? "sign" : "signs"}
+                  </span>
+                  <span className="text-muted">
+                    {" "}
+                    — {perSheet} of this cut from each 4&prime; × 8&prime; sheet
+                  </span>
+                </span>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {[1, 2, 3, 4, 6, 8, 10].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setSheets(n)}
+                    className={`rounded-full border px-3 py-1 text-xs font-semibold tabular-nums transition-colors ${
+                      sheets === n
+                        ? "border-brand bg-brand-soft text-brand-ink"
+                        : "border-line bg-surface text-muted hover:bg-raise"
+                    }`}
+                  >
+                    {n * perSheet} signs
+                    {sheetDiscountPercent(n) > 0 ? ` · -${sheetDiscountPercent(n)}%` : ""}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : product.quantitiesFixed ? (
             // These are printed in fixed runs, so the runs are the choice. A
             // box to type in would take orders nobody can fill.
             <select
@@ -216,14 +263,7 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
                 onChange={(e) => setQuantity(Number(e.target.value))}
                 className="field w-32 tabular-nums"
               />
-              <span className="text-xs text-muted">
-                Minimum {variant.minQuantity}
-                {variant.signsPerSheet
-                  ? variant.signsPerSheet > 1
-                    ? ` — one sheet's worth of this cut`
-                    : " — one sheet"
-                  : ""}
-              </span>
+              <span className="text-xs text-muted">Minimum {variant.minQuantity}</span>
             </div>
           )}
 
@@ -287,7 +327,12 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
           </p>
         ) : null}
 
-        <p className="mt-2 text-xs text-muted">Before HST. Delivery, if you want it, is quoted with the order.</p>
+        <p className="mt-2 text-xs text-muted">
+          Before HST.{" "}
+          {product.pickupOnly
+            ? "Collected from the shop — signs travel badly by courier."
+            : "Delivery, if you want it, is quoted with the order."}
+        </p>
       </div>
 
       <label className="block">

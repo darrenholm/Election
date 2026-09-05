@@ -173,6 +173,11 @@ export async function addToCart(formData: FormData) {
   const product = productBySlug(str(formData, "productSlug"));
   if (!product) redirect("/election");
 
+  // Hiding the button is not the rule; this is. A product still being set up
+  // has no settled price, and an order taken against one is a promise the shop
+  // has not agreed to.
+  if (product.comingSoon) redirect(`/election/products/${product.slug}`);
+
   const variant = variantByKey(product, str(formData, "variantKey")) ?? product.variants[0];
 
   const chosen: ChosenOptions = {};

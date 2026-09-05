@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { requireCustomer } from "@/lib/shop/auth";
 import { draftOrderId } from "@/lib/shop/orders";
-import { TAX_LABEL } from "@/lib/shop/catalog";
+import { TAX_LABEL, productBySlug } from "@/lib/shop/catalog";
 import { ETRANSFER_EMAIL } from "@/lib/shop/config";
 import { formatCents } from "@/lib/money";
 import { deleteArtwork } from "@/app/actions/shop";
@@ -31,6 +31,13 @@ export default async function CheckoutPage() {
   if (!order || !account) redirect("/election/cart");
   if (order.items.length === 0) redirect("/election/cart");
 
+  // Delivery is only worth offering if something in the cart can actually be
+  // sent. A cart of signs is collected, and asking the question would only
+  // invite an address nobody is going to use.
+  const deliveryOffered = order.items.some(
+    (item) => !productBySlug(item.productSlug)?.pickupOnly,
+  );
+
   return (
     <div className="space-y-6">
       <header>
@@ -57,6 +64,7 @@ export default async function CheckoutPage() {
               needsDesign: order.needsDesign,
               authorisationLine: order.authorisationLine,
             }}
+            deliveryOffered={deliveryOffered}
           />
 
           <section className="rounded-xl border border-line bg-surface p-5 shadow-sm">
@@ -140,7 +148,8 @@ export default async function CheckoutPage() {
             <p className="mt-1">
               When we have quoted it, send an Interac e-transfer to{" "}
               <span className="font-medium text-ink">{ETRANSFER_EMAIL}</span> with your order number
-              in the message. Your order page will show the number and the total.
+              in the message — or settle up at the counter when you collect. Your order page will
+              show the number and the total.
             </p>
           </div>
         </aside>

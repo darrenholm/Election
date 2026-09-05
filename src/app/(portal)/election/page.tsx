@@ -29,9 +29,14 @@ export default function PortalHome() {
         <span className="mt-4 block h-[3px] w-12 rounded-full bg-accent" />
         <p className="mt-5 max-w-2xl text-base leading-relaxed text-muted">
           Signs for lawns and roadsides, cards for the mail, hangers for the doors
-          nobody answers, and shirts for the people knocking on them. Price it
-          yourself here — the quantity breaks are on every page — and send it over
-          when it is right. We quote delivery, you pay by e-transfer, and we print.
+          nobody answers, and shirts for the people knocking on them. Price a run
+          of signs yourself below — every size is a clean cut from a 4&prime; ×
+          8&prime; sheet, and the sheet is what you pay for.
+        </p>
+        <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
+          <span className="font-semibold text-ink">Signs are open for orders now.</span>{" "}
+          Post cards, door hangers, shirts, hoodies and decals are listed below and
+          open shortly — ring us in the meantime and we will quote them by hand.
         </p>
         <div className="mt-7 flex flex-wrap gap-3">
           <a href="#catalogue" className="btn-primary">
@@ -57,13 +62,19 @@ export default function PortalHome() {
               </span>
               <h3 className="mt-3 text-base font-bold tracking-tight">{product.name}</h3>
               <p className="mt-1 flex-1 text-sm leading-relaxed text-muted">{product.tagline}</p>
-              <p className="mt-4 text-sm font-semibold tabular-nums">
-                from {formatCents(startingUnitPriceCents(product))}
-                <span className="font-normal text-muted"> each</span>
-              </p>
-              <p className="mt-1 text-xs text-muted">
-                Ready in about {product.leadTimeDays} working days
-              </p>
+              {product.comingSoon ? (
+                <p className="mt-4 text-sm font-semibold text-accent-ink">Coming soon</p>
+              ) : (
+                <>
+                  <p className="mt-4 text-sm font-semibold tabular-nums">
+                    from {formatCents(startingUnitPriceCents(product))}
+                    <span className="font-normal text-muted"> each</span>
+                  </p>
+                  <p className="mt-1 text-xs text-muted">
+                    Ready in about {product.leadTimeDays} working days
+                  </p>
+                </>
+              )}
             </Link>
           ))}
         </div>
@@ -81,17 +92,17 @@ export default function PortalHome() {
             {
               step: "2",
               title: "We quote it back",
-              body: "We confirm the price, add delivery if you want it delivered, and set a proof going. Your order page shows the total.",
+              body: "We confirm the price and set a proof going, usually the same working day. Your order page shows the total.",
             },
             {
               step: "3",
-              title: "You e-transfer",
-              body: `Interac e-transfer to ${ETRANSFER_EMAIL}, with your order number in the message so it lands against the right job.`,
+              title: "You pay",
+              body: `Interac e-transfer to ${ETRANSFER_EMAIL} with your order number in the message, or settle up at the counter when you collect.`,
             },
             {
               step: "4",
-              title: "We print",
-              body: "You approve the proof, we print, and you collect — or we deliver. Your receipt is on the order page for the filing.",
+              title: "We print, you collect",
+              body: "You approve the proof and we print. Signs are picked up at the shop. Your receipt is on the order page for the filing.",
             },
           ].map((s) => (
             <li key={s.step} className="rounded-xl border border-line bg-surface p-5 shadow-sm">

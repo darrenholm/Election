@@ -103,6 +103,8 @@ export function nextSheetDiscount(
   const percent = sheetDiscountPercent(sheets + 1);
   if (percent <= sheetDiscountPercent(sheets)) return null;
 
+  // Quantities are whole sheets, so the next step up is always one more
+  // sheet's worth exactly.
   return { moreSigns: (sheets + 1) * perSheet - quantity, percent };
 }
 
@@ -116,6 +118,15 @@ export function nextSheetDiscount(
  */
 export function snapQuantity(product: Product, variant: Variant, requested: number): number {
   const wanted = Math.max(1, Math.round(requested));
+
+  // Sheet-priced: whole sheets are what is bought, so the count lands on a
+  // multiple of the cut's yield, rounded up. The sheet is cut into either way —
+  // ordering 13 of a twelve-up cut consumes two sheets — and the remaining
+  // eleven signs are worth more in the candidate's garage than in the offcut
+  // bin, which is why this rounds up rather than refusing.
+  const perSheet = variant.signsPerSheet ?? 0;
+  if (perSheet > 0) return Math.max(1, Math.ceil(wanted / perSheet)) * perSheet;
+
   if (!product.quantitiesFixed || variant.breaks.length === 0) {
     return Math.max(wanted, variant.minQuantity);
   }
@@ -175,6 +186,12 @@ export function priceLine(
   let baseUnitCents: number;
   let sheets = 0;
   let discountPercent = 0;
+  // What the sheets themselves come to, before any per-sign extras. Held apart
+  // because on a sheet-priced product THIS is the real figure: whole sheets are
+  // what the shop buys and what the candidate orders, and a total that is not a
+  // whole number of them would put every order a few cents out.
+  let sheetGoodsCents: number | null = null;
+
   const sheetPricing = product.sheetPricing;
   if (sheetPricing && variant.signsPerSheet) {
     const choice =
@@ -186,7 +203,12 @@ export function priceLine(
     sheets = sheetsUsed(variant, safeQuantity);
     discountPercent = sheetDiscountPercent(sheets);
     const sheetPrice = Math.round(choice.sheetPriceCents * (1 - discountPercent / 100));
-    baseUnitCents = Math.round(sheetPrice / variant.signsPerSheet);
+
+    sheetGoodsCents = sheets * sheetPrice;
+    // Per sign, for display. It is the sheet total divided up, not the other way
+    // round: dividing $270 by 32 and multiplying back lands eight cents above a
+    // sheet that costs $270.
+    baseUnitCents = Math.round(sheetGoodsCents / safeQuantity);
   } else {
     baseUnitCents = applicableBreak(variant, safeQuantity).unitPriceCents;
   }
@@ -208,11 +230,19 @@ export function priceLine(
   const unitPriceCents = baseUnitCents + unitSurcharge;
   const setupFeeCents = variant.setupFeeCents + flatSurcharge;
 
+  // Sheets first, then the per-sign extras, then setup — so a whole-sheet order
+  // comes to exactly what the sheets cost. Everything not priced by the sheet
+  // multiplies out as usual.
+  const goodsCents =
+    sheetGoodsCents === null
+      ? unitPriceCents * safeQuantity
+      : sheetGoodsCents + unitSurcharge * safeQuantity;
+
   return {
     quantity: safeQuantity,
     unitPriceCents,
     setupFeeCents,
-    lineTotalCents: unitPriceCents * safeQuantity + setupFeeCents,
+    lineTotalCents: goodsCents + setupFeeCents,
     optionsSummary: labels.join(" · "),
     options: resolved,
     sheetsUsed: sheets,

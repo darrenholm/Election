@@ -45,7 +45,7 @@ export default async function PortalLayout({ children }: { children: React.React
             <p className="font-bold text-ink">Paying for an order</p>
             <p className="mt-1">
               Interac e-transfer to <span className="font-medium text-ink">{ETRANSFER_EMAIL}</span>,
-              with your order number in the message.
+              with your order number in the message — or at the counter when you collect.
             </p>
           </div>
           <div className="min-w-48">

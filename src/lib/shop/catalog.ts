@@ -29,10 +29,11 @@
  *   Hoodies          garments and decal stocks are still to be settled.
  *   Decals
  *
- * Anything still provisional carries `pricingProvisional: true`, which puts a
- * line on its product page saying the price is confirmed on the quote. Clear
- * the flag as each set of real numbers lands — it is what stops a made-up
- * figure being read as a firm one by a candidate who found the site.
+ * Only the signs are orderable today. Everything else carries `comingSoon:
+ * true`, which lists it without a price and without a cart button — a candidate
+ * working out a budget still learns the shop does hoodies, and nobody is quoted
+ * a figure that is not ready. Clear the flag on a product once its real prices
+ * are in, and clear `pricingProvisional` with it.
  * ---------------------------------------------------------------------------
  */
 
@@ -142,6 +143,20 @@ export type Product = {
    * says so rather than letting a placeholder read as a quote.
    */
   pricingProvisional?: boolean;
+  /**
+   * Listed, but not orderable yet.
+   *
+   * The catalogue still carries it — a candidate deciding what to spend on
+   * wants to know the shop does hoodies — but no price is shown and nothing can
+   * be added to a cart. Cheaper than hiding it and better than quoting a figure
+   * that is not ready.
+   */
+  comingSoon?: boolean;
+  /**
+   * Collected from the shop, never shipped. Signs are cut here and go out on a
+   * trailer or in the back of a car; nothing about them wants a courier.
+   */
+  pickupOnly?: boolean;
 };
 
 /** Design service, charged once per order when the shop is doing the artwork. */
@@ -168,6 +183,7 @@ export const PRODUCTS: Product[] = [
       "25% at six sheets.",
     icon: "▤",
     leadTimeDays: 5,
+    pickupOnly: true,
     artworkHint:
       "PDF at full size with 0.125\" bleed, text kept 0.5\" inside the trim. " +
       "Vector logos if you have them — a logo lifted off a website will not " +
@@ -302,6 +318,7 @@ export const PRODUCTS: Product[] = [
       "to a wet mailbox in October.",
     icon: "▭",
     leadTimeDays: 4,
+    comingSoon: true,
     pricingProvisional: true,
     quantitiesFixed: true,
     artworkHint:
@@ -352,6 +369,7 @@ export const PRODUCTS: Product[] = [
       "hanger is what does the work at the other two.",
     icon: "⌸",
     leadTimeDays: 5,
+    comingSoon: true,
     pricingProvisional: true,
     quantitiesFixed: true,
     artworkHint:
@@ -402,6 +420,7 @@ export const PRODUCTS: Product[] = [
       "the price per shirt falls away so sharply at 24.",
     icon: "♟",
     leadTimeDays: 10,
+    comingSoon: true,
     pricingProvisional: true,
     sizes: ["S", "M", "L", "XL", "2XL", "3XL"],
     artworkHint:
@@ -482,6 +501,7 @@ export const PRODUCTS: Product[] = [
       "wearing after voting day — which is worth more than most advertising.",
     icon: "♜",
     leadTimeDays: 12,
+    comingSoon: true,
     pricingProvisional: true,
     sizes: ["S", "M", "L", "XL", "2XL", "3XL"],
     artworkHint:
@@ -549,6 +569,7 @@ export const PRODUCTS: Product[] = [
       "that has agreed to display one.",
     icon: "◈",
     leadTimeDays: 6,
+    comingSoon: true,
     pricingProvisional: true,
     artworkHint:
       "Vector artwork holds up best at these sizes. Say whether the decal goes " +

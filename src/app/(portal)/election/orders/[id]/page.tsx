@@ -131,11 +131,14 @@ export default async function OrderPage({
             <span className="font-bold tabular-nums">{formatCents(owing)}</span>, and put{" "}
             <span className="font-bold tabular-nums">{order.number}</span> in the message so it
             lands against this job.
+            {order.fulfilment === "PICKUP" ? (
+              <> Or settle up at the counter when you collect — either is fine.</>
+            ) : null}
           </p>
-          {order.status === "SUBMITTED" ? (
+          {order.status === "SUBMITTED" && order.fulfilment === "DELIVERY" ? (
             <p className="mt-2 text-xs text-accent-ink">
               The figure above does not include delivery yet. Wait for the quote before sending
-              anything if you asked us to deliver.
+              anything.
             </p>
           ) : null}
           {order.paidCents > 0 ? (
