@@ -101,7 +101,7 @@ export default async function ShopQueuePage({
                     <span className="block text-xs text-muted">
                       {order._count.items} {order._count.items === 1 ? "line" : "lines"}
                       {order._count.artwork > 0 ? ` · ${order._count.artwork} file(s)` : ""}
-                      {order.needsDesign ? " · design" : ""}
+                      {order.needsDesign ? " · artwork" : ""}
                     </span>
                   </Td>
                   <Td>

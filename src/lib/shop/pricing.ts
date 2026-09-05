@@ -1,6 +1,7 @@
 import { formatCents } from "@/lib/money";
 import {
   DESIGN_FEE_CENTS,
+  GARMENT_SETUP_CENTS,
   TAX_RATE,
   type OptionChoice,
   type PriceBreak,
@@ -332,6 +333,7 @@ export function describeSizeRun(sizes: Record<string, number>): string {
 export type OrderTotals = {
   subtotalCents: number;
   designFeeCents: number;
+  garmentSetupCents: number;
   deliveryCents: number;
   adjustmentCents: number;
   taxableCents: number;
@@ -342,32 +344,53 @@ export type OrderTotals = {
 /**
  * What the whole order comes to.
  *
- * Design is charged once per order, not per line: a candidate having their
- * signs, cards and hangers designed is having one identity designed. Delivery
- * and the adjustment are the shop's to fill in — delivery because a rural
- * drop is not a rate table, and the adjustment because a printer has always
- * been able to take something off a price.
+ * Two setup fees, both charged once for the order and neither per line:
  *
- * Tax goes on everything, including the design work and the delivery, which is
+ *   Artwork          when the candidate is not supplying print-ready files. A
+ *                    campaign's signs, cards and hangers are one look, drawn
+ *                    once and adapted — not three pieces of work.
+ *   Screen setup     when there is apparel on the order. A different job from
+ *                    drawing the artwork, which is why both can land together,
+ *                    and burned once whether it is tees, hoodies or both.
+ *
+ * Neither is charged when the shop already has the file and the screens —
+ * `artworkOnFile`, which is what the Reorder button sets. Printing the same
+ * sign again is not artwork, and a campaign that came back for more would
+ * notice being charged for it twice.
+ *
+ * Delivery and the adjustment are the shop's to fill in — delivery because a
+ * rural drop is not a rate table, and the adjustment because a printer has
+ * always been able to take something off a price.
+ *
+ * Tax goes on everything, including the setup work and the delivery, which is
  * how HST works on a single supply.
  */
 export function orderTotals(input: {
   lineTotals: number[];
   needsDesign: boolean;
+  /** There is apparel on this order, so the screens have to be burned. */
+  hasGarments?: boolean;
+  /** A repeat: the shop has the artwork and the screens already. */
+  artworkOnFile?: boolean;
   deliveryCents?: number;
   adjustmentCents?: number;
 }): OrderTotals {
   const subtotalCents = input.lineTotals.reduce((sum, n) => sum + n, 0);
-  const designFeeCents = input.needsDesign ? DESIGN_FEE_CENTS : 0;
+  const onFile = input.artworkOnFile === true;
+
+  const designFeeCents = input.needsDesign && !onFile ? DESIGN_FEE_CENTS : 0;
+  const garmentSetupCents = input.hasGarments && !onFile ? GARMENT_SETUP_CENTS : 0;
   const deliveryCents = input.deliveryCents ?? 0;
   const adjustmentCents = input.adjustmentCents ?? 0;
 
-  const taxableCents = subtotalCents + designFeeCents + deliveryCents + adjustmentCents;
+  const taxableCents =
+    subtotalCents + designFeeCents + garmentSetupCents + deliveryCents + adjustmentCents;
   const taxCents = Math.round(taxableCents * TAX_RATE);
 
   return {
     subtotalCents,
     designFeeCents,
+    garmentSetupCents,
     deliveryCents,
     adjustmentCents,
     taxableCents,

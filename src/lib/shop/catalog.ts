@@ -100,7 +100,11 @@ export type Variant = {
   name: string;
   /** The specification, in the words a printer would use. */
   detail: string;
-  /** Proof, file prep and press or screen setup. Charged once per line. */
+  /**
+   * Press setup on this line, if any. Zero everywhere at present: the artwork
+   * fee and the apparel setup are both charged once on the order instead —
+   * see orderTotals. Kept because a future product may genuinely need one.
+   */
   setupFeeCents: number;
   minQuantity: number;
   /** Ascending by quantity. The last break at or below the order decides.
@@ -235,21 +239,6 @@ export type Product = {
 };
 
 /**
- * File preparation, charged per item unless the candidate supplies print-ready
- * artwork.
- *
- * Most do not: a logo pulled off a website, a Word file, a photograph of last
- * election's sign. Getting any of that to press is real time, and it is time the
- * trade price does not cover. Somebody who sends a correct PDF pays nothing for
- * it, which is the whole point of charging for it — the fee is for the work,
- * not for the privilege of ordering.
- *
- * Defaulted to charging it, because most orders need it and a candidate who has
- * print-ready files knows they have them.
- */
-export const ARTWORK_PREP_CENTS = 4500;
-
-/**
  * Printing the back as well as the front.
  *
  * The trade prices this catalogue carries are for 4/0 — printed and coated one
@@ -275,22 +264,6 @@ export function printedSidesOption(): OptionGroup {
   };
 }
 
-export function artworkPrepOption(): OptionGroup {
-  return {
-    key: "artwork",
-    label: "Your artwork",
-    hint: "No charge if what you send is print-ready — the right size, with bleed, in PDF.",
-    choices: [
-      {
-        value: "PREP",
-        label: "Set my files up for me (+$45)",
-        flatSurchargeCents: ARTWORK_PREP_CENTS,
-      },
-      { value: "PRINT_READY", label: "I have print-ready PDFs" },
-    ],
-  };
-}
-
 /**
  * Getting a trade-printed job here.
  *
@@ -309,16 +282,37 @@ export function artworkPrepOption(): OptionGroup {
 export const TRADE_FREIGHT_CENTS = 2500;
 
 /**
- * Design service, charged once per order when the shop is doing the artwork.
+ * Artwork. One fee, once, for the whole order.
  *
- * The same $45 as ARTWORK_PREP_CENTS, but once for the whole order rather than
- * per line — so a candidate ordering signs and cards pays $45 to have both
- * designed, and $90 to have their own files fixed up on both. Set by Darren on
- * 5 September 2026, deliberately: designing it properly the first time is the
- * cheaper path for the campaign and the easier one for the shop, and the prices
- * should point that way rather than against it.
+ * Charged when the candidate is not supplying print-ready files — whether that
+ * means designing the piece from nothing or straightening out a logo pulled off
+ * a website. It is the same job either way and it is one job: a campaign's
+ * signs, cards and hangers are one look, drawn once and adapted, not three
+ * separate pieces of work.
+ *
+ * It used to be charged per item as well, which meant a candidate ordering
+ * signs in two sizes paid twice to have one thing drawn. Darren's call, on
+ * 5 September 2026: once per order, and apparel keeps its own screen setup
+ * because burning a screen is a different job from drawing the artwork.
+ *
+ * Not charged at all when the shop already has the file — see artworkOnFile on
+ * ShopOrder. Printing the same sign again is not artwork.
  */
 export const DESIGN_FEE_CENTS = 4500;
+
+/**
+ * Apparel setup. Once per order, not per garment line.
+ *
+ * The shop prints garments direct-to-film, not with screens: the design is
+ * output to transfer film and heat-pressed on. So there is nothing to charge by
+ * the ink colour — full colour costs what one colour costs — and no screen to
+ * burn per garment style. What the setup covers is getting the artwork onto
+ * film at the right size for each placement, and that is one job for the order.
+ *
+ * Separate from the artwork fee, and both can land on the same order: one is
+ * drawing the design, the other is putting it on film.
+ */
+export const GARMENT_SETUP_CENTS = 4500;
 
 /** Ontario HST. Municipal campaign purchases are taxable like any other. */
 export const TAX_RATE = 0.13;
@@ -460,7 +454,6 @@ export const PRODUCTS: Product[] = [
           { value: "WITHOUT", label: "No stands — I have them" },
         ],
       },
-      artworkPrepOption(),
     ],
   },
   {
@@ -516,7 +509,7 @@ export const PRODUCTS: Product[] = [
     ],
     // No coating choice: the shop buys one stock for these, and offering a
     // finish it does not buy would take an order it cannot place.
-    options: [printedSidesOption(), artworkPrepOption()],
+    options: [printedSidesOption()],
   },
   {
     slug: "door-hangers",
@@ -550,18 +543,19 @@ export const PRODUCTS: Product[] = [
         ],
       },
     ],
-    options: [printedSidesOption(), artworkPrepOption()],
+    options: [printedSidesOption()],
   },
   {
     slug: "t-shirts",
     name: "T-shirts",
     tagline: "For the door-knocking team",
     description:
-      "Screen printed tees for the people knocking on doors. Order by the size " +
-      "run — the counts you enter are what gets printed, so a team of twelve " +
-      "with three larges gets three larges. Screen setup is charged once per " +
-      "design, which is why the price per shirt falls away so sharply once you " +
-      "are past a dozen.",
+      "Tees for the people knocking on doors, printed direct-to-film. Full " +
+      "colour for one price — a photograph costs no more than a wordmark, and " +
+      "nothing here is charged by the ink colour. Order by the size run: the " +
+      "counts you enter are what gets printed, so a team of twelve with three " +
+      "larges gets three larges. Setup is charged once for the order rather " +
+      "than per garment, which is why a second style costs so little more.",
     icon: "♟",
     leadTimeDays: 10,
     pricingProvisional: true,
@@ -579,7 +573,7 @@ export const PRODUCTS: Product[] = [
         garmentStyleCode: "ATC1000",
         name: "ATC1000",
         detail: "SanMar ATC1000",
-        setupFeeCents: 4500,
+        setupFeeCents: 0,
         minQuantity: 12,
         breaks: [
           { quantity: 12, unitPriceCents: 2250 },
@@ -603,15 +597,6 @@ export const PRODUCTS: Product[] = [
           },
         ],
       },
-      {
-        key: "colours",
-        label: "Ink colours",
-        choices: [
-          { value: "ONE", label: "One colour" },
-          { value: "TWO", label: "Two colours (+$2.00 each)", unitSurchargeCents: 200 },
-          { value: "FULL", label: "Full colour (+$3.50 each)", unitSurchargeCents: 350 },
-        ],
-      },
       // Garment colour is deliberately not listed. The choice is SanMar's
       // range for this style, and a made-up list of six colours would be worse
       // than none: a candidate would pick one that cannot be had.
@@ -622,9 +607,10 @@ export const PRODUCTS: Product[] = [
     name: "Hoodies",
     tagline: "October doors are cold",
     description:
-      "Screen printed fleece. A municipal campaign runs into November in " +
-      "Ontario, and a hoodie is the thing a volunteer keeps wearing after " +
-      "voting day — which is worth more than most advertising.",
+      "Fleece, printed direct-to-film in full colour. A municipal campaign " +
+      "runs into November in Ontario, and a hoodie is the thing a volunteer " +
+      "keeps wearing after voting day — which is worth more than most " +
+      "advertising.",
     icon: "♜",
     leadTimeDays: 12,
     pricingProvisional: true,
@@ -641,7 +627,7 @@ export const PRODUCTS: Product[] = [
         garmentStyleCode: "ATCF6500",
         name: "ATCF6500",
         detail: "SanMar ATCF6500",
-        setupFeeCents: 4500,
+        setupFeeCents: 0,
         minQuantity: 6,
         breaks: [
           { quantity: 6, unitPriceCents: 5200 },
@@ -655,7 +641,7 @@ export const PRODUCTS: Product[] = [
         garmentStyleCode: "ATCF6600",
         name: "ATCF6600",
         detail: "SanMar ATCF6600",
-        setupFeeCents: 4500,
+        setupFeeCents: 0,
         minQuantity: 6,
         breaks: [
           { quantity: 6, unitPriceCents: 5600 },
@@ -669,7 +655,7 @@ export const PRODUCTS: Product[] = [
         garmentStyleCode: "ATCF6700",
         name: "ATCF6700",
         detail: "SanMar ATCF6700",
-        setupFeeCents: 4500,
+        setupFeeCents: 0,
         minQuantity: 6,
         breaks: [
           { quantity: 6, unitPriceCents: 6200 },
@@ -715,7 +701,7 @@ export const PRODUCTS: Product[] = [
         garmentStyleCode: "S365",
         name: "S365",
         detail: "SanMar S365",
-        setupFeeCents: 6500,
+        setupFeeCents: 0,
         minQuantity: 6,
         breaks: [
           { quantity: 6, unitPriceCents: 4800 },
@@ -729,7 +715,7 @@ export const PRODUCTS: Product[] = [
         garmentStyleCode: "SL365",
         name: "SL365",
         detail: "SanMar SL365",
-        setupFeeCents: 6500,
+        setupFeeCents: 0,
         minQuantity: 6,
         breaks: [
           { quantity: 6, unitPriceCents: 4800 },
@@ -745,7 +731,7 @@ export const PRODUCTS: Product[] = [
         label: "How it is decorated",
         choices: [
           { value: "EMBROIDERY", label: "Embroidered" },
-          { value: "PRINT", label: "Screen printed" },
+          { value: "PRINT", label: "Printed (direct-to-film)" },
         ],
       },
       {
@@ -808,7 +794,6 @@ export const PRODUCTS: Product[] = [
           { value: "INSIDE_GLASS", label: "Inside the glass, reverse printed" },
         ],
       },
-      artworkPrepOption(),
     ],
   },
 ];

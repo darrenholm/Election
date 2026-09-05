@@ -323,7 +323,8 @@ export async function addToCart(formData: FormData) {
         // Per garment on average: the sizes are priced individually and the
         // line total is what they add up to, so this is for display only.
         unitPriceCents: Math.round(garmentPriced.goodsCents / garmentPriced.quantity),
-        setupFeeCents: garmentPriced.setupCents,
+        // Screen setup is on the order, not the line — see orderTotals.
+        setupFeeCents: 0,
         lineTotalCents: garmentPriced.totalCents,
         artworkNote: str(formData, "artworkNote"),
       },
@@ -418,6 +419,27 @@ export async function setDesignService(formData: FormData) {
   await db.shopOrder.update({
     where: { id: orderId },
     data: { needsDesign: bool(formData, "needsDesign") },
+  });
+  await recalcOrder(orderId);
+  revalidatePath("/election/cart");
+  revalidatePath("/election/checkout");
+}
+
+/**
+ * Say whether the shop already has the artwork for this order.
+ *
+ * Set by the Reorder button, and cleared here by a candidate whose design has
+ * changed since last time. Clearing it is the honest direction to leave open:
+ * somebody telling us there is new work to do is telling us to charge them for
+ * it, and the shop would rather hear that in the cart than at the proof.
+ */
+export async function setArtworkOnFile(formData: FormData) {
+  const customer = await requireCustomer();
+  const orderId = await draftOrderId(customer.id);
+
+  await db.shopOrder.update({
+    where: { id: orderId },
+    data: { artworkOnFile: bool(formData, "artworkOnFile") },
   });
   await recalcOrder(orderId);
   revalidatePath("/election/cart");
@@ -600,6 +622,13 @@ export async function reorder(formData: FormData) {
       },
     });
   }
+
+  // Nothing to draw and nothing to put on film: this is a repeat of work the
+  // shop has already done and already been paid for.
+  await db.shopOrder.update({
+    where: { id: cartId },
+    data: { artworkOnFile: true, needsDesign: false },
+  });
 
   await recalcOrder(cartId);
   revalidatePath("/election", "layout");

@@ -131,8 +131,14 @@ export default async function CheckoutPage() {
               </div>
               {order.designFeeCents > 0 ? (
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted">Design</dt>
+                  <dt className="text-muted">Artwork</dt>
                   <dd className="tabular-nums">{formatCents(order.designFeeCents)}</dd>
+                </div>
+              ) : null}
+              {order.garmentSetupCents > 0 ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted">Apparel setup</dt>
+                  <dd className="tabular-nums">{formatCents(order.garmentSetupCents)}</dd>
                 </div>
               ) : null}
               {order.deliveryCents > 0 ? (

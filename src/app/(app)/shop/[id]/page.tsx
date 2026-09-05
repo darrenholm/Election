@@ -94,7 +94,8 @@ export default async function ShopOrderPage({ params }: { params: Promise<{ id: 
           {label(SHOP_PAYMENT_STATUSES, order.paymentStatus)}
         </Badge>
         <Badge>{label(SHOP_FULFILMENTS, order.fulfilment)}</Badge>
-        {order.needsDesign ? <Badge tone="warn">Design service</Badge> : null}
+        {order.needsDesign ? <Badge tone="warn">Artwork to do</Badge> : null}
+        {order.artworkOnFile ? <Badge>Artwork on file</Badge> : null}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
@@ -251,8 +252,14 @@ export default async function ShopOrderPage({ params }: { params: Promise<{ id: 
               </div>
               {order.designFeeCents > 0 ? (
                 <div className="flex justify-between gap-3">
-                  <dt className="text-muted">Design</dt>
+                  <dt className="text-muted">Artwork</dt>
                   <dd className="tabular-nums">{formatCents(order.designFeeCents)}</dd>
+                </div>
+              ) : null}
+              {order.garmentSetupCents > 0 ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted">Apparel setup</dt>
+                  <dd className="tabular-nums">{formatCents(order.garmentSetupCents)}</dd>
                 </div>
               ) : null}
               {order.deliveryCents > 0 ? (

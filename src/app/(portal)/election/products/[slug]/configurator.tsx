@@ -510,7 +510,7 @@ export function Configurator({
           ) : garment ? (
             <span className="text-sm text-muted">
               {garmentPrice
-                ? `${garmentPrice.quantity} garments + ${formatCents(garmentPrice.setupCents)} screen setup`
+                ? `${garmentPrice.quantity} garments`
                 : "Enter how many of each size"}
             </span>
           ) : (
