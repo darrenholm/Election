@@ -217,12 +217,18 @@ The rest:
 
 - **Nothing outside `src/lib/shop/sinalite.ts` knows SinaLite exists**, except
   `vendor-map.ts`, which says which of our products are theirs.
+- Both bought-in products are the **14pt UV high gloss** line — one stock for
+  cards and one for hangers — which is why neither offers a coating choice in
+  our catalogue: a finish the shop does not buy would take an order it cannot
+  place. It is also why there is no write-on panel on the hangers; a UV gloss
+  sheet cannot be written on.
 - The mapping table **has no ids in it yet** — they cannot be guessed. With
-  credentials set, `npm run sinalite:catalog -- --find "post"` finds the
-  product and `-- --product <id>` prints its option groups, including a
-  ready-made `quantityOptions` line to paste. Until an entry is mapped, the
-  queue shows the line as unmapped and refuses to send it, which is the safe
-  failure.
+  credentials set, `npm run sinalite:catalog -- --suggest` matches every
+  unmapped entry against their live product list and prints the candidates with
+  the product URL beside them; `-- --product <id>` then prints its option
+  groups, including a ready-made `quantityOptions` line to paste. Until an entry
+  is mapped, the queue shows the line as unmapped and refuses to send it, which
+  is the safe failure.
 - **Without credentials the whole pipeline is a dry run**, like the Twilio and
   Facebook ones: quotes come back marked, sending records what would have gone,
   and the order page says so.

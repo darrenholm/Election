@@ -36,6 +36,13 @@ export type VendorLineMapping = {
   /** Their numeric product id, as a string. Empty means not mapped yet. */
   productId: string;
   /**
+   * Which of their products this is, in words, so that filling in the id is a
+   * matter of confirming a match rather than a hunt. `npm run
+   * sinalite:catalog -- --suggest` matches these against their live product
+   * list and prints the candidates.
+   */
+  productHint: { nameContains: string[]; url: string };
+  /**
    * Option ids that are the same on every order of this variant — stock,
    * size, coating, turnaround. Keyed by THEIR group name.
    */
@@ -52,26 +59,70 @@ export type VendorLineMapping = {
   optionValues: Record<string, Record<string, { group: string; id: string }>>;
 };
 
+const POSTCARD_URL = "https://sinalite.com/en_ca/print-products/postcards/14pt-uv-high-gloss.html";
+const DOOR_HANGER_URL =
+  "https://sinalite.com/en_ca/print-products/door-hangers/14pt-uv-high-gloss.html";
+
+/**
+ * One stock, both products: 14pt with UV high gloss.
+ *
+ * That is what the shop buys, so it is what the portal sells — the catalogue
+ * offers no coating choice on these two, because there is only one to offer.
+ * The cut is the remaining choice, and it maps to their `size` option.
+ */
 const SINALITE: Record<string, Record<string, VendorLineMapping>> = {
   "post-cards": {
-    "4x6": { productId: "", fixedOptions: {}, quantityOptions: {}, optionValues: { finish: {} } },
-    "5x7": { productId: "", fixedOptions: {}, quantityOptions: {}, optionValues: { finish: {} } },
+    "4x6": {
+      productId: "",
+      productHint: { nameContains: ["postcard", "14pt", "uv"], url: POSTCARD_URL },
+      fixedOptions: {},
+      quantityOptions: {},
+      optionValues: {},
+    },
+    "5x7": {
+      productId: "",
+      productHint: { nameContains: ["postcard", "14pt", "uv"], url: POSTCARD_URL },
+      fixedOptions: {},
+      quantityOptions: {},
+      optionValues: {},
+    },
   },
   "door-hangers": {
     "4.25x11": {
       productId: "",
+      productHint: { nameContains: ["door hanger", "14pt", "uv"], url: DOOR_HANGER_URL },
       fixedOptions: {},
       quantityOptions: {},
-      optionValues: { writeArea: {} },
+      optionValues: {},
     },
     "3.5x8.5": {
       productId: "",
+      productHint: { nameContains: ["door hanger", "14pt", "uv"], url: DOOR_HANGER_URL },
       fixedOptions: {},
       quantityOptions: {},
-      optionValues: { writeArea: {} },
+      optionValues: {},
     },
   },
 };
+
+/**
+ * Every entry that still needs ids, for the catalogue script to work through.
+ * The two cuts of one product share a hint and differ only in their `size`
+ * option, so the same product id goes in both.
+ */
+export function unmappedEntries(): {
+  productSlug: string;
+  variantKey: string;
+  mapping: VendorLineMapping;
+}[] {
+  const rows: { productSlug: string; variantKey: string; mapping: VendorLineMapping }[] = [];
+  for (const [productSlug, variants] of Object.entries(SINALITE)) {
+    for (const [variantKey, mapping] of Object.entries(variants)) {
+      if (!mapping.productId) rows.push({ productSlug, variantKey, mapping });
+    }
+  }
+  return rows;
+}
 
 /** True for products bought in rather than printed in the shop. */
 export function isVendorProduct(productSlug: string): boolean {

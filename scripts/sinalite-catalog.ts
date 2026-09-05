@@ -5,10 +5,14 @@
  * those cannot be guessed — they come from their own catalogue. This prints
  * them in the shape that table wants.
  *
+ *   npm run sinalite:catalog -- --suggest        candidates for what is unmapped
  *   npm run sinalite:catalog                     every product
- *   npm run sinalite:catalog -- --find "post"    products whose name matches
+ *   npm run sinalite:catalog -- --find "post"    products whose name or sku matches
  *   npm run sinalite:catalog -- --product 42     one product's option groups
  *   npm run sinalite:catalog -- --variants 42    its priced combinations
+ *
+ * Start with --suggest: it takes every entry in the vendor map that still has
+ * no product id and prints the products whose names look like it.
  *
  * Read-only: it lists and reads, and never orders anything. Needs
  * SINALITE_CLIENT_ID and SINALITE_CLIENT_SECRET set, and talks to the sandbox
@@ -21,6 +25,7 @@ import {
   fetchVariants,
   sinaliteConfig,
 } from "../src/lib/shop/sinalite";
+import { unmappedEntries } from "../src/lib/shop/vendor-map";
 
 function arg(name: string): string | null {
   const index = process.argv.indexOf(`--${name}`);
@@ -41,6 +46,50 @@ async function main() {
   }
 
   console.log(`${config.host}, store ${config.store}\n`);
+
+  if (process.argv.includes("--suggest")) {
+    const products = await fetchProducts();
+    const unmapped = unmappedEntries();
+
+    if (unmapped.length === 0) {
+      console.log("Everything in src/lib/shop/vendor-map.ts already has a product id.");
+      return;
+    }
+
+    // One product usually serves several of our cuts, so the same hint appears
+    // more than once; the candidates are printed per hint rather than per cut.
+    const seen = new Set<string>();
+    for (const entry of unmapped) {
+      const hint = entry.mapping.productHint;
+      const fingerprint = hint.nameContains.join("|");
+      const cuts = unmapped
+        .filter((other) => other.mapping.productHint.nameContains.join("|") === fingerprint)
+        .map((other) => `${other.productSlug}/${other.variantKey}`);
+
+      if (seen.has(fingerprint)) continue;
+      seen.add(fingerprint);
+
+      console.log(`${cuts.join(", ")}`);
+      console.log(`    wanted: ${hint.url}`);
+
+      const candidates = products.filter((product) => {
+        const haystack = `${product.name} ${product.sku}`.toLowerCase();
+        return hint.nameContains.every((word) => haystack.includes(word.toLowerCase()));
+      });
+
+      if (candidates.length === 0) {
+        console.log("    no product matched every word — try --find with one word\n");
+        continue;
+      }
+      for (const candidate of candidates) {
+        console.log(`    ${candidate.id.padEnd(6)} ${candidate.name}  [${candidate.sku}]`);
+      }
+      console.log("");
+    }
+
+    console.log("Confirm the id against the URL, then: --product <id> for its option ids.");
+    return;
+  }
 
   const variantsOf = arg("variants");
   if (variantsOf) {
@@ -98,7 +147,9 @@ async function main() {
 
   const find = (arg("find") ?? "").toLowerCase();
   const products = await fetchProducts();
-  const shown = find ? products.filter((p) => p.name.toLowerCase().includes(find)) : products;
+  const shown = find
+    ? products.filter((p) => `${p.name} ${p.sku}`.toLowerCase().includes(find))
+    : products;
 
   for (const product of shown) {
     console.log(

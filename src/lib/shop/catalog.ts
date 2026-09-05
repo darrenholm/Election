@@ -279,21 +279,24 @@ export const PRODUCTS: Product[] = [
     name: "Post cards",
     tagline: "Mailers and hand-outs, printed both sides",
     description:
-      "Heavy card, printed both sides in full colour, trimmed square. The 4×6 " +
-      "is the workhorse — it fits a letterbox, a canvasser's hand and Canada " +
-      "Post's Neighbourhood Mail dimensions. The 5×7 is what candidates order " +
-      "when the piece has to carry a platform rather than a name.",
+      "14pt card with a UV high gloss coating both sides, printed full colour " +
+      "and trimmed square. The 4×6 is the workhorse — it fits a letterbox, a " +
+      "canvasser's hand and Canada Post's Neighbourhood Mail dimensions. The " +
+      "5×7 is what candidates order when the piece has to carry a platform " +
+      "rather than a name. One stock, because a gloss card is what stands up " +
+      "to a wet mailbox in October.",
     icon: "▭",
     leadTimeDays: 4,
     quantitiesFixed: true,
     artworkHint:
-      "PDF, both sides, 0.125\" bleed. If you are mailing these through Canada " +
-      "Post, leave the bottom third of the address side clear.",
+      "PDF, both sides, 0.125\" bleed. The UV coating is glossy and sealed, so " +
+      "nothing can be written on these afterwards — if a canvasser needs to add " +
+      "a name at the door, order door hangers instead.",
     variants: [
       {
         key: "4x6",
         name: "4\" × 6\" post card",
-        detail: "14pt coated card, full colour both sides",
+        detail: "14pt card, UV high gloss both sides, full colour",
         setupFeeCents: 2000,
         minQuantity: 250,
         breaks: [
@@ -307,7 +310,7 @@ export const PRODUCTS: Product[] = [
       {
         key: "5x7",
         name: "5\" × 7\" post card",
-        detail: "14pt coated card, full colour both sides",
+        detail: "14pt card, UV high gloss both sides, full colour",
         setupFeeCents: 2000,
         minQuantity: 250,
         breaks: [
@@ -318,41 +321,32 @@ export const PRODUCTS: Product[] = [
         ],
       },
     ],
-    options: [
-      {
-        key: "finish",
-        label: "Finish",
-        choices: [
-          { value: "GLOSS", label: "Gloss" },
-          { value: "MATTE", label: "Matte (+$0.03 each)", unitSurchargeCents: 3 },
-          {
-            value: "UNCOATED",
-            label: "Uncoated — writable (+$0.04 each)",
-            unitSurchargeCents: 4,
-          },
-        ],
-      },
-    ],
+    // No coating choice: the shop buys one stock for these, and offering a
+    // finish it does not buy would take an order it cannot place.
+    options: [],
   },
   {
     slug: "door-hangers",
     name: "Door hangers",
     tagline: "What gets left when nobody answers",
     description:
-      "Die-cut hangers with a punched hole and slot, printed both sides. Order " +
-      "more of these than you think: a canvass reaches an answered door about " +
-      "one time in three, and the hanger is what does the work at the other two.",
+      "14pt card with a UV high gloss coating both sides, die-cut with a " +
+      "hanging hole, printed full colour. Order more of these than you think: " +
+      "a canvass reaches an answered door about one time in three, and the " +
+      "hanger is what does the work at the other two.",
     icon: "⌸",
     leadTimeDays: 5,
     quantitiesFixed: true,
     artworkHint:
       "PDF, both sides, 0.125\" bleed. Keep the top 1.5\" clear of anything that " +
-      "matters — that is where the die cuts the hole.",
+      "matters — that is where the die cuts the hole. The gloss coating cannot " +
+      "be written on, so print the blanks you need rather than leaving space " +
+      "for a pen.",
     variants: [
       {
         key: "4.25x11",
         name: "4.25\" × 11\" door hanger",
-        detail: "14pt coated card, die-cut hole and slot, full colour both sides",
+        detail: "14pt card, UV high gloss both sides, die-cut hanging hole",
         setupFeeCents: 3500,
         minQuantity: 250,
         breaks: [
@@ -365,7 +359,7 @@ export const PRODUCTS: Product[] = [
       {
         key: "3.5x8.5",
         name: "3.5\" × 8.5\" door hanger",
-        detail: "14pt coated card, die-cut hole and slot, full colour both sides",
+        detail: "14pt card, UV high gloss both sides, die-cut hanging hole",
         setupFeeCents: 3500,
         minQuantity: 250,
         breaks: [
@@ -376,17 +370,9 @@ export const PRODUCTS: Product[] = [
         ],
       },
     ],
-    options: [
-      {
-        key: "writeArea",
-        label: "Write-on area",
-        hint: "An uncoated panel a canvasser can write a name or a time on at the door.",
-        choices: [
-          { value: "NONE", label: "None" },
-          { value: "PANEL", label: "Add an uncoated panel (+$0.05 each)", unitSurchargeCents: 5 },
-        ],
-      },
-    ],
+    // The write-on panel is gone with the stock: a UV gloss sheet cannot be
+    // written on, and there is no uncoated option on the product the shop buys.
+    options: [],
   },
   {
     slug: "t-shirts",
