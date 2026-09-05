@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CampaignSwitcher, type SwitcherCampaign } from "./campaign-switcher";
 
-type Item = { href: string; label: string; icon: string };
+type Item = { href: string; label: string; icon: string; external?: boolean };
 
 const ITEMS: Item[] = [
   { href: "/", label: "Dashboard", icon: "◉" },
@@ -35,6 +35,25 @@ const ITEMS: Item[] = [
  */
 const ADMIN_ONLY = new Set(["/team", "/shop"]);
 
+/**
+ * The way across to the storefront, sat next to Lawn signs because that is
+ * where somebody is standing when they realise they need more of something.
+ *
+ * Its href is handed in rather than living in ITEMS, because with a campaign in
+ * scope it carries a signed handoff token naming that campaign — so it is
+ * minted per render on the server, and differs for every candidate.
+ */
+function itemsWithOrdering(orderHref: string): Item[] {
+  const after = ITEMS.findIndex((item) => item.href === "/signs") + 1;
+  const promo: Item = {
+    href: orderHref,
+    label: "Order promo items",
+    icon: "◇",
+    external: true,
+  };
+  return [...ITEMS.slice(0, after), promo, ...ITEMS.slice(after)];
+}
+
 function isActive(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -45,6 +64,7 @@ export function SideNav({
   campaigns,
   user,
   counts = {},
+  orderHref,
 }: {
   active: SwitcherCampaign | null;
   campaigns: SwitcherCampaign[];
@@ -52,8 +72,13 @@ export function SideNav({
   /** Anything waiting, by href. A print order nobody has looked at is the one
    *  thing in this app that costs money to miss. */
   counts?: Record<string, number>;
+  /** Where "Order promo items" points. Built on the server; see nav item above. */
+  orderHref: string;
 }) {
   const pathname = usePathname();
+  const items = itemsWithOrdering(orderHref).filter(
+    (item) => !ADMIN_ONLY.has(item.href) || user?.isAdmin,
+  );
 
   return (
     <>
@@ -62,18 +87,19 @@ export function SideNav({
         <div className="sticky top-0 flex h-dvh flex-col">
           <CampaignSwitcher active={active} campaigns={campaigns} />
           <ul className="flex-1 space-y-0.5 overflow-y-auto p-2">
-            {ITEMS.filter((item) => !ADMIN_ONLY.has(item.href) || user?.isAdmin).map((item) => (
-              <li key={item.href}>
-                <Link
-                  href={item.href}
-                  className={`relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
-                    isActive(pathname, item.href)
-                      // A red marker on the live page: the one place in the nav
-                      // the eye should land without hunting.
-                      ? "bg-brand-soft font-semibold text-brand-ink before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r before:bg-accent before:content-['']"
-                      : "text-muted hover:bg-raise hover:text-ink"
-                  }`}
-                >
+            {items.map((item) => {
+              // An external item leaves the app, so it never highlights as the
+              // current page, and it cannot be a <Link>: next/link is for
+              // routes this app owns, and the shop may be on another domain.
+              const className = `relative flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                !item.external && isActive(pathname, item.href)
+                  // A red marker on the live page: the one place in the nav
+                  // the eye should land without hunting.
+                  ? "bg-brand-soft font-semibold text-brand-ink before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-[3px] before:rounded-r before:bg-accent before:content-['']"
+                  : "text-muted hover:bg-raise hover:text-ink"
+              }`;
+              const content = (
+                <>
                   <span aria-hidden className="w-4 text-center text-base leading-none">
                     {item.icon}
                   </span>
@@ -83,9 +109,23 @@ export function SideNav({
                       {counts[item.href]}
                     </span>
                   ) : null}
-                </Link>
-              </li>
-            ))}
+                </>
+              );
+
+              return (
+                <li key={item.href}>
+                  {item.external ? (
+                    <a href={item.href} className={className}>
+                      {content}
+                    </a>
+                  ) : (
+                    <Link href={item.href} className={className}>
+                      {content}
+                    </Link>
+                  )}
+                </li>
+              );
+            })}
           </ul>
           {user ? (
             <div className="border-t border-line px-4 py-3">
@@ -109,24 +149,33 @@ export function SideNav({
       <nav className="no-print sticky top-0 z-20 border-b border-line bg-surface md:hidden">
         <CampaignSwitcher active={active} campaigns={campaigns} />
         <div className="flex items-center gap-2 overflow-x-auto px-3 py-2">
-          {ITEMS.filter((item) => !ADMIN_ONLY.has(item.href) || user?.isAdmin).map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium ${
-                isActive(pathname, item.href)
-                  ? "bg-brand text-white"
-                  : "bg-raise text-muted"
-              }`}
-            >
-              {item.label}
-              {counts[item.href] ? (
-                <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[0.7rem] font-bold tabular-nums text-white">
-                  {counts[item.href]}
-                </span>
-              ) : null}
-            </Link>
-          ))}
+          {items.map((item) => {
+            const className = `whitespace-nowrap rounded-full px-3 py-1.5 text-sm font-medium ${
+              !item.external && isActive(pathname, item.href)
+                ? "bg-brand text-white"
+                : "bg-raise text-muted"
+            }`;
+            const content = (
+              <>
+                {item.label}
+                {counts[item.href] ? (
+                  <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[0.7rem] font-bold tabular-nums text-white">
+                    {counts[item.href]}
+                  </span>
+                ) : null}
+              </>
+            );
+
+            return item.external ? (
+              <a key={item.href} href={item.href} className={className}>
+                {content}
+              </a>
+            ) : (
+              <Link key={item.href} href={item.href} className={className}>
+                {content}
+              </Link>
+            );
+          })}
         </div>
       </nav>
     </>

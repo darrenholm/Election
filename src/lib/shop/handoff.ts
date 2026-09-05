@@ -107,8 +107,20 @@ export async function pendingPrefill(): Promise<Prefill | null> {
  * the walk from the catalogue to the form. PORTAL_URL when the shop is on its
  * own domain; otherwise the app's own, since both halves are one deployment.
  */
+function portalBase(): string {
+  return (process.env.PORTAL_URL || process.env.APP_URL || "").replace(/\/$/, "");
+}
+
 export function portalOrderUrl(campaignId: string, next = "/election/products/signs"): string {
-  const base = (process.env.PORTAL_URL || process.env.APP_URL || "").replace(/\/$/, "");
   const query = `token=${encodeURIComponent(createCampaignHandoff(campaignId))}&next=${encodeURIComponent(next)}`;
-  return `${base}/api/shop/handoff?${query}`;
+  return `${portalBase()}/api/shop/handoff?${query}`;
+}
+
+/**
+ * The storefront's front page, for a link with no campaign in scope — an
+ * administrator who has not picked one, say. No handoff token, because with no
+ * campaign there is nothing to fill in.
+ */
+export function portalHomeUrl(): string {
+  return `${portalBase()}/election`;
 }

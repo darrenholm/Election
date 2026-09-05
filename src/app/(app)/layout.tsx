@@ -4,6 +4,7 @@ import { OutboxStatus } from "@/components/outbox-status";
 import { getActiveCampaign } from "@/lib/campaign";
 import { OFFICES, label } from "@/lib/enums";
 import { getAccessibleCampaigns, getCurrentUser } from "@/lib/auth";
+import { portalHomeUrl, portalOrderUrl } from "@/lib/shop/handoff";
 import { db } from "@/lib/db";
 
 export const metadata: Metadata = {
@@ -31,6 +32,11 @@ export default async function CampaignLayout({
     ? await db.shopOrder.count({ where: { status: "SUBMITTED" } })
     : 0;
 
+  // With a campaign selected the link carries a signed handoff so the shop
+  // fills the candidate's details in; without one there is nothing to hand
+  // over, so it goes to the storefront's front page.
+  const orderHref = active ? portalOrderUrl(active.id, "/election") : portalHomeUrl();
+
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
       <SideNav
@@ -52,6 +58,7 @@ export default async function CampaignLayout({
         }))}
         user={user}
         counts={{ "/shop": waitingOrders }}
+        orderHref={orderHref}
       />
       <div className="min-w-0 flex-1">
         <OutboxStatus />
