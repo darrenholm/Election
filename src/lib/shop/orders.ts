@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
-import { productBySlug, variantByKey } from "./catalog";
+import { TRADE_SHIPPING_FLAT_CENTS, productBySlug, variantByKey } from "./catalog";
+import { isVendorProduct } from "./vendor-map";
 import { orderTotals, priceLine, snapQuantity, type ChosenOptions } from "./pricing";
 
 /**
@@ -49,18 +50,27 @@ export async function recalcOrder(orderId: string): Promise<void> {
   const order = await db.shopOrder.findUnique({
     where: { id: orderId },
     select: {
+      status: true,
       needsDesign: true,
       deliveryCents: true,
       adjustmentCents: true,
-      items: { select: { lineTotalCents: true } },
+      items: { select: { lineTotalCents: true, productSlug: true } },
     },
   });
   if (!order) return;
 
+  // Anything bought in has to be got here, and until SinaLite's own freight
+  // quote is wired that is a flat figure. Only while the order is a cart: once
+  // it is submitted the shop owns the delivery line and may have replaced this
+  // with what the courier actually charged.
+  const boughtIn = order.items.some((item) => isVendorProduct(item.productSlug));
+  const deliveryCents =
+    order.status === "DRAFT" && boughtIn ? TRADE_SHIPPING_FLAT_CENTS : order.deliveryCents;
+
   const totals = orderTotals({
     lineTotals: order.items.map((i) => i.lineTotalCents),
     needsDesign: order.needsDesign,
-    deliveryCents: order.deliveryCents,
+    deliveryCents,
     adjustmentCents: order.adjustmentCents,
   });
 
@@ -69,6 +79,7 @@ export async function recalcOrder(orderId: string): Promise<void> {
     data: {
       subtotalCents: totals.subtotalCents,
       designFeeCents: totals.designFeeCents,
+      deliveryCents,
       taxCents: totals.taxCents,
       totalCents: totals.totalCents,
     },

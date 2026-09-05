@@ -183,6 +183,44 @@ export type Product = {
   pickupOnly?: boolean;
 };
 
+/**
+ * File preparation, charged per item unless the candidate supplies print-ready
+ * artwork.
+ *
+ * Most do not: a logo pulled off a website, a Word file, a photograph of last
+ * election's sign. Getting any of that to press is real time, and it is time the
+ * trade price does not cover. Somebody who sends a correct PDF pays nothing for
+ * it, which is the whole point of charging for it — the fee is for the work,
+ * not for the privilege of ordering.
+ *
+ * Defaulted to charging it, because most orders need it and a candidate who has
+ * print-ready files knows they have them.
+ */
+export const ARTWORK_PREP_CENTS = 4500;
+
+export function artworkPrepOption(): OptionGroup {
+  return {
+    key: "artwork",
+    label: "Your artwork",
+    hint: "No charge if what you send is print-ready — the right size, with bleed, in PDF.",
+    choices: [
+      {
+        value: "PREP",
+        label: "Set my files up for me (+$45)",
+        flatSurchargeCents: ARTWORK_PREP_CENTS,
+      },
+      { value: "PRINT_READY", label: "I have print-ready PDFs" },
+    ],
+  };
+}
+
+/**
+ * Getting a trade-printed job here, until SinaLite's own freight quote is
+ * wired. A flat figure per order rather than per line: it arrives as one box.
+ * Signs are cut here and collected, and pay nothing.
+ */
+export const TRADE_SHIPPING_FLAT_CENTS = 2500;
+
 /** Design service, charged once per order when the shop is doing the artwork. */
 export const DESIGN_FEE_CENTS = 9500;
 
@@ -324,6 +362,7 @@ export const PRODUCTS: Product[] = [
           { value: "WITHOUT", label: "No stands — I have them" },
         ],
       },
+      artworkPrepOption(),
     ],
   },
   {
@@ -331,21 +370,22 @@ export const PRODUCTS: Product[] = [
     name: "Post cards",
     tagline: "Mailers and hand-outs, printed both sides",
     description:
-      "14pt card with a UV high gloss coating both sides, printed full colour " +
+      "14pt card, printed full colour on one side with a UV high gloss coating, " +
       "and trimmed square. The 4.25 × 5.5 is the hand-out — it fits a letterbox, " +
       "a canvasser's hand and Canada Post's Neighbourhood Mail dimensions. The " +
       "8.5 × 5.5 is the half-page a candidate orders when the piece has to carry " +
       "a platform rather than a name. One stock, because a gloss card is what " +
       "stands up to a wet mailbox in October.",
     icon: "▭",
-    leadTimeDays: 4,
+    // 2-4 business days at the press, plus getting it here.
+    leadTimeDays: 6,
     comingSoon: true,
     pricingProvisional: true,
     quantitiesFixed: true,
     artworkHint:
-      "PDF, both sides, 0.125\" bleed. The UV coating is glossy and sealed, so " +
-      "nothing can be written on these afterwards — if a canvasser needs to add " +
-      "a name at the door, order door hangers instead.",
+      "PDF at 0.125\" bleed. Priced as printed one side; ask if you want the " +
+      "back printed too. The UV coating is glossy and sealed, so nothing can be " +
+      "written on these afterwards.",
     // Runs and prices are SinaLite's own, taken off the trade site on
     // 5 September 2026. lineTotalCents is trade cost DOUBLED; the per-piece
     // figure beside it is that line divided up, for display only, because at
@@ -357,11 +397,11 @@ export const PRODUCTS: Product[] = [
       {
         key: "4.25x5.5",
         name: '4.25" × 5.5" hand-out',
-        detail: "14pt card, UV high gloss both sides, full colour",
-        setupFeeCents: 2000,
+        detail: "14pt card, full colour one side, UV high gloss",
+        setupFeeCents: 0,
         minQuantity: 500,
         breaks: [
-          { quantity: 500, unitPriceCents: 18, lineTotalCents: 8780 },
+          { quantity: 500, unitPriceCents: 18, lineTotalCents: 8790 },
           { quantity: 1000, unitPriceCents: 10, lineTotalCents: 9760 },
           { quantity: 2500, unitPriceCents: 8, lineTotalCents: 19550 },
           { quantity: 5000, unitPriceCents: 7, lineTotalCents: 33600 },
@@ -370,8 +410,8 @@ export const PRODUCTS: Product[] = [
       {
         key: "8.5x5.5",
         name: '8.5" × 5.5" half page',
-        detail: "14pt card, UV high gloss both sides, full colour",
-        setupFeeCents: 2000,
+        detail: "14pt card, full colour one side, UV high gloss",
+        setupFeeCents: 0,
         minQuantity: 500,
         breaks: [
           { quantity: 500, unitPriceCents: 29, lineTotalCents: 14500 },
@@ -383,58 +423,42 @@ export const PRODUCTS: Product[] = [
     ],
     // No coating choice: the shop buys one stock for these, and offering a
     // finish it does not buy would take an order it cannot place.
-    options: [],
+    options: [artworkPrepOption()],
   },
   {
     slug: "door-hangers",
     name: "Door hangers",
     tagline: "What gets left when nobody answers",
     description:
-      "14pt card with a UV high gloss coating both sides, die-cut with a " +
-      "hanging hole, printed full colour. Order more of these than you think: " +
-      "a canvass reaches an answered door about one time in three, and the " +
-      "hanger is what does the work at the other two.",
+      "14pt card, die-cut with a hanging hole, printed full colour. Order more " +
+      "of these than you think: a canvass reaches an answered door about one " +
+      "time in three, and the hanger is what does the work at the other two.",
     icon: "⌸",
-    leadTimeDays: 5,
+    leadTimeDays: 6,
     comingSoon: true,
     pricingProvisional: true,
     quantitiesFixed: true,
     artworkHint:
-      "PDF, both sides, 0.125\" bleed. Keep the top 1.5\" clear of anything that " +
-      "matters — that is where the die cuts the hole. The gloss coating cannot " +
-      "be written on, so print the blanks you need rather than leaving space " +
-      "for a pen.",
+      "PDF at 0.125\" bleed. Keep the top 1.5\" clear of anything that matters — " +
+      "that is where the die cuts the hole.",
+    // SinaLite's runs and prices, 5 September 2026. lineTotalCents is their
+    // cost doubled; the per-piece figure is that line divided up, for display.
     variants: [
       {
-        key: "4.25x11",
-        name: "4.25\" × 11\" door hanger",
-        detail: "14pt card, UV high gloss both sides, die-cut hanging hole",
-        setupFeeCents: 3500,
+        key: "8.5x3.5",
+        name: '8.5" × 3.5" door hanger',
+        detail: "14pt card, full colour, die-cut hanging hole",
+        setupFeeCents: 0,
         minQuantity: 250,
         breaks: [
-          { quantity: 250, unitPriceCents: 62 },
-          { quantity: 500, unitPriceCents: 46 },
-          { quantity: 1000, unitPriceCents: 36 },
-          { quantity: 2500, unitPriceCents: 29 },
-        ],
-      },
-      {
-        key: "3.5x8.5",
-        name: "3.5\" × 8.5\" door hanger",
-        detail: "14pt card, UV high gloss both sides, die-cut hanging hole",
-        setupFeeCents: 3500,
-        minQuantity: 250,
-        breaks: [
-          { quantity: 250, unitPriceCents: 52 },
-          { quantity: 500, unitPriceCents: 38 },
-          { quantity: 1000, unitPriceCents: 30 },
-          { quantity: 2500, unitPriceCents: 24 },
+          { quantity: 250, unitPriceCents: 56, lineTotalCents: 14044 },
+          { quantity: 500, unitPriceCents: 41, lineTotalCents: 20394 },
+          { quantity: 1000, unitPriceCents: 23, lineTotalCents: 22608 },
+          { quantity: 2500, unitPriceCents: 16, lineTotalCents: 39510 },
         ],
       },
     ],
-    // The write-on panel is gone with the stock: a UV gloss sheet cannot be
-    // written on, and there is no uncoated option on the product the shop buys.
-    options: [],
+    options: [artworkPrepOption()],
   },
   {
     slug: "t-shirts",
@@ -719,6 +743,7 @@ export const PRODUCTS: Product[] = [
           { value: "CONTOUR", label: "Contour cut to the artwork (+$0.60 each)", unitSurchargeCents: 60 },
         ],
       },
+      artworkPrepOption(),
     ],
   },
 ];

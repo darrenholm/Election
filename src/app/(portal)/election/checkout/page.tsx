@@ -135,6 +135,12 @@ export default async function CheckoutPage() {
                   <dd className="tabular-nums">{formatCents(order.designFeeCents)}</dd>
                 </div>
               ) : null}
+              {order.deliveryCents > 0 ? (
+                <div className="flex justify-between gap-3">
+                  <dt className="text-muted">Shipping</dt>
+                  <dd className="tabular-nums">{formatCents(order.deliveryCents)}</dd>
+                </div>
+              ) : null}
               <div className="flex justify-between gap-3">
                 <dt className="text-muted">{TAX_LABEL}</dt>
                 <dd className="tabular-nums">{formatCents(order.taxCents)}</dd>

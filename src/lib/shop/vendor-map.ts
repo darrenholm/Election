@@ -88,14 +88,7 @@ const SINALITE: Record<string, Record<string, VendorLineMapping>> = {
     },
   },
   "door-hangers": {
-    "4.25x11": {
-      productId: "",
-      productHint: { nameContains: ["door hanger", "14pt", "uv"], url: DOOR_HANGER_URL },
-      fixedOptions: {},
-      quantityOptions: {},
-      optionValues: {},
-    },
-    "3.5x8.5": {
+    "8.5x3.5": {
       productId: "",
       productHint: { nameContains: ["door hanger", "14pt", "uv"], url: DOOR_HANGER_URL },
       fixedOptions: {},

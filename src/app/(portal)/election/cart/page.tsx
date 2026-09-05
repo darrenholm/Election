@@ -167,6 +167,12 @@ export default async function CartPage() {
                   <dd className="tabular-nums">{formatCents(order.designFeeCents)}</dd>
                 </div>
               ) : null}
+              {order.deliveryCents > 0 ? (
+                <div className="flex justify-between gap-4">
+                  <dt className="text-muted">Shipping</dt>
+                  <dd className="tabular-nums">{formatCents(order.deliveryCents)}</dd>
+                </div>
+              ) : null}
               <div className="flex justify-between gap-4">
                 <dt className="text-muted">{TAX_LABEL}</dt>
                 <dd className="tabular-nums">{formatCents(order.taxCents)}</dd>
@@ -177,8 +183,9 @@ export default async function CartPage() {
               </div>
             </dl>
             <p className="mt-2 text-xs text-muted">
-              Delivery is not in this figure. If you want the order delivered, we price that when we
-              quote it — pickup costs nothing.
+              {order.deliveryCents > 0
+                ? "Shipping covers getting the printed work here; you collect it from the shop. Signs are cut here and carry none."
+                : "Signs are collected from the shop, so there is nothing to ship."}
             </p>
           </div>
 
