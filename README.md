@@ -243,6 +243,33 @@ The rest:
   `front` and `back`. The print files live in Postgres behind a session check,
   which a printer's fetcher cannot satisfy.
 
+#### Adding another SinaLite product
+
+Two files, in this order, and a check that they agree.
+
+1. **Find their product.** `npm run sinalite:catalog -- --find "brochure"`
+   searches names and skus. Note the id.
+2. **Read its options.** `npm run sinalite:catalog -- --product <id>` prints
+   every option group with its ids, and a ready-made `quantityOptions` line.
+   Every group needs a value in the map — Turnaround and Stock included, since
+   there is no default at their end.
+3. **Add it to the catalogue** in `src/lib/shop/catalog.ts`: a product with one
+   variant per cut you intend to sell, `quantitiesFixed: true`, and quantity
+   breaks that match their `qty` runs exactly. Leave `pricingProvisional: true`
+   until the real prices are in.
+4. **Add it to the map** in `src/lib/shop/vendor-map.ts`: the product id, the
+   fixed option ids, the quantity ids, and — if you are offering a choice — the
+   translation from your option values to theirs.
+5. **`npm run sinalite:check`.** No credentials or network needed. It catches
+   the mistakes that would otherwise surface only when a candidate ordered: a
+   cut in one file and not the other, a run the catalogue sells that the map
+   cannot name, an option the catalogue offers that has no counterpart.
+
+Prices for a bought-in line should be their cost doubled plus the variant's
+setup fee — the same floor the queue measures against. `npm run
+sinalite:catalog -- --variants <id>` prints every combination's trade price,
+which is the fastest way to derive a whole table.
+
 Prices live in one file, `src/lib/shop/catalog.ts`, and ship in a commit rather
 than being edited in a database. Orders snapshot the names and the cents they
 were quoted at, so changing a price never rewrites an order already placed.
@@ -319,6 +346,7 @@ levels and consent are not.
 | `npm run db:seed` | Load the demo campaigns |
 | `npm run db:studio` | Prisma Studio, for poking at the data directly |
 | `npm run sinalite:catalog` | Print SinaLite's products, option ids and priced combinations, to fill in the vendor map |
+| `npm run sinalite:check` | Check the catalogue and the vendor map still agree. No credentials needed |
 
 ## Accounts and who sees what
 

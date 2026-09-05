@@ -14,7 +14,8 @@
     "postinstall": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",
-    "sinalite:catalog": "tsx scripts/sinalite-catalog.ts"
+    "sinalite:catalog": "tsx scripts/sinalite-catalog.ts",
+    "sinalite:check": "tsx scripts/sinalite-check.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",

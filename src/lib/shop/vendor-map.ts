@@ -129,6 +129,11 @@ export function isVendorProduct(productSlug: string): boolean {
   return productSlug in SINALITE;
 }
 
+/** Every product bought in, for the check that the catalogue still agrees. */
+export function vendorProductSlugs(): string[] {
+  return Object.keys(SINALITE);
+}
+
 export function vendorMappingFor(
   productSlug: string,
   variantKey: string,

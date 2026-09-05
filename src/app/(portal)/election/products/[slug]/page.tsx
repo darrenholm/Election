@@ -48,6 +48,13 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
 
       <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <section className="rounded-xl border border-line bg-surface p-5 shadow-sm">
+          {product.pricingProvisional ? (
+            <p className="mb-4 rounded-lg border border-line bg-raise px-3 py-2 text-xs leading-relaxed text-muted">
+              Prices on this one are indicative while we finish setting the line
+              up. Order it as normal — we confirm the figure when we quote it
+              back, before anything is paid or printed.
+            </p>
+          ) : null}
           <Configurator product={product} signedIn={customer !== null} />
         </section>
 

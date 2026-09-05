@@ -19,10 +19,20 @@
  * All money is integer cents, like everywhere else in this app.
  *
  * ---------------------------------------------------------------------------
- * THE FIGURES BELOW ARE A STARTING LIST, NOT HOLM GRAPHICS' QUOTED PRICING.
- * They are in the right neighbourhood for Ontario small-format campaign work in
- * 2026 and are meant to be replaced with the shop's real numbers before the
- * portal is put in front of candidates.
+ * WHICH OF THESE PRICES ARE REAL
+ *
+ *   Signs            The shop's own sheet prices. Real. The wire stand is the
+ *                    one figure still made up.
+ *   Post cards       Placeholder, until SinaLite's trade cost comes back and
+ *   Door hangers     the tables are re-derived as cost doubled plus prep.
+ *   T-shirts         Placeholder, and the specifications are provisional too —
+ *   Hoodies          garments and decal stocks are still to be settled.
+ *   Decals
+ *
+ * Anything still provisional carries `pricingProvisional: true`, which puts a
+ * line on its product page saying the price is confirmed on the quote. Clear
+ * the flag as each set of real numbers lands — it is what stops a made-up
+ * figure being read as a firm one by a candidate who found the site.
  * ---------------------------------------------------------------------------
  */
 
@@ -127,6 +137,11 @@ export type Product = {
   quantitiesFixed?: boolean;
   /** What the shop needs from the candidate if they are supplying files. */
   artworkHint: string;
+  /**
+   * The prices on this product are not the shop's final ones yet, so the page
+   * says so rather than letting a placeholder read as a quote.
+   */
+  pricingProvisional?: boolean;
 };
 
 /** Design service, charged once per order when the shop is doing the artwork. */
@@ -287,6 +302,7 @@ export const PRODUCTS: Product[] = [
       "to a wet mailbox in October.",
     icon: "▭",
     leadTimeDays: 4,
+    pricingProvisional: true,
     quantitiesFixed: true,
     artworkHint:
       "PDF, both sides, 0.125\" bleed. The UV coating is glossy and sealed, so " +
@@ -336,6 +352,7 @@ export const PRODUCTS: Product[] = [
       "hanger is what does the work at the other two.",
     icon: "⌸",
     leadTimeDays: 5,
+    pricingProvisional: true,
     quantitiesFixed: true,
     artworkHint:
       "PDF, both sides, 0.125\" bleed. Keep the top 1.5\" clear of anything that " +
@@ -385,6 +402,7 @@ export const PRODUCTS: Product[] = [
       "the price per shirt falls away so sharply at 24.",
     icon: "♟",
     leadTimeDays: 10,
+    pricingProvisional: true,
     sizes: ["S", "M", "L", "XL", "2XL", "3XL"],
     artworkHint:
       "Vector artwork (AI, EPS or PDF) if you have it. Screen printing wants " +
@@ -464,6 +482,7 @@ export const PRODUCTS: Product[] = [
       "wearing after voting day — which is worth more than most advertising.",
     icon: "♜",
     leadTimeDays: 12,
+    pricingProvisional: true,
     sizes: ["S", "M", "L", "XL", "2XL", "3XL"],
     artworkHint:
       "Vector artwork (AI, EPS or PDF). A front-left-chest mark and a larger " +
@@ -530,6 +549,7 @@ export const PRODUCTS: Product[] = [
       "that has agreed to display one.",
     icon: "◈",
     leadTimeDays: 6,
+    pricingProvisional: true,
     artworkHint:
       "Vector artwork holds up best at these sizes. Say whether the decal goes " +
       "on the outside of the glass or the inside — a window decal reading from " +
