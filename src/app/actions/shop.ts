@@ -15,6 +15,11 @@ import {
 } from "@/lib/shop/session";
 import { productBySlug, variantByKey } from "@/lib/shop/catalog";
 import {
+  garmentStyle,
+  priceGarmentChoice,
+  toGarmentChoice,
+} from "@/lib/shop/garments";
+import {
   priceLine,
   readSizeRun,
   describeSizeRun,
@@ -186,6 +191,80 @@ export async function addToCart(formData: FormData) {
   }
   for (const group of product.options) {
     chosen[group.key] = str(formData, `opt_${group.key}`);
+  }
+
+  /* ---------------------------------------------------------------- apparel */
+  // A garment's price comes from what SanMar charge for that style, in that
+  // colour, in that size — never from the catalogue and never from the form.
+  // The page computed a total with the same function; this is the one that
+  // counts.
+  if (variant.garmentStyleCode) {
+    const style = await garmentStyle(variant.garmentStyleCode);
+    if (!style) redirect(`/election/products/${product.slug}`);
+
+    const choice = toGarmentChoice(style);
+    const colourName =
+      choice.colours.find((c) => c.name === str(formData, "garmentColour"))?.name ??
+      choice.colours[0]?.name ??
+      "";
+
+    // Only sizes this colour actually comes in, so a hand-made post cannot
+    // order a 4XL of something that stops at 2XL.
+    const run: Record<string, number> = {};
+    const colourSizes = choice.colours.find((c) => c.name === colourName)?.sizes ?? [];
+    for (const sku of colourSizes) {
+      const count = int(formData, `size_${sku.size}`, 0);
+      if (count > 0) run[sku.size] = count;
+    }
+
+    let unitSurcharge = 0;
+    const chosenDecoration: ChosenOptions = {};
+    for (const group of product.options) {
+      if (group.onlyForVariants && !group.onlyForVariants.includes(variant.key)) continue;
+      const picked =
+        group.choices.find((c) => c.value === str(formData, `opt_${group.key}`)) ?? group.choices[0];
+      chosenDecoration[group.key] = picked.value;
+      unitSurcharge += picked.unitSurchargeCents ?? 0;
+    }
+
+    const garmentPriced = priceGarmentChoice(choice, colourName, run, unitSurcharge);
+    if (!garmentPriced) redirect(`/election/products/${product.slug}?problem=sizes`);
+
+    const orderId = await draftOrderId(customer.id);
+    await db.shopOrderItem.create({
+      data: {
+        orderId,
+        productSlug: product.slug,
+        productName: product.name,
+        variantKey: variant.key,
+        variantName: `${variant.name} · ${colourName}`,
+        options: { ...chosenDecoration, garmentColour: colourName },
+        optionsSummary: [
+          colourName,
+          describeSizeRun(run),
+          ...product.options
+            .filter((g) => !g.onlyForVariants || g.onlyForVariants.includes(variant.key))
+            .map(
+              (g) =>
+                (g.choices.find((c) => c.value === chosenDecoration[g.key]) ?? g.choices[0]).label,
+            ),
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        sizeBreakdown: run,
+        quantity: garmentPriced.quantity,
+        // Per garment on average: the sizes are priced individually and the
+        // line total is what they add up to, so this is for display only.
+        unitPriceCents: Math.round(garmentPriced.goodsCents / garmentPriced.quantity),
+        setupFeeCents: garmentPriced.setupCents,
+        lineTotalCents: garmentPriced.totalCents,
+        artworkNote: str(formData, "artworkNote"),
+      },
+    });
+
+    await recalcOrder(orderId);
+    revalidatePath("/election", "layout");
+    redirect("/election/cart");
   }
 
   // Apparel is ordered as a run of sizes; the total of the run is the quantity.

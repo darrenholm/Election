@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { PRODUCTS, productBySlug } from "@/lib/shop/catalog";
 import { getCurrentCustomer } from "@/lib/shop/auth";
+import { garmentChoicesFor } from "@/lib/shop/garments";
 import { Configurator } from "./configurator";
 
 export function generateStaticParams() {
@@ -23,7 +24,12 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
   const product = productBySlug(slug);
   if (!product) notFound();
 
-  const customer = await getCurrentCustomer();
+  const [customer, garments] = await Promise.all([
+    getCurrentCustomer(),
+    // Colours, sizes and prices for apparel. Empty until SanMar's data is
+    // loaded, which is what keeps these listed but unsellable.
+    garmentChoicesFor(product.variants),
+  ]);
 
   return (
     <div className="space-y-8">
@@ -74,7 +80,7 @@ export default async function ProductPage({ params }: { params: Promise<{ slug: 
               back, before anything is paid or printed.
             </p>
           ) : null}
-          <Configurator product={product} signedIn={customer !== null} />
+          <Configurator product={product} signedIn={customer !== null} garments={garments} />
             </>
           )}
         </section>

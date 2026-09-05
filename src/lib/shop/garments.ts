@@ -127,6 +127,82 @@ export async function garmentStyles(): Promise<
 }
 
 /**
+ * What the product page is given, and what the server prices against.
+ *
+ * A trimmed GarmentStyleView with no Date on it, so it crosses to the browser
+ * as plain JSON. The page and the server then price the same run with the same
+ * function — the storefront can show a total without being trusted to compute
+ * the one that gets charged.
+ */
+export type GarmentChoice = {
+  styleCode: string;
+  name: string;
+  colours: { name: string; code: string; sizes: { size: string; retailCents: number }[] }[];
+  sizes: string[];
+  fromRetailCents: number;
+};
+
+export function toGarmentChoice(style: GarmentStyleView): GarmentChoice {
+  return {
+    styleCode: style.styleCode,
+    name: style.name,
+    colours: style.colours.map((colour) => ({
+      name: colour.colourName,
+      code: colour.colourCode,
+      // Only what can actually be had: a colour whose 2XL is discontinued
+      // should not offer a 2XL.
+      sizes: colour.sizes
+        .filter((sku) => sku.available)
+        .map((sku) => ({ size: sku.size, retailCents: sku.retailCents })),
+    })),
+    sizes: style.sizes,
+    fromRetailCents: style.fromRetailCents,
+  };
+}
+
+/**
+ * Price a run of garments, from the choice the page was given.
+ *
+ * Pure, and shared by the storefront and the server for exactly that reason.
+ * Every size is priced at its own cost, because that is how they are bought: a
+ * run of twelve with two 2XLs costs more than twelve mediums, and averaging it
+ * would quietly lose the difference on every order with a big size in it.
+ *
+ * `unitSurchargeCents` is the decoration — a second print location, another ink
+ * colour — which is ours and per garment, on top of the shirt.
+ */
+export function priceGarmentChoice(
+  choice: GarmentChoice,
+  colourName: string,
+  run: Record<string, number>,
+  unitSurchargeCents = 0,
+): { quantity: number; goodsCents: number; setupCents: number; totalCents: number } | null {
+  const colour = choice.colours.find((c) => c.name === colourName) ?? choice.colours[0];
+  if (!colour) return null;
+
+  let quantity = 0;
+  let goodsCents = 0;
+
+  for (const [size, count] of Object.entries(run)) {
+    if (!Number.isFinite(count) || count <= 0) continue;
+    const sku = colour.sizes.find((s) => s.size === size);
+    if (!sku) continue;
+
+    quantity += count;
+    goodsCents += (sku.retailCents + unitSurchargeCents) * count;
+  }
+
+  if (quantity === 0) return null;
+
+  return {
+    quantity,
+    goodsCents,
+    setupCents: GARMENT_SETUP_CENTS,
+    totalCents: goodsCents + GARMENT_SETUP_CENTS,
+  };
+}
+
+/**
  * Price a run of garments.
  *
  * Every size is priced at its own cost, because that is how they are bought:
@@ -161,4 +237,24 @@ export function priceGarmentRun(
     setupCents: GARMENT_SETUP_CENTS,
     totalCents: goodsCents + GARMENT_SETUP_CENTS,
   };
+}
+
+/**
+ * The garment data behind a product's variants, keyed by variant.
+ *
+ * Empty for a style nothing has been synced for, which is what keeps apparel
+ * listed but unsellable until SanMar's data is in.
+ */
+export async function garmentChoicesFor(
+  variants: { key: string; garmentStyleCode?: string }[],
+): Promise<Record<string, GarmentChoice>> {
+  const choices: Record<string, GarmentChoice> = {};
+
+  for (const variant of variants) {
+    if (!variant.garmentStyleCode) continue;
+    const style = await garmentStyle(variant.garmentStyleCode);
+    if (style) choices[variant.key] = toGarmentChoice(style);
+  }
+
+  return choices;
 }
