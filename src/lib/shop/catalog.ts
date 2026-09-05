@@ -720,9 +720,10 @@ export type MountingNote = { tone: "warn" | "info"; text: string };
  *
  * Two facts of the material, and both cost money to learn the hard way.
  * Coroplast will not bridge between two posts at the ends of a large sign: at
- * 4mm it needs a backer behind it, and at 6mm strapping is enough. And a post
- * behind a double-sided sign is visible from the back, so the second face is
- * never quite the clean face the front is.
+ * 4mm it needs a backer behind it, and at 6mm strapping is enough. And a
+ * post-mounted sign wanting two faces is better made as two single-sided signs
+ * fixed back to back around the posts than as one double-sided sheet — both
+ * faces come out clean and nothing shows through either.
  *
  * Advice rather than a rule: a large 4mm sign screwed flat to a barn wall or a
  * fence is perfectly sound, and the portal should not refuse an order it cannot
@@ -752,8 +753,10 @@ export function mountingNotes(variantKey: string, sheetValue: string): MountingN
     notes.push({
       tone: "info",
       text:
-        "Posts behind a double-sided sign show from the back. Worth deciding which " +
-        "face matters, or setting the posts to one side.",
+        "On posts, two single-sided signs beat one double-sided: fix them back to " +
+        "back with the posts sandwiched in between and both faces are clean, with " +
+        "no hardware showing through either one. Order double the quantity in " +
+        "single-sided instead.",
     });
   }
 

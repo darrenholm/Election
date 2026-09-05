@@ -237,8 +237,10 @@ both now on the product page as the choice is being made:
   4mm it needs plywood or similar behind it; at 6mm strapping is enough, which
   usually works out cheaper than buying the plywood. The page says so the moment
   a large cut and 4mm are both selected.
-- **A post behind a double-sided sign shows from the back**, so the second face
-  is never quite the clean face the front is.
+- **A post-mounted sign wanting two faces is better made as two single-sided
+  signs**, fixed back to back with the posts sandwiched between them: both faces
+  come out clean and no hardware shows through either. The page says so when a
+  large cut is chosen double-sided.
 
 These are advice, not rules. A large 4mm sign screwed flat to a barn wall is
 perfectly sound, and the portal should not refuse an order whose reason it
