@@ -67,6 +67,10 @@ export type PriceBreak = {
  * will change again. The catalogue records what SinaLite charge and derives
  * what the candidate pays, so a new markup is an edit here rather than a dozen
  * figures retyped — and the cost stays visible for the margin arithmetic.
+ *
+ * PRINT, not apparel. Garments are doubled and floored at $12, in
+ * src/lib/shop/garments.ts, and that difference is on purpose — a shirt is
+ * handled one at a time here, a pallet of cards is not.
  */
 export const PRINT_MARKUP_PERCENT = 50;
 

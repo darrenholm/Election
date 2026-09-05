@@ -17,6 +17,13 @@ import { db } from "@/lib/db";
  * The floor is what stops a cheap tee being sold for less than it costs to
  * handle: the doubling covers the garment, but folding, boxing and answering
  * the phone about it do not get cheaper because the shirt did.
+ *
+ * DOUBLE IS DELIBERATE, AND IS NOT THE PRINT MARKUP. Trade print is marked up
+ * by PRINT_MARKUP_PERCENT, which is 50 — cards come off a press and arrive on a
+ * pallet. A garment is handled one at a time, in a size and a colour somebody
+ * chose, and gets pressed, counted and bagged here. Confirmed by Darren on
+ * 5 September 2026, after the print markup came down from 100 and this did not.
+ * Do not "fix" the inconsistency by pointing this at PRINT_MARKUP_PERCENT.
  */
 
 /** Screen setup, charged once per line rather than per garment. */

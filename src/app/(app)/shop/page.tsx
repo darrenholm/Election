@@ -138,12 +138,20 @@ export default async function ShopQueuePage({
       <div className="mt-6">
         <Card
           title="Garment data"
-          description="Colours, sizes and costs for the SanMar styles. Loaded with npm run garments:import."
+          description="Colours, sizes and costs for the SanMar styles."
+          actions={
+            <Link href="/shop/suppliers" className="btn-secondary">
+              Suppliers
+            </Link>
+          }
         >
           {garments.length === 0 ? (
             <p className="text-sm text-muted">
-              Nothing loaded yet, so no apparel can be priced or sold. Import a CSV export from the
-              dealer portal, or wire the SanMar connection.
+              Nothing loaded yet, so no apparel can be priced or sold.{" "}
+              <Link href="/shop/suppliers" className="font-semibold underline">
+                Load it from SanMar
+              </Link>
+              , or import a CSV export from the dealer portal.
             </p>
           ) : (
             <ul className="space-y-1.5 text-sm">
