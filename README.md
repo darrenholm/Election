@@ -190,6 +190,44 @@ candidate — no campaign-manager account, no sign-in to look around.
   bought and the tax, because campaign material is an election expense and the
   filing wants exactly that.
 
+#### Taking orders before the trade printer is connected
+
+The portal does not depend on SinaLite in any way. Nothing in the catalogue,
+the cart, the checkout, the order or the e-transfer instructions calls it — the
+only two places it is ever reached are two buttons in the shop's own queue. So
+orders can be taken from the day the site goes up, and the trade work placed by
+hand in the meantime.
+
+The by-hand path is not a workaround to be cleaned up later. A shop takes orders
+before it has credentials, and goes on placing the odd job by hand long
+afterwards — an unusual stock, a rush, a line the catalogue does not carry — so
+the queue supports it permanently and records which way each job went.
+
+On a trade-printed order, with or without credentials:
+
+1. **Type in what it cost.** Place the job on the printer's own website, then
+   put each line's trade price and the freight into *What it cost, typed in*.
+   That feeds the same floor and margin arithmetic as the API path, so a job
+   placed by hand is exactly as legible in the queue — including the warning
+   when a line was sold under cost doubled plus prep.
+2. **Mark it placed**, with the reference the printer gave back and the shipping
+   service. The order then reads *Placed by hand* rather than *Sent*, and the
+   candidate's page behaves identically.
+3. **Type in the tracking number** when their dispatch email arrives. That is
+   the same by hand either way — their API has no status to poll.
+
+Two things to know before the site goes up:
+
+- **Nothing emails anybody when an order arrives.** The count of orders nobody
+  has quoted yet is carried in the nav beside *Print orders*, in red, on every
+  page — but somebody has to be looking at the app. Over a first weekend, check
+  it morning and evening.
+- **Prices marked provisional say so on their own product pages.** Cards,
+  hangers, apparel and decals currently carry made-up figures; each page says
+  the price is confirmed on the quote, which is true of every order here
+  regardless. Nothing is charged until you have quoted it back, so a placeholder
+  that turns out wrong costs a conversation rather than a job.
+
 #### Trade printing through SinaLite
 
 Post cards and door hangers are short-run offset work a small shop buys rather

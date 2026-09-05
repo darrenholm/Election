@@ -203,3 +203,76 @@ export async function saveVendorTracking(formData: FormData) {
   await recordVendorTracking(orderId, str(formData, "tracking"), str(formData, "vendorStatus"));
   refresh(orderId);
 }
+
+/**
+ * Type in what the trade printer charged, line by line.
+ *
+ * The manual counterpart of priceWithVendor(): the same figures, arrived at by
+ * reading them off the printer's own website rather than asking their API. It
+ * feeds the same floor and margin arithmetic, so an order placed by hand is as
+ * legible in the queue as one placed through the API — which matters, because a
+ * shop takes orders before it has credentials and goes on placing the odd job
+ * by hand long afterwards.
+ */
+export async function recordVendorCosts(formData: FormData) {
+  await requireShopStaff();
+
+  const orderId = str(formData, "orderId");
+  const order = await db.shopOrder.findUnique({
+    where: { id: orderId },
+    select: { id: true, vendor: true, items: { select: { id: true } } },
+  });
+  if (!order) return;
+
+  let goodsCents = 0;
+  for (const item of order.items) {
+    // Only the lines the form carried; a line with no field is left alone.
+    const raw = str(formData, `cost_${item.id}`);
+    if (raw === "") continue;
+
+    const costCents = cents(formData, `cost_${item.id}`, 0);
+    await db.shopOrderItem.update({ where: { id: item.id }, data: { vendorCostCents: costCents } });
+    goodsCents += costCents;
+  }
+
+  await db.shopOrder.update({
+    where: { id: order.id },
+    data: {
+      vendor: order.vendor === "NONE" ? "SINALITE" : order.vendor,
+      vendorCostCents: goodsCents,
+      vendorShippingCents: cents(formData, "vendorShippingCents", 0),
+      vendorQuotedAt: new Date(),
+    },
+  });
+
+  refresh(order.id);
+}
+
+/**
+ * Mark a job as placed by hand, with whatever reference the printer gave back.
+ *
+ * The same fields the API path fills in, so the queue, the candidate's page and
+ * the tracking number all behave identically whichever way the job went over.
+ */
+export async function recordManualVendorOrder(formData: FormData) {
+  await requireShopStaff();
+
+  const orderId = str(formData, "orderId");
+  const reference = str(formData, "vendorOrderId");
+  if (reference === "") return;
+
+  await db.shopOrder.update({
+    where: { id: orderId },
+    data: {
+      vendor: "SINALITE",
+      vendorManual: true,
+      vendorOrderId: reference,
+      vendorStatus: str(formData, "vendorStatus") || "Placed by hand",
+      vendorShipMethod: str(formData, "vendorShipMethod"),
+      vendorSentAt: new Date(),
+      vendorError: "",
+    },
+  });
+
+  refresh(orderId);
+}

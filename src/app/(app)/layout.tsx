@@ -4,6 +4,7 @@ import { OutboxStatus } from "@/components/outbox-status";
 import { getActiveCampaign } from "@/lib/campaign";
 import { OFFICES, label } from "@/lib/enums";
 import { getAccessibleCampaigns, getCurrentUser } from "@/lib/auth";
+import { db } from "@/lib/db";
 
 export const metadata: Metadata = {
   title: "Campaign Manager",
@@ -22,6 +23,13 @@ export default async function CampaignLayout({
     getActiveCampaign(),
     getAccessibleCampaigns(),
   ]);
+
+  // Print orders arrive from the public portal and nothing emails anybody, so
+  // the count of ones nobody has quoted yet is carried in the nav where it will
+  // be seen from whatever page the shop happens to be on.
+  const waitingOrders = user?.isAdmin
+    ? await db.shopOrder.count({ where: { status: "SUBMITTED" } })
+    : 0;
 
   return (
     <div className="flex min-h-dvh flex-col md:flex-row">
@@ -43,6 +51,7 @@ export default async function CampaignLayout({
           municipality: c.municipalityName,
         }))}
         user={user}
+        counts={{ "/shop": waitingOrders }}
       />
       <div className="min-w-0 flex-1">
         <OutboxStatus />

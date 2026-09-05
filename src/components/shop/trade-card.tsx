@@ -4,6 +4,8 @@ import { Badge, Card, Field, Note } from "@/components/ui";
 import {
   chooseVendorShipping,
   priceWithVendor,
+  recordManualVendorOrder,
+  recordVendorCosts,
   saveVendorTracking,
   sendToVendor,
 } from "@/app/actions/shop-admin";
@@ -43,6 +45,7 @@ export function TradeCard({
   lines: TradeLineView[];
   shippingOptions: ShippingOptionView[];
   order: {
+    vendorManual: boolean;
     vendorOrderId: string;
     vendorStatus: string;
     vendorTracking: string;
@@ -66,7 +69,11 @@ export function TradeCard({
       title="Trade printer"
       description="Post cards and hangers are bought in and drop-shipped. Signs are cut here and never appear on this card."
       actions={
-        configured ? null : <Badge tone="warn">Dry run — no credentials</Badge>
+        configured ? (
+          order.vendorManual ? <Badge>Placed by hand</Badge> : null
+        ) : (
+          <Badge tone="warn">Entered by hand</Badge>
+        )
       }
     >
       {lines.length === 0 ? (
@@ -177,29 +184,100 @@ export function TradeCard({
             </form>
           ) : null}
 
-          <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-3">
-            <form action={priceWithVendor}>
-              <input type="hidden" name="orderId" value={orderId} />
-              <button type="submit" className="btn-secondary">
-                {priced ? "Re-price with SinaLite" : "Price with SinaLite"}
-              </button>
-            </form>
+          {order.vendorSentAt ? (
+            <p className="mt-4 border-t border-line pt-3 text-sm text-muted">
+              {order.vendorManual ? "Placed by hand" : "Sent"}{" "}
+              {formatDateTime(order.vendorSentAt)} — their reference{" "}
+              <span className="font-semibold">{order.vendorOrderId}</span>
+              {order.vendorStatus ? `, ${order.vendorStatus}` : ""}.
+            </p>
+          ) : (
+            <>
+              {configured ? (
+                <div className="mt-4 flex flex-wrap gap-2 border-t border-line pt-3">
+                  <form action={priceWithVendor}>
+                    <input type="hidden" name="orderId" value={orderId} />
+                    <button type="submit" className="btn-secondary">
+                      {priced ? "Re-price with SinaLite" : "Price with SinaLite"}
+                    </button>
+                  </form>
+                  <form action={sendToVendor}>
+                    <input type="hidden" name="orderId" value={orderId} />
+                    <button type="submit" className="btn-primary">
+                      Send to SinaLite
+                    </button>
+                  </form>
+                </div>
+              ) : null}
 
-            {order.vendorSentAt ? (
-              <p className="self-center text-sm text-muted">
-                Sent {formatDateTime(order.vendorSentAt)} — their reference{" "}
-                <span className="font-semibold">{order.vendorOrderId}</span>
-                {order.vendorStatus ? `, ${order.vendorStatus}` : ""}.
-              </p>
-            ) : (
-              <form action={sendToVendor}>
+              {/* Placing the job by hand: on their website, or over the phone.
+                  Always available — it is how a job goes over before there are
+                  credentials, and how an odd one goes over long afterwards. */}
+              <form action={recordVendorCosts} className="mt-4 space-y-3 border-t border-line pt-3">
                 <input type="hidden" name="orderId" value={orderId} />
-                <button type="submit" className="btn-primary">
-                  Send to SinaLite
+                <p className="text-xs font-bold uppercase tracking-wide text-muted">
+                  What it cost, typed in
+                </p>
+                <div className="space-y-2">
+                  {lines.map((line) => (
+                    <label key={line.id} className="flex flex-wrap items-center gap-2 text-sm">
+                      <span className="min-w-0 flex-1">{line.description}</span>
+                      <input
+                        name={`cost_${line.id}`}
+                        inputMode="decimal"
+                        defaultValue={line.costCents > 0 ? (line.costCents / 100).toFixed(2) : ""}
+                        placeholder="0.00"
+                        className="field w-28 tabular-nums"
+                      />
+                    </label>
+                  ))}
+                  <label className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="min-w-0 flex-1 text-muted">Their freight</span>
+                    <input
+                      name="vendorShippingCents"
+                      inputMode="decimal"
+                      defaultValue={
+                        order.vendorShippingCents > 0
+                          ? (order.vendorShippingCents / 100).toFixed(2)
+                          : ""
+                      }
+                      placeholder="0.00"
+                      className="field w-28 tabular-nums"
+                    />
+                  </label>
+                </div>
+                <button type="submit" className="btn-secondary">
+                  Save costs
                 </button>
               </form>
-            )}
-          </div>
+
+              <form
+                action={recordManualVendorOrder}
+                className="mt-3 space-y-2 border-t border-line pt-3"
+              >
+                <input type="hidden" name="orderId" value={orderId} />
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Field
+                    label="Placed it by hand — their reference"
+                    hint="The order number from their website or their confirmation."
+                  >
+                    <input name="vendorOrderId" className="field" />
+                  </Field>
+                  <Field label="Shipping service">
+                    <input
+                      name="vendorShipMethod"
+                      defaultValue={order.vendorShipMethod}
+                      placeholder="UPS Standard"
+                      className="field"
+                    />
+                  </Field>
+                </div>
+                <button type="submit" className="btn-primary">
+                  Mark it placed
+                </button>
+              </form>
+            </>
+          )}
 
           {order.vendorSentAt ? (
             <form action={saveVendorTracking} className="mt-3 space-y-2 border-t border-line pt-3">

@@ -44,10 +44,14 @@ export function SideNav({
   active,
   campaigns,
   user,
+  counts = {},
 }: {
   active: SwitcherCampaign | null;
   campaigns: SwitcherCampaign[];
   user: { name: string; email: string; isAdmin: boolean } | null;
+  /** Anything waiting, by href. A print order nobody has looked at is the one
+   *  thing in this app that costs money to miss. */
+  counts?: Record<string, number>;
 }) {
   const pathname = usePathname();
 
@@ -74,6 +78,11 @@ export function SideNav({
                     {item.icon}
                   </span>
                   {item.label}
+                  {counts[item.href] ? (
+                    <span className="ml-auto rounded-full bg-accent px-1.5 text-[0.7rem] font-bold tabular-nums text-white">
+                      {counts[item.href]}
+                    </span>
+                  ) : null}
                 </Link>
               </li>
             ))}
@@ -111,6 +120,11 @@ export function SideNav({
               }`}
             >
               {item.label}
+              {counts[item.href] ? (
+                <span className="ml-1.5 rounded-full bg-accent px-1.5 text-[0.7rem] font-bold tabular-nums text-white">
+                  {counts[item.href]}
+                </span>
+              ) : null}
             </Link>
           ))}
         </div>

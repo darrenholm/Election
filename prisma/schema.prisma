@@ -1217,6 +1217,16 @@ model ShopOrder {
   /// happened to this order rather than what the catalogue would prefer.
   vendor String @default("NONE")
 
+  /// The trade order was placed by hand — on the printer's own website, or over
+  /// the phone — rather than through their API.
+  ///
+  /// Not a temporary state to be cleaned up later. A shop takes orders before
+  /// it has API credentials, and goes on placing the odd job by hand
+  /// afterwards: an unusual stock, a rush, a line the catalogue does not carry.
+  /// Recording which way a job went is what keeps the margin arithmetic honest
+  /// either way.
+  vendorManual Boolean @default(false)
+
   /// Their id for the job, and what they last told us about it. Kept as free
   /// text: a vendor's status vocabulary is theirs to change, and pinning it to
   /// our own enum would mean a migration every time they add one.
