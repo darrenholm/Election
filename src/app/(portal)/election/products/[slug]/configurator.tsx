@@ -123,7 +123,7 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
             {product.sheetPricing.choices.map((choice) => (
               <label
                 key={choice.value}
-                className={`flex cursor-pointer items-baseline justify-between gap-3 rounded-lg border p-3 text-sm transition-colors ${
+                className={`flex cursor-pointer items-baseline gap-3 rounded-lg border p-3 text-sm transition-colors ${
                   options[product.sheetPricing!.key] === choice.value
                     ? "border-brand bg-brand-soft/50"
                     : "border-line bg-surface hover:bg-raise"
@@ -138,9 +138,9 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
                   />
                   <span className="font-semibold">{choice.label}</span>
                 </span>
-                <span className="shrink-0 tabular-nums text-muted">
-                  {formatCents(choice.sheetPriceCents)}/sheet
-                </span>
+                {/* No per-sheet figure here: what a candidate wants to know is
+                    what their signs come to, and the price below says that as
+                    soon as a size and a quantity are picked. */}
               </label>
             ))}
           </div>
@@ -198,45 +198,38 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
         </fieldset>
       ) : (
         <fieldset>
-          <legend className="field-label">{perSheet > 0 ? "How many sheets" : "How many"}</legend>
+          <legend className="field-label">How many</legend>
           {perSheet > 0 ? (
+            // Lots, in signs. A candidate is buying signs and should never have
+            // to work out how many a sheet yields — the lot size is in the name
+            // of the cut, and every number offered here is a whole lot.
             <>
               <input type="hidden" name="quantity" value={effectiveQuantity} />
-              <div className="flex flex-wrap items-center gap-3">
-                <input
-                  type="number"
-                  min={1}
-                  value={sheets}
-                  onChange={(e) => setSheets(Math.max(1, Math.round(Number(e.target.value) || 1)))}
-                  className="field w-28 tabular-nums"
-                />
-                <span className="text-sm">
-                  <span className="font-semibold">
-                    {effectiveQuantity} {effectiveQuantity === 1 ? "sign" : "signs"}
-                  </span>
-                  <span className="text-muted">
-                    {" "}
-                    — {perSheet} of this cut from each 4&prime; × 8&prime; sheet
-                  </span>
-                </span>
-              </div>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {[1, 2, 3, 4, 6, 8, 10].map((n) => (
+              <div className="flex flex-wrap gap-2">
+                {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
                   <button
                     key={n}
                     type="button"
                     onClick={() => setSheets(n)}
-                    className={`rounded-full border px-3 py-1 text-xs font-semibold tabular-nums transition-colors ${
+                    className={`rounded-lg border px-3 py-2 text-sm font-semibold tabular-nums transition-colors ${
                       sheets === n
                         ? "border-brand bg-brand-soft text-brand-ink"
                         : "border-line bg-surface text-muted hover:bg-raise"
                     }`}
                   >
-                    {n * perSheet} signs
-                    {sheetDiscountPercent(n) > 0 ? ` · -${sheetDiscountPercent(n)}%` : ""}
+                    {n * perSheet}
+                    {sheetDiscountPercent(n) > 0 ? (
+                      <span className="ml-1.5 font-bold text-accent-ink">
+                        −{sheetDiscountPercent(n)}%
+                      </span>
+                    ) : null}
                   </button>
                 ))}
               </div>
+              <p className="mt-2 text-xs text-muted">
+                Signs of this size come in lots of {perSheet}. Want more than{" "}
+                {10 * perSheet}? Put it in the box below and we will sort it out.
+              </p>
             </>
           ) : product.quantitiesFixed ? (
             // These are printed in fixed runs, so the runs are the choice. A
@@ -302,12 +295,12 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
 
         {priced.sheetsUsed > 0 ? (
           <p className="mt-2 text-xs text-muted">
-            {priced.sheetsUsed} {priced.sheetsUsed === 1 ? "sheet" : "sheets"} of 4&prime; × 8&prime;
+            {priced.sheetsUsed} {priced.sheetsUsed === 1 ? "lot" : "lots"} of {perSheet}
             {priced.discountPercent > 0 ? (
               <span className="font-semibold text-brand-ink">
                 {" "}
                 — {priced.discountPercent}% off for the extra{" "}
-                {priced.sheetsUsed === 2 ? "sheet" : "sheets"}
+                {priced.sheetsUsed === 2 ? "lot" : "lots"}
               </span>
             ) : null}
           </p>
@@ -316,7 +309,7 @@ export function Configurator({ product, signedIn }: { product: Product; signedIn
         {upsell ? (
           <p className="mt-1 text-xs text-accent-ink">
             {"moreSigns" in upsell
-              ? `${upsell.moreSigns} more fills another sheet and takes ${upsell.percent}% off the whole order.`
+              ? `Another ${upsell.moreSigns} takes ${upsell.percent}% off the whole order.`
               : `${upsell.more} more brings each one down to ${formatCents(upsell.unitPriceCents)}.`}
           </p>
         ) : null}

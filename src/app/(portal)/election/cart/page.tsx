@@ -2,7 +2,7 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireCustomer } from "@/lib/shop/auth";
 import { draftOrderId } from "@/lib/shop/orders";
-import { DESIGN_FEE_CENTS, TAX_LABEL } from "@/lib/shop/catalog";
+import { DESIGN_FEE_CENTS, TAX_LABEL, productBySlug, variantByKey } from "@/lib/shop/catalog";
 import { formatCents } from "@/lib/money";
 import { removeCartItem, setDesignService, updateCartItem } from "@/app/actions/shop";
 import { EmptyState } from "@/components/ui";
@@ -44,6 +44,11 @@ export default async function CartPage() {
           <ul className="space-y-3">
             {order.items.map((item) => {
               const sizes = (item.sizeBreakdown ?? null) as Record<string, number> | null;
+              // Signs are sold in lots, so the box says so rather than silently
+              // rounding a typed 40 up to the 48 that can actually be made.
+              const product = productBySlug(item.productSlug);
+              const lotSize =
+                (product ? variantByKey(product, item.variantKey)?.signsPerSheet : 0) ?? 0;
               return (
                 <li
                   key={item.id}
@@ -92,7 +97,8 @@ export default async function CartPage() {
                           <input
                             type="number"
                             name="quantity"
-                            min={1}
+                            min={lotSize > 0 ? lotSize : 1}
+                            step={lotSize > 0 ? lotSize : 1}
                             defaultValue={item.quantity}
                             className="field ml-2 inline-block w-24 tabular-nums"
                           />
@@ -100,6 +106,9 @@ export default async function CartPage() {
                         <button type="submit" className="btn-secondary !py-1.5 text-xs">
                           Update
                         </button>
+                        {lotSize > 1 ? (
+                          <span className="text-xs text-muted">in lots of {lotSize}</span>
+                        ) : null}
                       </form>
                     )}
 

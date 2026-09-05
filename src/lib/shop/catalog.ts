@@ -172,15 +172,11 @@ export const PRODUCTS: Product[] = [
     name: "Signs",
     tagline: "Every size cut from a 4' × 8' sheet",
     description:
-      "Corrugated plastic signs, printed full colour. Sign prices here are the " +
-      "price of a 4' × 8' sheet divided by how many of that cut come out of it, " +
-      "which is why these seven sizes and not others — each one divides a sheet " +
-      "exactly, with nothing thrown away. That also explains the shape of the " +
-      "price list: a 12 × 12 is a thirty-second of a sheet, so it costs a " +
-      "thirty-second of the sheet. Thickness and the number of printed sides " +
-      "are chosen together, because they are priced together. Every additional " +
-      "sheet an order runs takes another 5% off the whole order, to a floor of " +
-      "25% at six sheets.",
+      "Corrugated plastic signs, printed full colour. Signs come in lots — 32 of " +
+      "a 12 × 12, 12 of a 16 × 24, and so on — because every size here is a " +
+      "clean cut from one 4' × 8' sheet, with nothing thrown away. The more lots " +
+      "you order the cheaper they get: each one after the first takes another 5% " +
+      "off the whole order, down to 25% off.",
     icon: "▤",
     leadTimeDays: 5,
     pickupOnly: true,
@@ -192,9 +188,8 @@ export const PRODUCTS: Product[] = [
       key: "sheet",
       label: "Thickness and printed sides",
       hint:
-        "Priced by the sheet. 6mm is the one to take where a sign stands all " +
-        "autumn or catches wind off a field; double-sided reads from both " +
-        "directions of travel.",
+        "6mm is the one to take where a sign stands all autumn or catches wind " +
+        "off a field; double-sided reads from both directions of travel.",
       choices: [
         {
           value: "4MM_SINGLE",
@@ -222,14 +217,15 @@ export const PRODUCTS: Product[] = [
         },
       ],
     },
-    // Minimum order is one sheet's worth of whichever cut is chosen. A sheet is
-    // consumed whether it is fully cut up or not, so half a sheet of 12 × 12s
-    // would have to be priced as a whole one anyway.
+    // A lot is one sheet's worth of whichever cut is chosen, and orders are
+    // whole lots. The sheet is cut into whether or not every piece off it is
+    // wanted, so half a sheet of 12 × 12s would be priced as a whole one anyway
+    // — and "lots of 32" is the way to say that to somebody buying signs.
     variants: [
       {
         key: "12x12",
-        name: '12" × 12"',
-        detail: "32 from a sheet — window cards, rider signs, in-store",
+        name: '12" × 12" — lots of 32',
+        detail: "Window cards, rider signs, in-store",
         setupFeeCents: 0,
         minQuantity: 32,
         signsPerSheet: 32,
@@ -237,8 +233,8 @@ export const PRODUCTS: Product[] = [
       },
       {
         key: "12x16",
-        name: '12" × 16"',
-        detail: "24 from a sheet — small lawn sign, boulevards and windows",
+        name: '12" × 16" — lots of 24',
+        detail: "Small lawn sign, boulevards and windows",
         setupFeeCents: 0,
         minQuantity: 24,
         signsPerSheet: 24,
@@ -246,8 +242,8 @@ export const PRODUCTS: Product[] = [
       },
       {
         key: "16x24",
-        name: '16" × 24"',
-        detail: "12 from a sheet — the ordinary lawn sign, and the one most campaigns buy in bulk",
+        name: '16" × 24" — lots of 12',
+        detail: "The ordinary lawn sign, and the one most campaigns buy in bulk",
         setupFeeCents: 0,
         minQuantity: 12,
         signsPerSheet: 12,
@@ -255,8 +251,8 @@ export const PRODUCTS: Product[] = [
       },
       {
         key: "24x32",
-        name: '24" × 32"',
-        detail: "6 from a sheet — corner lots and busy streets",
+        name: '24" × 32" — lots of 6',
+        detail: "Corner lots and busy streets",
         setupFeeCents: 0,
         minQuantity: 6,
         signsPerSheet: 6,
@@ -264,8 +260,8 @@ export const PRODUCTS: Product[] = [
       },
       {
         key: "32x48",
-        name: '32" × 48"',
-        detail: "3 from a sheet — reads from a moving car",
+        name: '32" × 48" — lots of 3',
+        detail: "Reads from a moving car",
         setupFeeCents: 0,
         minQuantity: 3,
         signsPerSheet: 3,
@@ -273,8 +269,8 @@ export const PRODUCTS: Product[] = [
       },
       {
         key: "48x48",
-        name: '48" × 48"',
-        detail: "2 from a sheet — roadside board, wants two posts and a frame",
+        name: '48" × 48" — lots of 2',
+        detail: "Roadside board, wants two posts and a frame",
         setupFeeCents: 0,
         minQuantity: 2,
         signsPerSheet: 2,
@@ -283,7 +279,7 @@ export const PRODUCTS: Product[] = [
       {
         key: "48x96",
         name: "4' × 8' board",
-        detail: "The whole sheet — the farm fence line board",
+        detail: "The big one, for a farm fence line. Ordered singly",
         setupFeeCents: 0,
         minQuantity: 1,
         signsPerSheet: 1,
