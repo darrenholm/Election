@@ -14,6 +14,7 @@ import {
 import { priceGarmentChoice, type GarmentChoice } from "@/lib/shop/garments";
 import {
   applicableBreak,
+  describeLine,
   describeSizeRun,
   nextBreak,
   nextSheetDiscount,
@@ -133,6 +134,13 @@ export function Configurator({
   const upsell = variant.signsPerSheet
     ? nextSheetDiscount(variant, effectiveQuantity)
     : nextBreak(variant, effectiveQuantity);
+  // The list price of the run as chosen, before any option surcharge. The
+  // upsell compares list to list — a percentage surcharge applies to both runs
+  // and would otherwise make the extra look bigger than it is.
+  const currentRun = variant.breaks.find((b) => b.quantity === effectiveQuantity);
+  const currentRunCents = currentRun
+    ? (currentRun.lineTotalCents ?? currentRun.unitPriceCents * currentRun.quantity)
+    : 0;
 
   function choose(key: string, value: string) {
     setOptions((prev) => ({ ...prev, [key]: value }));
@@ -147,14 +155,19 @@ export function Configurator({
     if (next && !next.signsPerSheet && quantity < next.minQuantity) setQuantity(next.minQuantity);
   }
 
-  // Apparel with nothing synced for it. The product is coming-soon anyway, but
-  // this is the honest failure if that flag is ever cleared too early.
+  // Apparel with nothing synced for it. `npm run sanmar:sync` fills this in;
+  // until it has run there is no cost to mark up, so the page says so rather
+  // than showing an empty size list.
   if (product.sizes && Object.keys(garments).length === 0) {
     return (
-      <p className="text-sm text-muted">
-        Colours, sizes and prices for this one are not loaded yet, so it cannot be
-        ordered here. Ring the shop and we will quote it by hand.
-      </p>
+      <div>
+        <p className="text-sm font-bold">Priced on request</p>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          Garment colours and sizes change with what the mill has, so these are
+          quoted rather than listed. Ring the shop with the style, the colour and
+          your size run and we will price it while you are on the phone.
+        </p>
+      </div>
     );
   }
 
@@ -445,7 +458,8 @@ export function Configurator({
             >
               {variant.breaks.map((b) => (
                 <option key={b.quantity} value={b.quantity}>
-                  {b.quantity.toLocaleString("en-CA")} — {formatCents(b.unitPriceCents)} each
+                  {b.quantity.toLocaleString("en-CA")} —{" "}
+                  {formatCents(b.lineTotalCents ?? b.unitPriceCents * b.quantity)}
                 </option>
               ))}
             </select>
@@ -500,10 +514,7 @@ export function Configurator({
                 : "Enter how many of each size"}
             </span>
           ) : (
-            <span className="text-sm text-muted">
-              {effectiveQuantity} × {formatCents(priced.unitPriceCents)}
-              {priced.setupFeeCents > 0 ? ` + ${formatCents(priced.setupFeeCents)} setup` : ""}
-            </span>
+            <span className="text-sm text-muted">{describeLine(priced)}</span>
           )}
           <span className="text-2xl font-extrabold tabular-nums tracking-tight">
             {formatCents(
@@ -541,7 +552,13 @@ export function Configurator({
           <p className="mt-1 text-xs text-accent-ink">
             {"moreSigns" in upsell
               ? `Another ${upsell.moreSigns} takes ${upsell.percent}% off the whole order.`
-              : `${upsell.more} more brings each one down to ${formatCents(upsell.unitPriceCents)}.`}
+              : product.quantitiesFixed
+                ? `${upsell.quantity.toLocaleString("en-CA")} is ${formatCents(
+                    upsell.lineTotalCents,
+                  )} — ${upsell.more.toLocaleString("en-CA")} more for ${formatCents(
+                    upsell.lineTotalCents - currentRunCents,
+                  )}.`
+                : `${upsell.more} more brings each one down to ${formatCents(upsell.unitPriceCents)}.`}
           </p>
         ) : null}
 
@@ -554,8 +571,10 @@ export function Configurator({
         <p className="mt-2 text-xs text-muted">
           Before HST.{" "}
           {product.pickupOnly
-            ? "Collected from the shop — signs travel badly by courier."
-            : "Delivery, if you want it, is quoted with the order."}
+            ? "Collected from the shop — these are made here."
+            : product.shippingIncluded
+              ? "Shipping is in the price — nothing is added at the end."
+              : "Collected from the shop, or delivered locally by arrangement."}
         </p>
       </div>
 

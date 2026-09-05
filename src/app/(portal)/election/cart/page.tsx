@@ -6,6 +6,7 @@ import { DESIGN_FEE_CENTS, TAX_LABEL, productBySlug, variantByKey } from "@/lib/
 import { formatCents } from "@/lib/money";
 import { removeCartItem, setDesignService, updateCartItem } from "@/app/actions/shop";
 import { EmptyState } from "@/components/ui";
+import { describeLine } from "@/lib/shop/pricing";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Your cart — Election print, Holm Graphics" };
@@ -72,10 +73,7 @@ export default async function CartPage() {
                         {formatCents(item.lineTotalCents)}
                       </p>
                       <p className="text-xs text-muted tabular-nums">
-                        {item.quantity} × {formatCents(item.unitPriceCents)}
-                        {item.setupFeeCents > 0
-                          ? ` + ${formatCents(item.setupFeeCents)} setup`
-                          : ""}
+                        {describeLine(item)}
                       </p>
                     </div>
                   </div>
@@ -184,8 +182,8 @@ export default async function CartPage() {
             </dl>
             <p className="mt-2 text-xs text-muted">
               {order.deliveryCents > 0
-                ? "Shipping covers getting the printed work here; you collect it from the shop. Signs are cut here and carry none."
-                : "Signs are collected from the shop, so there is nothing to ship."}
+                ? "That delivery line is a run we have agreed to make. Otherwise there is nothing to pay for shipping: the price of the cards and hangers covers getting them here, and the signs and decals are made here."
+                : "Nothing further to pay for shipping. Cards and hangers are printed for us and the price covers getting them here; signs and decals are made here. It is all collected from the shop."}
             </p>
           </div>
 

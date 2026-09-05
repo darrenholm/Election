@@ -1,5 +1,11 @@
 import Link from "next/link";
-import { PRODUCTS, startingUnitPriceCents } from "@/lib/shop/catalog";
+import {
+  PRODUCTS,
+  startingRunPrice,
+  startingUnitPriceCents,
+  type Product,
+} from "@/lib/shop/catalog";
+import { DECAL_MINIMUM_CENTS } from "@/lib/shop/decals";
 import { formatCents } from "@/lib/money";
 import { ETRANSFER_EMAIL } from "@/lib/shop/config";
 
@@ -34,9 +40,10 @@ export default function PortalHome() {
           8&prime; sheet, and the sheet is what you pay for.
         </p>
         <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted">
-          <span className="font-semibold text-ink">Signs are open for orders now.</span>{" "}
-          Post cards, door hangers, shirts, hoodies and decals are listed below and
-          open shortly — ring us in the meantime and we will quote them by hand.
+          Signs and decals are made here and collected from the shop. Cards and
+          door hangers are printed for us and{" "}
+          <span className="font-semibold text-ink">the price includes getting them here</span> —
+          no shipping added at the end.
         </p>
         <div className="mt-7 flex flex-wrap gap-3">
           <a href="#catalogue" className="btn-primary">
@@ -62,19 +69,11 @@ export default function PortalHome() {
               </span>
               <h3 className="mt-3 text-base font-bold tracking-tight">{product.name}</h3>
               <p className="mt-1 flex-1 text-sm leading-relaxed text-muted">{product.tagline}</p>
-              {product.comingSoon ? (
-                <p className="mt-4 text-sm font-semibold text-accent-ink">Coming soon</p>
-              ) : (
-                <>
-                  <p className="mt-4 text-sm font-semibold tabular-nums">
-                    from {formatCents(startingUnitPriceCents(product))}
-                    <span className="font-normal text-muted"> each</span>
-                  </p>
-                  <p className="mt-1 text-xs text-muted">
-                    Ready in about {product.leadTimeDays} working days
-                  </p>
-                </>
-              )}
+              <CardPrice product={product} />
+              <p className="mt-1 text-xs text-muted">
+                Ready in about {product.leadTimeDays} working days
+                {product.shippingIncluded ? " · shipping included" : ""}
+              </p>
             </Link>
           ))}
         </div>
@@ -102,7 +101,7 @@ export default function PortalHome() {
             {
               step: "4",
               title: "We print, you collect",
-              body: "You approve the proof and we print. Signs are picked up at the shop. Your receipt is on the order page for the filing.",
+              body: "You approve the proof and we print. Everything is picked up at the shop, and there is no shipping charge on top. Your receipt is on the order page for the filing.",
             },
           ].map((s) => (
             <li key={s.step} className="rounded-xl border border-line bg-surface p-5 shadow-sm">
@@ -144,5 +143,49 @@ export default function PortalHome() {
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * The "from $x" on a catalogue card.
+ *
+ * Three shapes, because the products are bought three different ways: by the
+ * run (cards, hangers), by the piece (signs, shirts), or quoted from the size
+ * the candidate gives us (decals).
+ */
+function CardPrice({ product }: { product: Product }) {
+  if (product.pricingProvisional) {
+    // Nothing is quoted here that is not settled. These are priced on the
+    // phone until the supplier's own figures are loaded.
+    return <p className="mt-4 text-sm font-semibold text-brand-ink">Priced on request</p>;
+  }
+
+  if (product.customSize) {
+    return (
+      <p className="mt-4 text-sm font-semibold tabular-nums">
+        from {formatCents(DECAL_MINIMUM_CENTS)}
+        <span className="font-normal text-muted"> the run</span>
+      </p>
+    );
+  }
+
+  const run = startingRunPrice(product);
+  if (run) {
+    return (
+      <p className="mt-4 text-sm font-semibold tabular-nums">
+        from {formatCents(run.totalCents)}
+        <span className="font-normal text-muted">
+          {" "}
+          for {run.quantity.toLocaleString("en-CA")}
+        </span>
+      </p>
+    );
+  }
+
+  return (
+    <p className="mt-4 text-sm font-semibold tabular-nums">
+      from {formatCents(startingUnitPriceCents(product))}
+      <span className="font-normal text-muted"> each</span>
+    </p>
   );
 }

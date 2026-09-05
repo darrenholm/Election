@@ -16,6 +16,7 @@ import { formatDate } from "@/lib/dates";
 import { deleteArtwork, reorder } from "@/app/actions/shop";
 import { ArtworkUploader } from "@/components/shop/artwork-uploader";
 import { Badge, Note } from "@/components/ui";
+import { describeLine } from "@/lib/shop/pricing";
 
 export const dynamic = "force-dynamic";
 
@@ -175,10 +176,7 @@ export default async function OrderPage({
               </div>
               <div className="text-right">
                 <p className="font-semibold tabular-nums">{formatCents(item.lineTotalCents)}</p>
-                <p className="text-xs text-muted tabular-nums">
-                  {item.quantity} × {formatCents(item.unitPriceCents)}
-                  {item.setupFeeCents > 0 ? ` + ${formatCents(item.setupFeeCents)} setup` : ""}
-                </p>
+                <p className="text-xs text-muted tabular-nums">{describeLine(item)}</p>
               </div>
             </li>
           ))}

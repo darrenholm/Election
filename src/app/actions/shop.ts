@@ -182,7 +182,7 @@ export async function addToCart(formData: FormData) {
   // Hiding the button is not the rule; this is. A product still being set up
   // has no settled price, and an order taken against one is a promise the shop
   // has not agreed to.
-  if (product.comingSoon) redirect(`/election/products/${product.slug}`);
+  if (product.pricingProvisional) redirect(`/election/products/${product.slug}`);
 
   const variant = variantByKey(product, str(formData, "variantKey")) ?? product.variants[0];
 

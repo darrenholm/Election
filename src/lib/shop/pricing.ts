@@ -1,3 +1,4 @@
+import { formatCents } from "@/lib/money";
 import {
   DESIGN_FEE_CENTS,
   TAX_RATE,
@@ -48,12 +49,22 @@ export function applicableBreak(variant: Variant, quantity: number): PriceBreak 
 export function nextBreak(
   variant: Variant,
   quantity: number,
-): { more: number; unitPriceCents: number } | null {
+): {
+  more: number;
+  quantity: number;
+  unitPriceCents: number;
+  lineTotalCents: number;
+} | null {
   const next = variant.breaks.find((b) => b.quantity > quantity);
   // Sheet-priced products have no breaks to climb: the price per sign is the
   // same at one sheet as at ten.
   if (!next) return null;
-  return { more: next.quantity - quantity, unitPriceCents: next.unitPriceCents };
+  return {
+    more: next.quantity - quantity,
+    quantity: next.quantity,
+    unitPriceCents: next.unitPriceCents,
+    lineTotalCents: next.lineTotalCents ?? next.unitPriceCents * next.quantity,
+  };
 }
 
 /* ------------------------------------------------------------ sheet discount */
@@ -140,6 +151,25 @@ export function snapQuantity(product: Product, variant: Variant, requested: numb
 }
 
 export type ChosenOptions = Record<string, string>;
+
+/**
+ * How a line reads under its total: "1,000 for $110.70 + $45.00 setup".
+ *
+ * Never "quantity × per-piece". A run of cards and a sheet of signs each have
+ * a price of their own and the per-piece figure is derived from it, so the
+ * multiplication does not come back to the total — a candidate checking the
+ * arithmetic on screen would find it out by a few cents and stop trusting the
+ * rest of the page. The goods figure is the one that adds up.
+ */
+export function describeLine(line: {
+  quantity: number;
+  setupFeeCents: number;
+  lineTotalCents: number;
+}): string {
+  const goods = formatCents(line.lineTotalCents - line.setupFeeCents);
+  const setup = line.setupFeeCents > 0 ? ` + ${formatCents(line.setupFeeCents)} setup` : "";
+  return `${line.quantity.toLocaleString("en-CA")} for ${goods}${setup}`;
+}
 
 export type PricedLine = {
   quantity: number;

@@ -25,20 +25,20 @@
  *                    one figure still made up.
  *   Decals           The shop's own: $12 a square foot of roll consumed, $50
  *                    minimum. Live.
- *   Post cards       Placeholder, until SinaLite's trade cost comes back and
- *   Door hangers     the tables are re-derived as cost doubled plus prep.
+ *   Post cards       SinaLite's own trade cost, taken off the trade site on
+ *   Door hangers     5 September 2026, plus freight, marked up by
+ *                    PRINT_MARKUP_PERCENT. Live, and shipping is inside the
+ *                    price.
  *   T-shirts         The styles are settled — SanMar ATC1000, the three ATCF
- *   Hoodies          fleece styles, and the S365 / SL365 polos — but every
- *   Polos            figure is a placeholder until the dealer costs are in,
- *   Decals           and no garment colours are listed because inventing a
- *                    range would have candidates picking colours that cannot
- *                    be had. Decal stocks are still to be settled.
+ *   Hoodies          fleece styles, and the S365 / SL365 polos — but no prices
+ *   Polos            are shown at all until SanMar's own costs are loaded.
+ *                    These carry pricingProvisional, which puts "priced on
+ *                    request" on the card and refuses an add-to-cart, so
+ *                    nobody is quoted a figure the shop has not agreed to.
  *
- * Only the signs are orderable today. Everything else carries `comingSoon:
- * true`, which lists it without a price and without a cart button — a candidate
- * working out a budget still learns the shop does hoodies, and nobody is quoted
- * a figure that is not ready. Clear the flag on a product once its real prices
- * are in, and clear `pricingProvisional` with it.
+ * Clear pricingProvisional on a product the moment its real costs are in —
+ * `npm run sanmar:sync` is what fills the apparel tables — and it becomes
+ * orderable with no other change.
  * ---------------------------------------------------------------------------
  */
 
@@ -79,9 +79,12 @@ export const PRINT_MARKUP_PERCENT = 50;
  * total tens of dollars out.
  */
 function tradeRun(quantity: number, tradeCostCents: number): PriceBreak {
-  const lineTotalCents = Math.round(tradeCostCents * (1 + PRINT_MARKUP_PERCENT / 100));
+  const landedCents = tradeCostCents + TRADE_FREIGHT_CENTS;
+  const lineTotalCents = Math.round(landedCents * (1 + PRINT_MARKUP_PERCENT / 100));
   return {
     quantity,
+    // The goods alone, which is what the margin check in the queue measures
+    // against when the real invoice arrives.
     tradeCostCents,
     lineTotalCents,
     unitPriceCents: Math.round(lineTotalCents / quantity),
@@ -202,24 +205,21 @@ export type Product = {
   /** What the shop needs from the candidate if they are supplying files. */
   artworkHint: string;
   /**
-   * The prices on this product are not the shop's final ones yet, so the page
-   * says so rather than letting a placeholder read as a quote.
+   * No settled price yet, so nothing is quoted and nothing can be ordered.
+   *
+   * The catalogue still lists it — a candidate working out a budget wants to
+   * know the shop does hoodies — but the card says "priced on request" and the
+   * add-to-cart is refused server-side as well as hidden. Better than a figure
+   * the shop has not agreed to.
    */
   pricingProvisional?: boolean;
-  /**
-   * Listed, but not orderable yet.
-   *
-   * The catalogue still carries it — a candidate deciding what to spend on
-   * wants to know the shop does hoodies — but no price is shown and nothing can
-   * be added to a cart. Cheaper than hiding it and better than quoting a figure
-   * that is not ready.
-   */
-  comingSoon?: boolean;
   /**
    * Collected from the shop, never shipped. Signs are cut here and go out on a
    * trailer or in the back of a car; nothing about them wants a courier.
    */
   pickupOnly?: boolean;
+  /** Freight is inside the price, so the portal can say so and mean it. */
+  shippingIncluded?: boolean;
   /**
    * The candidate gives the dimensions and the price is worked out from them.
    *
@@ -288,11 +288,21 @@ export function artworkPrepOption(): OptionGroup {
 }
 
 /**
- * Getting a trade-printed job here, until SinaLite's own freight quote is
- * wired. A flat figure per order rather than per line: it arrives as one box.
- * Signs are cut here and collected, and pay nothing.
+ * Getting a trade-printed job here.
+ *
+ * Built into the price rather than added at the end, so the figure on the
+ * product page is the figure on the invoice and the portal can say shipping is
+ * included. A candidate deciding between two printers should not have to get to
+ * a checkout to find out what it really costs.
+ *
+ * It goes in as cost, before the markup, because it is cost: the freight, and
+ * the receiving, checking and repacking at this end that comes with it.
+ *
+ * Per run rather than per order, which is the price of showing a real number on
+ * a product page. An order with cards and hangers on it carries it twice for
+ * one box — in the shop's favour, and invisible to the candidate either way.
  */
-export const TRADE_SHIPPING_FLAT_CENTS = 2500;
+export const TRADE_FREIGHT_CENTS = 2500;
 
 /** Design service, charged once per order when the shop is doing the artwork. */
 export const DESIGN_FEE_CENTS = 9500;
@@ -453,9 +463,8 @@ export const PRODUCTS: Product[] = [
     icon: "▭",
     // 2-4 business days at the press, plus getting it here.
     leadTimeDays: 6,
-    comingSoon: true,
-    pricingProvisional: true,
     quantitiesFixed: true,
+    shippingIncluded: true,
     artworkHint:
       "PDF at 0.125\" bleed — both sides if you are having the back printed. The " +
       "UV coating is glossy and sealed, so nothing can be written on these " +
@@ -504,9 +513,8 @@ export const PRODUCTS: Product[] = [
       "time in three, and the hanger is what does the work at the other two.",
     icon: "⌸",
     leadTimeDays: 6,
-    comingSoon: true,
-    pricingProvisional: true,
     quantitiesFixed: true,
+    shippingIncluded: true,
     artworkHint:
       "PDF at 0.125\" bleed. Keep the top 1.5\" clear of anything that matters — " +
       "that is where the die cuts the hole.",
@@ -541,7 +549,6 @@ export const PRODUCTS: Product[] = [
       "are past a dozen.",
     icon: "♟",
     leadTimeDays: 10,
-    comingSoon: true,
     pricingProvisional: true,
     // Sizes differ by style and by cut, and these are not confirmed against
     // SanMar's size run for the ATC1000 yet.
@@ -605,7 +612,6 @@ export const PRODUCTS: Product[] = [
       "voting day — which is worth more than most advertising.",
     icon: "♜",
     leadTimeDays: 12,
-    comingSoon: true,
     pricingProvisional: true,
     sizes: ["S", "M", "L", "XL", "2XL", "3XL"],
     artworkHint:
@@ -681,7 +687,6 @@ export const PRODUCTS: Product[] = [
       "Ordered as a size run, the same way the shirts are.",
     icon: "♛",
     leadTimeDays: 12,
-    comingSoon: true,
     pricingProvisional: true,
     sizes: ["S", "M", "L", "XL", "2XL", "3XL"],
     artworkHint:
@@ -870,7 +875,35 @@ export function optionChoice(
   return group.choices.find((c) => c.value === value) ?? null;
 }
 
-/** The cheapest a product can be had for, for the "from $x" on a catalogue card. */
+/**
+ * The cheapest a product can be had for, for the "from $x" on a catalogue card.
+ *
+ * Zero for anything without a price table — a custom-sized product is quoted
+ * from its dimensions, and the card says so rather than showing nothing.
+ */
+/**
+ * The cheapest whole run of a product sold in fixed quantities.
+ *
+ * Cards and hangers are bought by the run, not by the piece, and a per-piece
+ * "from $0.06 each" on a catalogue card tells a candidate nothing about what
+ * the cheque will be. This gives the card the figure they actually pay.
+ */
+export function startingRunPrice(
+  product: Product,
+): { quantity: number; totalCents: number } | null {
+  if (!product.quantitiesFixed) return null;
+  let cheapest: { quantity: number; totalCents: number } | null = null;
+  for (const variant of product.variants) {
+    for (const brk of variant.breaks) {
+      const totalCents = brk.lineTotalCents ?? brk.unitPriceCents * brk.quantity;
+      if (!cheapest || totalCents < cheapest.totalCents) {
+        cheapest = { quantity: brk.quantity, totalCents };
+      }
+    }
+  }
+  return cheapest;
+}
+
 export function startingUnitPriceCents(product: Product): number {
   const sheets = product.sheetPricing;
   const prices = product.variants.flatMap((v) =>

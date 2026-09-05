@@ -1,7 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
-import { TRADE_SHIPPING_FLAT_CENTS, productBySlug, variantByKey } from "./catalog";
-import { isVendorProduct } from "./vendor-map";
+import { productBySlug, variantByKey } from "./catalog";
 import { orderTotals, priceLine, snapQuantity, type ChosenOptions } from "./pricing";
 
 /**
@@ -54,18 +53,15 @@ export async function recalcOrder(orderId: string): Promise<void> {
       needsDesign: true,
       deliveryCents: true,
       adjustmentCents: true,
-      items: { select: { lineTotalCents: true, productSlug: true } },
+      items: { select: { lineTotalCents: true } },
     },
   });
   if (!order) return;
 
-  // Anything bought in has to be got here, and until SinaLite's own freight
-  // quote is wired that is a flat figure. Only while the order is a cart: once
-  // it is submitted the shop owns the delivery line and may have replaced this
-  // with what the courier actually charged.
-  const boughtIn = order.items.some((item) => isVendorProduct(item.productSlug));
-  const deliveryCents =
-    order.status === "DRAFT" && boughtIn ? TRADE_SHIPPING_FLAT_CENTS : order.deliveryCents;
+  // Freight on bought-in work is inside the line prices, so the delivery line
+  // stays at whatever the shop put there — nothing, normally, and a figure of
+  // its own for a rush courier or a run out to a candidate.
+  const deliveryCents = order.deliveryCents;
 
   const totals = orderTotals({
     lineTotals: order.items.map((i) => i.lineTotalCents),
