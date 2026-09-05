@@ -5,6 +5,12 @@ import Link from "next/link";
 import { addToCart } from "@/app/actions/shop";
 import { formatCents } from "@/lib/money";
 import { mountingNotes, type Product } from "@/lib/shop/catalog";
+import {
+  DECAL_MINIMUM_CENTS,
+  describeNesting,
+  priceDecals,
+  ROLL_WIDTH_INCHES,
+} from "@/lib/shop/decals";
 import { priceGarmentChoice, type GarmentChoice } from "@/lib/shop/garments";
 import {
   applicableBreak,
@@ -60,6 +66,14 @@ export function Configurator({
   // number of sheets cannot be made.
   const [sheets, setSheets] = useState(1);
 
+  // Decals: the candidate gives the dimensions, and what it costs comes from
+  // how much roll that consumes.
+  const [decalWidth, setDecalWidth] = useState("20");
+  const [decalHeight, setDecalHeight] = useState("12");
+  const [decalQuantity, setDecalQuantity] = useState("2");
+  const isRound = options.shape === "ROUND";
+  const isSquare = options.shape === "SQUARE";
+
   const perSheet = variant.signsPerSheet ?? 0;
 
   const sizeRun = useMemo(
@@ -72,6 +86,19 @@ export function Configurator({
    * Ours rather than SanMar's, so it is read off the catalogue and added on top
    * of what the shirt itself costs.
    */
+  const decalPrice = useMemo(() => {
+    if (!product.customSize) return null;
+    const w = Number(decalWidth);
+    // A square or a circle is one dimension: the second box would only be a
+    // way to contradict the first.
+    const h = isRound || isSquare ? Number(decalWidth) : Number(decalHeight);
+    return priceDecals({
+      widthInches: w,
+      heightInches: h,
+      quantity: Number(decalQuantity),
+    });
+  }, [product.customSize, decalWidth, decalHeight, decalQuantity, isRound, isSquare]);
+
   const garmentSurchargeCents = useMemo(() => {
     let total = 0;
     for (const group of product.options) {
@@ -313,6 +340,65 @@ export function Configurator({
               : "Nothing entered yet."}
           </p>
         </fieldset>
+      ) : product.customSize ? (
+          <fieldset>
+            <legend className="field-label">Size and quantity</legend>
+            <input type="hidden" name="decalWidth" value={decalWidth} />
+            <input
+              type="hidden"
+              name="decalHeight"
+              value={isRound || isSquare ? decalWidth : decalHeight}
+            />
+            <input type="hidden" name="quantity" value={decalQuantity} />
+
+            <div className="flex flex-wrap items-end gap-3">
+              <label className="block">
+                <span className="mb-1 block text-xs text-muted">
+                  {isRound ? "Diameter" : isSquare ? "Side" : "Width"}
+                </span>
+                <input
+                  type="number"
+                  min={0.5}
+                  step={0.25}
+                  value={decalWidth}
+                  onChange={(e) => setDecalWidth(e.target.value)}
+                  className="field w-24 tabular-nums"
+                />
+              </label>
+
+              {isRound || isSquare ? null : (
+                <label className="block">
+                  <span className="mb-1 block text-xs text-muted">Height</span>
+                  <input
+                    type="number"
+                    min={0.5}
+                    step={0.25}
+                    value={decalHeight}
+                    onChange={(e) => setDecalHeight(e.target.value)}
+                    className="field w-24 tabular-nums"
+                  />
+                </label>
+              )}
+
+              <span className="pb-2 text-sm text-muted">inches</span>
+
+              <label className="block">
+                <span className="mb-1 block text-xs text-muted">How many</span>
+                <input
+                  type="number"
+                  min={1}
+                  value={decalQuantity}
+                  onChange={(e) => setDecalQuantity(e.target.value)}
+                  className="field w-24 tabular-nums"
+                />
+              </label>
+            </div>
+
+            <p className="mt-2 text-xs text-muted">
+              A car door decal is usually about 20 × 12 inches. Anything wider than{" "}
+              {ROLL_WIDTH_INCHES} inches has to be panelled — ring us.
+            </p>
+          </fieldset>
       ) : (
         <fieldset>
           <legend className="field-label">How many</legend>
@@ -401,7 +487,13 @@ export function Configurator({
       {/* --------------------------------------------------------- the price */}
       <div className="rounded-xl border border-line bg-raise/60 p-4">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
-          {garment ? (
+          {product.customSize ? (
+            <span className="text-sm text-muted">
+              {decalPrice
+                ? describeNesting(decalPrice.nesting)
+                : "That size will not come off the roll — ring us."}
+            </span>
+          ) : garment ? (
             <span className="text-sm text-muted">
               {garmentPrice
                 ? `${garmentPrice.quantity} garments + ${formatCents(garmentPrice.setupCents)} screen setup`
@@ -414,9 +506,23 @@ export function Configurator({
             </span>
           )}
           <span className="text-2xl font-extrabold tabular-nums tracking-tight">
-            {formatCents(garment ? (garmentPrice?.totalCents ?? 0) : priced.lineTotalCents)}
+            {formatCents(
+              product.customSize
+                ? (decalPrice?.totalCents ?? 0) + priced.setupFeeCents
+                : garment
+                  ? (garmentPrice?.totalCents ?? 0)
+                  : priced.lineTotalCents,
+            )}
           </span>
         </div>
+
+        {decalPrice?.minimumApplied ? (
+          <p className="mt-2 text-xs text-muted">
+            Charged at the {formatCents(DECAL_MINIMUM_CENTS)} minimum — a print run
+            costs what it costs whether it is one decal or twenty. More of them at
+            this size cost very little extra.
+          </p>
+        ) : null}
 
         {priced.sheetsUsed > 0 ? (
           <p className="mt-2 text-xs text-muted">
@@ -466,11 +572,20 @@ export function Configurator({
       {signedIn ? (
         <button
           type="submit"
-          disabled={garment !== undefined && garmentPrice === null}
+          disabled={
+            (garment !== undefined && garmentPrice === null) ||
+            (product.customSize === true && decalPrice === null)
+          }
           className="btn-primary w-full sm:w-auto"
         >
           Add to cart —{" "}
-          {formatCents(garment ? (garmentPrice?.totalCents ?? 0) : priced.lineTotalCents)}
+          {formatCents(
+            product.customSize
+              ? (decalPrice?.totalCents ?? 0) + priced.setupFeeCents
+              : garment
+                ? (garmentPrice?.totalCents ?? 0)
+                : priced.lineTotalCents,
+          )}
         </button>
       ) : (
         <div className="flex flex-wrap items-center gap-3">

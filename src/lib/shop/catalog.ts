@@ -23,6 +23,8 @@
  *
  *   Signs            The shop's own sheet prices. Real. The wire stand is the
  *                    one figure still made up.
+ *   Decals           The shop's own: $12 a square foot of roll consumed, $50
+ *                    minimum. Live.
  *   Post cards       Placeholder, until SinaLite's trade cost comes back and
  *   Door hangers     the tables are re-derived as cost doubled plus prep.
  *   T-shirts         The styles are settled — SanMar ATC1000, the three ATCF
@@ -181,6 +183,14 @@ export type Product = {
    * trailer or in the back of a car; nothing about them wants a courier.
    */
   pickupOnly?: boolean;
+  /**
+   * The candidate gives the dimensions and the price is worked out from them.
+   *
+   * Decals only. Everything else in this catalogue is a fixed thing at a fixed
+   * price; a decal is whatever size somebody asks for, and what it costs comes
+   * from how much roll that consumes. See src/lib/shop/decals.ts.
+   */
+  customSize?: boolean;
 };
 
 /**
@@ -672,75 +682,51 @@ export const PRODUCTS: Product[] = [
   {
     slug: "decals",
     name: "Decals",
-    tagline: "Bumpers, tailgates and shop windows",
+    tagline: "Any size, any shape — bumpers, tailgates and shop windows",
     description:
-      "Printed vinyl with an adhesive back. Bumper decals are the cheapest " +
-      "impression a campaign buys and they travel; the larger vehicle and " +
-      "window decals are what goes on a supporter's truck door or a business " +
-      "that has agreed to display one.",
+      "Printed vinyl cut to whatever size and shape you want. Say how big and " +
+      "how many and the price works itself out: decals are nested across a 54 " +
+      "inch roll with an inch between them, and what is charged is the roll that " +
+      "gets used. A car door decal is usually about 20 × 12 inches. Minimum " +
+      "order $50, because a print run costs what it costs whether it is one " +
+      "decal or twenty.",
     icon: "◈",
     leadTimeDays: 6,
-    comingSoon: true,
-    pricingProvisional: true,
+    customSize: true,
+    pickupOnly: true,
     artworkHint:
-      "Vector artwork holds up best at these sizes. Say whether the decal goes " +
-      "on the outside of the glass or the inside — a window decal reading from " +
-      "inside has to be printed reversed.",
+      "Vector artwork holds up best, and it has to be, for anything contour cut " +
+      "— the cutter follows a path, not a picture. Say whether the decal goes on " +
+      "the outside of the glass or the inside, because one of those is printed " +
+      "in reverse.",
     variants: [
       {
-        key: "bumper",
-        name: "3\" × 7.5\" bumper decal",
-        detail: "Printed white vinyl, outdoor adhesive, laminated",
-        setupFeeCents: 2000,
-        minQuantity: 50,
-        breaks: [
-          { quantity: 50, unitPriceCents: 240 },
-          { quantity: 100, unitPriceCents: 185 },
-          { quantity: 250, unitPriceCents: 135 },
-          { quantity: 500, unitPriceCents: 110 },
-        ],
-      },
-      {
-        key: "vehicle-12",
-        name: "12\" × 12\" vehicle decal",
-        detail: "Printed vinyl, laminated, removable adhesive",
-        setupFeeCents: 2000,
-        minQuantity: 10,
-        breaks: [
-          { quantity: 10, unitPriceCents: 1800 },
-          { quantity: 25, unitPriceCents: 1450 },
-          { quantity: 50, unitPriceCents: 1200 },
-        ],
-      },
-      {
-        key: "window-18",
-        name: "18\" × 24\" window decal",
-        detail: "Printed vinyl for a shop window or a truck door",
-        setupFeeCents: 2000,
-        minQuantity: 5,
-        breaks: [
-          { quantity: 5, unitPriceCents: 3900 },
-          { quantity: 15, unitPriceCents: 3300 },
-          { quantity: 30, unitPriceCents: 2850 },
-        ],
+        key: "custom",
+        name: "Cut to your size",
+        detail: "Printed vinyl, laminated, off a 54\" roll",
+        setupFeeCents: 0,
+        minQuantity: 1,
+        breaks: [],
       },
     ],
     options: [
       {
-        key: "surface",
-        label: "Where it goes",
-        hint: "Reverse-printed decals are read through the glass from outside.",
+        key: "shape",
+        label: "Shape",
+        hint: "Round and custom shapes are contour cut; the size you give is the space it takes up.",
         choices: [
-          { value: "OUTSIDE", label: "Outside surface" },
-          { value: "INSIDE_GLASS", label: "Inside the glass, reverse printed (+$0.75 each)", unitSurchargeCents: 75 },
+          { value: "RECTANGLE", label: "Rectangle" },
+          { value: "SQUARE", label: "Square" },
+          { value: "ROUND", label: "Round" },
         ],
       },
       {
-        key: "shape",
-        label: "Cut",
+        key: "surface",
+        label: "Where it goes",
+        hint: "A decal read through glass from outside has to be printed in reverse.",
         choices: [
-          { value: "SQUARE", label: "Square cut" },
-          { value: "CONTOUR", label: "Contour cut to the artwork (+$0.60 each)", unitSurchargeCents: 60 },
+          { value: "OUTSIDE", label: "Outside surface" },
+          { value: "INSIDE_GLASS", label: "Inside the glass, reverse printed" },
         ],
       },
       artworkPrepOption(),
