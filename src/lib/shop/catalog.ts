@@ -21,8 +21,8 @@
  * ---------------------------------------------------------------------------
  * WHICH OF THESE PRICES ARE REAL
  *
- *   Signs            The shop's own sheet prices. Real. The wire stand is the
- *                    one figure still made up.
+ *   Signs            The shop's own sheet prices, and the shop's own $2.10
+ *                    wire stand. Real, all of it.
  *   Decals           The shop's own: $12 a square foot of roll consumed, $50
  *                    minimum. Live.
  *   Post cards       SinaLite's own trade cost, taken off the trade site on
@@ -308,8 +308,17 @@ export function artworkPrepOption(): OptionGroup {
  */
 export const TRADE_FREIGHT_CENTS = 2500;
 
-/** Design service, charged once per order when the shop is doing the artwork. */
-export const DESIGN_FEE_CENTS = 9500;
+/**
+ * Design service, charged once per order when the shop is doing the artwork.
+ *
+ * The same $45 as ARTWORK_PREP_CENTS, but once for the whole order rather than
+ * per line — so a candidate ordering signs and cards pays $45 to have both
+ * designed, and $90 to have their own files fixed up on both. Set by Darren on
+ * 5 September 2026, deliberately: designing it properly the first time is the
+ * cheaper path for the campaign and the easier one for the shop, and the prices
+ * should point that way rather than against it.
+ */
+export const DESIGN_FEE_CENTS = 4500;
 
 /** Ontario HST. Municipal campaign purchases are taxable like any other. */
 export const TAX_RATE = 0.13;
@@ -445,7 +454,9 @@ export const PRODUCTS: Product[] = [
           "under the price.",
         onlyForVariants: ["12x12", "12x16", "16x24"],
         choices: [
-          { value: "WITH", label: "One wire stand per sign (+$2.00 each)", unitSurchargeCents: 200 },
+          // $2.10, set by Darren on 5 September 2026. The shop's own figure, not
+          // a placeholder — it was the last invented number in the price list.
+          { value: "WITH", label: "One wire stand per sign (+$2.10 each)", unitSurchargeCents: 210 },
           { value: "WITHOUT", label: "No stands — I have them" },
         ],
       },

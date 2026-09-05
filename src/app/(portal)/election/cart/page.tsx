@@ -2,7 +2,13 @@ import Link from "next/link";
 import { db } from "@/lib/db";
 import { requireCustomer } from "@/lib/shop/auth";
 import { draftOrderId } from "@/lib/shop/orders";
-import { DESIGN_FEE_CENTS, TAX_LABEL, productBySlug, variantByKey } from "@/lib/shop/catalog";
+import {
+  ARTWORK_PREP_CENTS,
+  DESIGN_FEE_CENTS,
+  TAX_LABEL,
+  productBySlug,
+  variantByKey,
+} from "@/lib/shop/catalog";
 import { formatCents } from "@/lib/money";
 import { removeCartItem, setDesignService, updateCartItem } from "@/app/actions/shop";
 import { EmptyState } from "@/components/ui";
@@ -132,7 +138,10 @@ export default async function CartPage() {
                 <p className="mt-1 text-sm leading-relaxed text-muted">
                   One flat {formatCents(DESIGN_FEE_CENTS)} for the whole order, however many pieces
                   are on it — the point is that the signs, the cards and the shirts look like one
-                  campaign. Leave it off if you are sending print-ready files.
+                  campaign. It is charged once, where setting up artwork you send us is{" "}
+                  {formatCents(ARTWORK_PREP_CENTS)} on each item, so on an order of two or more this
+                  is usually the cheaper way round. Leave it off only if you are sending
+                  print-ready files.
                 </p>
               </div>
               <div className="flex items-center gap-2">
