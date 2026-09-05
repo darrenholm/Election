@@ -177,6 +177,7 @@ export function priceLine(
   const labels: string[] = [];
   let unitSurcharge = 0;
   let flatSurcharge = 0;
+  let percentSurcharge = 0;
 
   const safeQuantity = Math.max(1, Math.round(quantity));
 
@@ -235,6 +236,7 @@ export function priceLine(
     labels.push(choice.label.replace(/\s*\(\+\$[^)]*\)\s*$/, ""));
     unitSurcharge += choice.unitSurchargeCents ?? 0;
     flatSurcharge += choice.flatSurchargeCents ?? 0;
+    percentSurcharge += choice.surchargePercent ?? 0;
   }
 
   const unitPriceCents = baseUnitCents + unitSurcharge;
@@ -244,10 +246,12 @@ export function priceLine(
   // comes to exactly what the sheets cost. Everything not priced by the sheet
   // multiplies out as usual.
   const fixedGoods = sheetGoodsCents ?? lineGoodsCents;
+  // The percentage rides on the printing alone. Not on the setup fee, which is
+  // file work and the same either way, and not on anything charged per piece.
+  const printedGoods =
+    fixedGoods === null ? baseUnitCents * safeQuantity : fixedGoods;
   const goodsCents =
-    fixedGoods === null
-      ? unitPriceCents * safeQuantity
-      : fixedGoods + unitSurcharge * safeQuantity;
+    Math.round(printedGoods * (1 + percentSurcharge / 100)) + unitSurcharge * safeQuantity;
 
   return {
     quantity: safeQuantity,

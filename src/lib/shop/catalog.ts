@@ -56,7 +56,37 @@ export type PriceBreak = {
   quantity: number;
   unitPriceCents: number;
   lineTotalCents?: number;
+  /** What the trade printer charges for this run. Never shown to a candidate. */
+  tradeCostCents?: number;
 };
+
+/**
+ * What the shop adds to a trade printer's price.
+ *
+ * One number, in one place, because it has already changed once mid-flight and
+ * will change again. The catalogue records what SinaLite charge and derives
+ * what the candidate pays, so a new markup is an edit here rather than a dozen
+ * figures retyped — and the cost stays visible for the margin arithmetic.
+ */
+export const PRINT_MARKUP_PERCENT = 50;
+
+/**
+ * A run at a trade cost, marked up.
+ *
+ * The line is the real figure and the per-piece price is derived from it, for
+ * the same reason it is on the sheet-priced signs: 5000 small cards work out at
+ * a fraction of a cent each, and rounding that before multiplying puts the
+ * total tens of dollars out.
+ */
+function tradeRun(quantity: number, tradeCostCents: number): PriceBreak {
+  const lineTotalCents = Math.round(tradeCostCents * (1 + PRINT_MARKUP_PERCENT / 100));
+  return {
+    quantity,
+    tradeCostCents,
+    lineTotalCents,
+    unitPriceCents: Math.round(lineTotalCents / quantity),
+  };
+}
 
 export type Variant = {
   key: string;
@@ -95,6 +125,13 @@ export type OptionChoice = {
   unitSurchargeCents?: number;
   /** Added once to the line. */
   flatSurchargeCents?: number;
+  /**
+   * Added as a percentage of the printed goods — not of the setup fee, and not
+   * of the shipping. Printing the second side of a card costs a proportion of
+   * the job rather than a fixed amount, and a flat figure would be wrong at
+   * both 500 and 5000.
+   */
+  surchargePercent?: number;
 };
 
 export type OptionGroup = {
@@ -207,6 +244,32 @@ export type Product = {
  * print-ready files knows they have them.
  */
 export const ARTWORK_PREP_CENTS = 4500;
+
+/**
+ * Printing the back as well as the front.
+ *
+ * The trade prices this catalogue carries are for 4/0 — printed and coated one
+ * side — and the second side adds 8% to the printing. A percentage rather than
+ * a fixed amount because that is how the press charges it: the second side of
+ * 5000 cards is not the same work as the second side of 500.
+ */
+export const DOUBLE_SIDED_PERCENT = 8;
+
+export function printedSidesOption(): OptionGroup {
+  return {
+    key: "sides",
+    label: "Printed sides",
+    hint: "Most campaign pieces use the back — a platform, a map, a list of dates.",
+    choices: [
+      { value: "SINGLE", label: "Front only" },
+      {
+        value: "DOUBLE",
+        label: `Front and back (+${DOUBLE_SIDED_PERCENT}%)`,
+        surchargePercent: DOUBLE_SIDED_PERCENT,
+      },
+    ],
+  };
+}
 
 export function artworkPrepOption(): OptionGroup {
   return {
@@ -380,8 +443,9 @@ export const PRODUCTS: Product[] = [
     name: "Post cards",
     tagline: "Mailers and hand-outs, printed both sides",
     description:
-      "14pt card, printed full colour on one side with a UV high gloss coating, " +
-      "and trimmed square. The 4.25 × 5.5 is the hand-out — it fits a letterbox, " +
+      "14pt card with a UV high gloss coating, printed full colour on one side " +
+      "or both, and trimmed square. The 4.25 × 5.5 is the hand-out — it fits a " +
+      "letterbox, " +
       "a canvasser's hand and Canada Post's Neighbourhood Mail dimensions. The " +
       "8.5 × 5.5 is the half-page a candidate orders when the piece has to carry " +
       "a platform rather than a name. One stock, because a gloss card is what " +
@@ -393,47 +457,42 @@ export const PRODUCTS: Product[] = [
     pricingProvisional: true,
     quantitiesFixed: true,
     artworkHint:
-      "PDF at 0.125\" bleed. Priced as printed one side; ask if you want the " +
-      "back printed too. The UV coating is glossy and sealed, so nothing can be " +
-      "written on these afterwards.",
-    // Runs and prices are SinaLite's own, taken off the trade site on
-    // 5 September 2026. lineTotalCents is trade cost DOUBLED; the per-piece
-    // figure beside it is that line divided up, for display only, because at
-    // 5000 a rounded unit price puts the total fifty dollars out.
-    //
-    // TO CONFIRM: that those figures are cost rather than retail, and the
-    // file-prep fee below.
+      "PDF at 0.125\" bleed — both sides if you are having the back printed. The " +
+      "UV coating is glossy and sealed, so nothing can be written on these " +
+      "afterwards.",
+    // Runs and costs are SinaLite's own, off the trade site on 5 September 2026.
+    // What a candidate pays is derived from them by PRINT_MARKUP_PERCENT.
     variants: [
       {
         key: "4.25x5.5",
         name: '4.25" × 5.5" hand-out',
-        detail: "14pt card, full colour one side, UV high gloss",
+        detail: "14pt card, UV high gloss",
         setupFeeCents: 0,
         minQuantity: 500,
         breaks: [
-          { quantity: 500, unitPriceCents: 18, lineTotalCents: 8790 },
-          { quantity: 1000, unitPriceCents: 10, lineTotalCents: 9760 },
-          { quantity: 2500, unitPriceCents: 8, lineTotalCents: 19550 },
-          { quantity: 5000, unitPriceCents: 7, lineTotalCents: 33600 },
+          tradeRun(500, 4395),
+          tradeRun(1000, 4880),
+          tradeRun(2500, 9775),
+          tradeRun(5000, 16800),
         ],
       },
       {
         key: "8.5x5.5",
         name: '8.5" × 5.5" half page',
-        detail: "14pt card, full colour one side, UV high gloss",
+        detail: "14pt card, UV high gloss",
         setupFeeCents: 0,
         minQuantity: 500,
         breaks: [
-          { quantity: 500, unitPriceCents: 29, lineTotalCents: 14500 },
-          { quantity: 1000, unitPriceCents: 19, lineTotalCents: 18680 },
-          { quantity: 2500, unitPriceCents: 16, lineTotalCents: 39100 },
-          { quantity: 5000, unitPriceCents: 12, lineTotalCents: 58300 },
+          tradeRun(500, 7250),
+          tradeRun(1000, 9340),
+          tradeRun(2500, 19550),
+          tradeRun(5000, 29150),
         ],
       },
     ],
     // No coating choice: the shop buys one stock for these, and offering a
     // finish it does not buy would take an order it cannot place.
-    options: [artworkPrepOption()],
+    options: [printedSidesOption(), artworkPrepOption()],
   },
   {
     slug: "door-hangers",
@@ -451,8 +510,8 @@ export const PRODUCTS: Product[] = [
     artworkHint:
       "PDF at 0.125\" bleed. Keep the top 1.5\" clear of anything that matters — " +
       "that is where the die cuts the hole.",
-    // SinaLite's runs and prices, 5 September 2026. lineTotalCents is their
-    // cost doubled; the per-piece figure is that line divided up, for display.
+    // SinaLite's runs and costs, 5 September 2026, marked up by
+    // PRINT_MARKUP_PERCENT.
     variants: [
       {
         key: "8.5x3.5",
@@ -461,14 +520,14 @@ export const PRODUCTS: Product[] = [
         setupFeeCents: 0,
         minQuantity: 250,
         breaks: [
-          { quantity: 250, unitPriceCents: 56, lineTotalCents: 14044 },
-          { quantity: 500, unitPriceCents: 41, lineTotalCents: 20394 },
-          { quantity: 1000, unitPriceCents: 23, lineTotalCents: 22608 },
-          { quantity: 2500, unitPriceCents: 16, lineTotalCents: 39510 },
+          tradeRun(250, 7022),
+          tradeRun(500, 10197),
+          tradeRun(1000, 11304),
+          tradeRun(2500, 19755),
         ],
       },
     ],
-    options: [artworkPrepOption()],
+    options: [printedSidesOption(), artworkPrepOption()],
   },
   {
     slug: "t-shirts",
