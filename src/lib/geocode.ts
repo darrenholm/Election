@@ -264,17 +264,20 @@ async function geocodeWithNominatim(
   const viewbox = await municipalityViewbox(parts.municipality);
   const street = [parts.streetNumber, parts.streetName].filter(Boolean).join(" ").trim();
 
+  const cached = cachedRoad(parts);
+  if (cached) return cached;
+
+  // The town on a rural row is where the post is delivered, not where the
+  // house is: half of West Grey collects its mail in Hanover, which is a
+  // different municipality. Sending that as `city` made OpenStreetMap return
+  // nothing at all, so the municipality's bounding box does the narrowing
+  // instead and the town is left out.
   const attempts: NominatimQuery[] = [];
   if (street !== "") {
     if (parts.postalCode.trim() !== "") {
-      attempts.push({
-        street,
-        city: parts.city,
-        state: "Ontario",
-        postalcode: parts.postalCode,
-      });
+      attempts.push({ street, state: "Ontario", postalcode: parts.postalCode });
     }
-    attempts.push({ street, city: parts.city, state: "Ontario" });
+    attempts.push({ street, state: "Ontario" });
   }
   attempts.push({ q: freeform });
 
@@ -294,16 +297,81 @@ async function geocodeWithNominatim(
     const lng = Number(best.lon);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
 
-    return {
+    const precision = nominatimPrecision(best, parts.streetNumber);
+    const outcome: GeocodeOutcome = {
       ok: true,
       latitude: lat,
       longitude: lng,
-      precision: nominatimPrecision(best, parts.streetNumber),
+      precision,
       formatted: best.display_name ?? "",
     };
+    rememberRoad(parts, outcome);
+    return outcome;
   }
 
   return { ok: false, reason: lastError };
+}
+
+/* ------------------------------------------------- learning a road is bare */
+
+/**
+ * OpenStreetMap has the concession roads and sideroads of rural Ontario but
+ * almost none of the fire numbers along them, so every house on 10th Sideroad
+ * comes back as the road itself. Once three houses in a row on the same road
+ * have answered that way, we stop asking: the rest of that road is given the
+ * same point, marked as a rough location, at no cost in lookups.
+ *
+ * That is the difference between eleven hours and half of one on a list this
+ * size, and it loses nothing — a road-centre pin was all the next thousand
+ * lookups were ever going to return.
+ */
+type Road = { latitude: number; longitude: number; formatted: string; misses: number };
+
+const roads = new Map<string, Road>();
+
+/** Three in a row is enough to call it; one odd address is not. */
+const BARE_ROAD_AFTER = 3;
+
+function roadKey(parts: AddressParts): string {
+  return `${parts.municipality}|${parts.streetName.trim().toLowerCase()}`;
+}
+
+function cachedRoad(parts: AddressParts): GeocodeOutcome | null {
+  const road = roads.get(roadKey(parts));
+  if (!road || road.misses < BARE_ROAD_AFTER) return null;
+
+  return {
+    ok: true,
+    latitude: road.latitude,
+    longitude: road.longitude,
+    precision: "GEOMETRIC_CENTER",
+    formatted: road.formatted,
+  };
+}
+
+function rememberRoad(parts: AddressParts, outcome: GeocodeOutcome): void {
+  if (!outcome.ok || parts.streetName.trim() === "") return;
+
+  const key = roadKey(parts);
+
+  // A real house number on this road means the road is mapped after all, so
+  // forget any earlier run of misses and keep asking.
+  if (outcome.precision === "ROOFTOP" || outcome.precision === "RANGE_INTERPOLATED") {
+    roads.delete(key);
+    return;
+  }
+
+  // Only a genuine road centre is worth reusing. APPROXIMATE is a village or a
+  // postal district, which says nothing about where this road runs.
+  if (outcome.precision !== "GEOMETRIC_CENTER") return;
+
+  const previous = roads.get(key);
+  roads.set(key, {
+    latitude: outcome.latitude,
+    longitude: outcome.longitude,
+    formatted: outcome.formatted,
+    misses: (previous?.misses ?? 0) + 1,
+  });
 }
 
 /* -------------------------------------------------------------- public api */
