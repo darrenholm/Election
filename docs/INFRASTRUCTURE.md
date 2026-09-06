@@ -90,7 +90,7 @@ preserving in anything new.
 | Meta | Facebook posting | `src/lib/facebook.ts` | Plan and drafts work, publishing records what would have gone |
 | SinaLite | Trade printing — cards, hangers | `src/lib/shop/sinalite.ts` | Quotes marked dry-run; jobs are placed by hand in the queue instead |
 | SanMar | Garment costs, colours, sizes | `src/lib/shop/sanmar.ts` | Data comes in from a CSV export instead |
-| Google | Geocoding | `src/lib/geocode.ts` | Not needed when the address file carries coordinates |
+| Google | Geocoding | `src/lib/geocode.ts` | Falls back to Nominatim (OpenStreetMap) — free, but one lookup a second and weaker on rural addresses |
 
 ## Adding something — the checks that catch mistakes
 
