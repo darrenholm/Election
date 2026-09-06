@@ -40,6 +40,44 @@ for (let i = 0; i < argv.length; i++) {
 /** The precisions worth looking up again. Anything else is trusted. */
 const ROUGH = ["GEOMETRIC_CENTER", "APPROXIMATE", ""];
 
+/**
+ * Precision is not the only way to be wrong. Google will report a street it
+ * found in another town at full ROOFTOP confidence — "115 George Street,
+ * Durham" resolves exactly, in Durham Region, three hours away — and those
+ * pins survived the first pass because nothing about them looked vague.
+ *
+ * So also take anything sitting outside the municipality's own bounding box.
+ * The box comes from OpenStreetMap, is free, and is asked for once.
+ */
+const MARGIN_DEGREES = 0.03; // roughly 3km, for a house just over the line
+
+type Box = { minLat: number; maxLat: number; minLon: number; maxLon: number };
+
+async function municipalityBox(name: string): Promise<Box | null> {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("q", `${name}, Ontario, Canada`);
+  url.searchParams.set("format", "jsonv2");
+  url.searchParams.set("countrycodes", "ca");
+  url.searchParams.set("limit", "1");
+
+  const response = await fetch(url, {
+    headers: { "User-Agent": "ElectionManager/1.0 (+https://electionmgr.ca)" },
+  });
+  if (!response.ok) return null;
+
+  const hit = (await response.json())[0] as { boundingbox?: string[] } | undefined;
+  const box = hit?.boundingbox;
+  if (!box || box.length !== 4) return null;
+
+  // Nominatim orders it [minLat, maxLat, minLon, maxLon].
+  return {
+    minLat: Number(box[0]) - MARGIN_DEGREES,
+    maxLat: Number(box[1]) + MARGIN_DEGREES,
+    minLon: Number(box[2]) - MARGIN_DEGREES,
+    maxLon: Number(box[3]) + MARGIN_DEGREES,
+  };
+}
+
 async function main() {
   const municipalities = await db.municipality.findMany({
     where: wanted.length > 0 ? { name: { in: wanted } } : undefined,
@@ -78,24 +116,54 @@ async function main() {
       console.log(`  ${label.padEnd(18)} ${row._count._all.toLocaleString("en-CA")}`);
     }
 
-    if (rough === 0) {
+    // Anything placed outside the municipality, however confidently.
+    const box = await municipalityBox(municipality.name);
+    let strays: string[] = [];
+
+    if (box === null) {
+      console.log("  (could not read this municipality's boundary — skipping the distance check)");
+    } else {
+      const outside = await db.household.findMany({
+        where: {
+          municipalityId: municipality.id,
+          geocodeStatus: "OK",
+          geocodePrecision: { notIn: ROUGH },
+          OR: [
+            { latitude: { lt: box.minLat } },
+            { latitude: { gt: box.maxLat } },
+            { longitude: { lt: box.minLon } },
+            { longitude: { gt: box.maxLon } },
+          ],
+        },
+        select: { id: true, streetNumber: true, streetName: true, city: true },
+      });
+
+      strays = outside.map((h) => h.id);
+      console.log(`  outside the municipality  ${outside.length.toLocaleString("en-CA")}`);
+      for (const h of outside.slice(0, 5)) {
+        console.log(`    e.g. ${h.streetNumber} ${h.streetName}, ${h.city}`.replace(/\s+/g, " "));
+      }
+    }
+
+    if (rough === 0 && strays.length === 0) {
       console.log("  nothing to requeue");
       continue;
     }
 
-    total += rough;
+    total += rough + strays.length;
 
     if (apply) {
-      await db.household.updateMany({
-        where,
-        data: {
-          geocodeStatus: "PENDING",
-          geocodePrecision: "",
-          latitude: null,
-          longitude: null,
-        },
-      });
-      console.log(`  requeued ${rough.toLocaleString("en-CA")}`);
+      const cleared = {
+        geocodeStatus: "PENDING",
+        geocodePrecision: "",
+        latitude: null,
+        longitude: null,
+      };
+      await db.household.updateMany({ where, data: cleared });
+      if (strays.length > 0) {
+        await db.household.updateMany({ where: { id: { in: strays } }, data: cleared });
+      }
+      console.log(`  requeued ${(rough + strays.length).toLocaleString("en-CA")}`);
     }
   }
 
