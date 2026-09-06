@@ -47,34 +47,46 @@ const ROUGH = ["GEOMETRIC_CENTER", "APPROXIMATE", ""];
  * pins survived the first pass because nothing about them looked vague.
  *
  * So also take anything sitting outside the municipality's own bounding box.
- * The box comes from OpenStreetMap, is free, and is asked for once.
  */
-const MARGIN_DEGREES = 0.03; // roughly 3km, for a house just over the line
+const MARGIN_DEGREES = 0.05; // roughly 5km, for a house out past the last one
 
 type Box = { minLat: number; maxLat: number; minLon: number; maxLon: number };
 
-async function municipalityBox(name: string): Promise<Box | null> {
-  const url = new URL("https://nominatim.openstreetmap.org/search");
-  url.searchParams.set("q", `${name}, Ontario, Canada`);
-  url.searchParams.set("format", "jsonv2");
-  url.searchParams.set("countrycodes", "ca");
-  url.searchParams.set("limit", "1");
-
-  const response = await fetch(url, {
-    headers: { "User-Agent": "ElectionManager/1.0 (+https://electionmgr.ca)" },
+/**
+ * Where the municipality is, according to its own doors.
+ *
+ * Asking OpenStreetMap for the boundary was the obvious approach and it is a
+ * trap: "Brockton, Ontario" returns Brockton Village in Toronto, and the check
+ * then condemned 8,608 of Brockton's 8,744 correctly-placed households. A name
+ * that is also a neighbourhood somewhere else will do that again.
+ *
+ * The addresses Google matched to a rooftop are a better authority and cost
+ * nothing to read. Trim the outermost one per cent at each edge so a single
+ * bad pin cannot stretch the box around itself, then allow 5km beyond that.
+ */
+async function municipalityBox(id: string): Promise<Box | null> {
+  const anchors = await db.household.findMany({
+    where: {
+      municipalityId: id,
+      geocodeStatus: { in: ["OK", "MANUAL"] },
+      geocodePrecision: { in: ["ROOFTOP", "RANGE_INTERPOLATED"] },
+      latitude: { not: null },
+    },
+    select: { latitude: true, longitude: true },
   });
-  if (!response.ok) return null;
 
-  const hit = (await response.json())[0] as { boundingbox?: string[] } | undefined;
-  const box = hit?.boundingbox;
-  if (!box || box.length !== 4) return null;
+  // Too few to say anything about a shape.
+  if (anchors.length < 50) return null;
 
-  // Nominatim orders it [minLat, maxLat, minLon, maxLon].
+  const lats = anchors.map((a) => a.latitude as number).sort((a, b) => a - b);
+  const lons = anchors.map((a) => a.longitude as number).sort((a, b) => a - b);
+  const edge = Math.floor(anchors.length / 100);
+
   return {
-    minLat: Number(box[0]) - MARGIN_DEGREES,
-    maxLat: Number(box[1]) + MARGIN_DEGREES,
-    minLon: Number(box[2]) - MARGIN_DEGREES,
-    maxLon: Number(box[3]) + MARGIN_DEGREES,
+    minLat: lats[edge] - MARGIN_DEGREES,
+    maxLat: lats[lats.length - 1 - edge] + MARGIN_DEGREES,
+    minLon: lons[edge] - MARGIN_DEGREES,
+    maxLon: lons[lons.length - 1 - edge] + MARGIN_DEGREES,
   };
 }
 
@@ -117,11 +129,11 @@ async function main() {
     }
 
     // Anything placed outside the municipality, however confidently.
-    const box = await municipalityBox(municipality.name);
+    const box = await municipalityBox(municipality.id);
     let strays: string[] = [];
 
     if (box === null) {
-      console.log("  (could not read this municipality's boundary — skipping the distance check)");
+      console.log("  (too few exact addresses to judge a boundary — skipping the distance check)");
     } else {
       const outside = await db.household.findMany({
         where: {
