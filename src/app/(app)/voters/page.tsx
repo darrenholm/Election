@@ -5,8 +5,21 @@ import { db } from "@/lib/db";
 import { stateOf } from "@/lib/voter-state";
 import { SUPPORT_LEVEL_OPTIONS } from "@/lib/enums";
 import { formatDate } from "@/lib/dates";
-import { Badge, Card, EmptyState, PageHeader, Table, Td, Th } from "@/components/ui";
-import { SupportBadge, VoterLink, addressLine, titleCase } from "@/components/voter";
+import {
+  Badge,
+  Card,
+  EmptyState,
+  PageHeader,
+  Table,
+  Td,
+  Th,
+} from "@/components/ui";
+import {
+  SupportBadge,
+  VoterLink,
+  addressLine,
+  titleCase,
+} from "@/components/voter";
 import { normaliseStreet } from "@/lib/address";
 import { getActiveCampaign } from "@/lib/campaign";
 
@@ -28,8 +41,13 @@ type Search = {
  * Named slices of the file. Most are about what THIS campaign thinks, so they
  * filter on its VoterCampaignState row; "needs-id" is the absence of one.
  */
-function flagWhere(key: string, campaignId: string): Prisma.VoterWhereInput | null {
-  const state = (where: Prisma.VoterCampaignStateWhereInput): Prisma.VoterWhereInput => ({
+function flagWhere(
+  key: string,
+  campaignId: string,
+): Prisma.VoterWhereInput | null {
+  const state = (
+    where: Prisma.VoterCampaignStateWhereInput,
+  ): Prisma.VoterWhereInput => ({
     campaignStates: { some: { campaignId, ...where } },
   });
 
@@ -93,7 +111,9 @@ export default async function VotersPage({
   if (!campaign) redirect("/campaigns");
   const campaignId = campaign.id;
 
-  const where: Prisma.VoterWhereInput = { AND: [{ municipalityId: campaign.municipalityId }] };
+  const where: Prisma.VoterWhereInput = {
+    AND: [{ municipalityId: campaign.municipalityId }],
+  };
   const and = where.AND as Prisma.VoterWhereInput[];
 
   if (q) {
@@ -108,33 +128,60 @@ export default async function VotersPage({
         { email: { contains: q, mode: "insensitive" } },
         {
           household: {
-            is: { streetName: { contains: normaliseStreet(q), mode: "insensitive" } },
+            is: {
+              streetName: { contains: normaliseStreet(q), mode: "insensitive" },
+            },
           },
         },
       ],
     });
   }
   if (ward) and.push({ household: { is: { ward } } });
-  if (street) and.push({ household: { is: { streetName: normaliseStreet(street) } } });
+  if (street)
+    and.push({ household: { is: { streetName: normaliseStreet(street) } } });
   if (supportValues.length > 0) {
-    and.push({ campaignStates: { some: { campaignId, supportLevel: { in: supportValues } } } });
+    and.push({
+      campaignStates: {
+        some: { campaignId, supportLevel: { in: supportValues } },
+      },
+    });
   }
   const flagFilter = flag ? flagWhere(flag, campaignId) : null;
   if (flagFilter) and.push(flagFilter);
 
+  // Looking at one street is walking it, so order by house number rather than
+  // surname. It cannot be done in the query: streetNumber is text, because a
+  // civic address is "12A" and "242-244" as often as it is a plain number, and
+  // the database would sort 10 before 9. One street is small enough to read in
+  // full and order here instead.
+  const byHouseNumber = street !== "";
+
   const [total, voters, wards] = await Promise.all([
     db.voter.count({ where }),
-    db.voter.findMany({
-      where,
-      include: {
-        household: true,
-        campaignStates: { where: { campaignId } },
-        contacts: { where: { campaignId }, orderBy: { occurredAt: "desc" }, take: 1 },
-      },
-      orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
-      skip: (page - 1) * PAGE_SIZE,
-      take: PAGE_SIZE,
-    }),
+    db.voter
+      .findMany({
+        where,
+        include: {
+          household: true,
+          campaignStates: { where: { campaignId } },
+          contacts: {
+            where: { campaignId },
+            orderBy: { occurredAt: "desc" },
+            take: 1,
+          },
+        },
+        orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+        ...(byHouseNumber
+          ? {}
+          : { skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
+      })
+      .then((rows) =>
+        byHouseNumber
+          ? rows
+              .sort(compareByHouseNumber)
+              .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+          : rows,
+      ),
     db.household.findMany({
       where: { municipalityId: campaign.municipalityId, NOT: { ward: "" } },
       distinct: ["ward"],
@@ -261,41 +308,60 @@ export default async function VotersPage({
                 {voters.map((voter) => {
                   const state = stateOf(voter.campaignStates[0]);
                   return (
-                  <tr key={voter.id} className="hover:bg-raise">
-                    <Td>
-                      <VoterLink
-                        id={voter.id}
-                        firstName={voter.firstName}
-                        lastName={voter.lastName}
-                      />
-                      <div className="mt-1 flex flex-wrap gap-1">
-                        {state.doNotContact ? <Badge tone="bad">Do not contact</Badge> : null}
-                        {voter.movedAway ? <Badge tone="warn">Moved</Badge> : null}
-                        {voter.deceased ? <Badge tone="neutral">Deceased</Badge> : null}
-                        {state.wantsSign ? <Badge tone="brand">Sign</Badge> : null}
-                        {state.wantsToVolunteer ? <Badge tone="good">Volunteer</Badge> : null}
-                      </div>
-                    </Td>
-                    <Td className="text-muted">
-                      {addressLine(voter.household)}
-                      {campaign.municipality.usesWards && voter.household?.ward ? (
-                        <span className="block text-xs">{voter.household.ward}</span>
-                      ) : null}
-                    </Td>
-                    <Td>
-                      <SupportBadge level={state.supportLevel} />
-                    </Td>
-                    <Td className="text-muted">
-                      {voter.phone ? <span className="block">{voter.phone}</span> : null}
-                      {voter.email ? (
-                        <span className="block truncate text-xs">{voter.email}</span>
-                      ) : null}
-                      {!voter.phone && !voter.email ? "—" : null}
-                    </Td>
-                    <Td className="text-muted">
-                      {voter.contacts[0] ? formatDate(voter.contacts[0].occurredAt) : "Never"}
-                    </Td>
-                  </tr>
+                    <tr key={voter.id} className="hover:bg-raise">
+                      <Td>
+                        <VoterLink
+                          id={voter.id}
+                          firstName={voter.firstName}
+                          lastName={voter.lastName}
+                        />
+                        <div className="mt-1 flex flex-wrap gap-1">
+                          {state.doNotContact ? (
+                            <Badge tone="bad">Do not contact</Badge>
+                          ) : null}
+                          {voter.movedAway ? (
+                            <Badge tone="warn">Moved</Badge>
+                          ) : null}
+                          {voter.deceased ? (
+                            <Badge tone="neutral">Deceased</Badge>
+                          ) : null}
+                          {state.wantsSign ? (
+                            <Badge tone="brand">Sign</Badge>
+                          ) : null}
+                          {state.wantsToVolunteer ? (
+                            <Badge tone="good">Volunteer</Badge>
+                          ) : null}
+                        </div>
+                      </Td>
+                      <Td className="text-muted">
+                        {addressLine(voter.household)}
+                        {campaign.municipality.usesWards &&
+                        voter.household?.ward ? (
+                          <span className="block text-xs">
+                            {voter.household.ward}
+                          </span>
+                        ) : null}
+                      </Td>
+                      <Td>
+                        <SupportBadge level={state.supportLevel} />
+                      </Td>
+                      <Td className="text-muted">
+                        {voter.phone ? (
+                          <span className="block">{voter.phone}</span>
+                        ) : null}
+                        {voter.email ? (
+                          <span className="block truncate text-xs">
+                            {voter.email}
+                          </span>
+                        ) : null}
+                        {!voter.phone && !voter.email ? "—" : null}
+                      </Td>
+                      <Td className="text-muted">
+                        {voter.contacts[0]
+                          ? formatDate(voter.contacts[0].occurredAt)
+                          : "Never"}
+                      </Td>
+                    </tr>
                   );
                 })}
               </tbody>
@@ -366,4 +432,53 @@ function PageLink({
 function toArray(value: string | string[] | undefined): string[] {
   if (value === undefined) return [];
   return Array.isArray(value) ? value : [value];
+}
+
+/**
+ * Order two people by where they live: house number, then unit, then name.
+ *
+ * The number is read off the front so "12A" sorts with 12 and a range like
+ * "242-244" sorts at 242. Anything with no number at all — a rural lot
+ * description — goes last, where it does not interrupt a walk up the street.
+ */
+function compareByHouseNumber(
+  a: {
+    lastName: string;
+    firstName: string;
+    household: { streetNumber: string; unit: string } | null;
+  },
+  b: {
+    lastName: string;
+    firstName: string;
+    household: { streetNumber: string; unit: string } | null;
+  },
+): number {
+  const number = (value: string | undefined) => {
+    const digits = /^\s*(\d+)/.exec(value ?? "");
+    return digits ? Number(digits[1]) : Number.POSITIVE_INFINITY;
+  };
+
+  const left = number(a.household?.streetNumber);
+  const right = number(b.household?.streetNumber);
+  if (left !== right) {
+    // One of them has no number. Send it to the end rather than letting
+    // Infinity arithmetic decide.
+    if (!Number.isFinite(left)) return 1;
+    if (!Number.isFinite(right)) return -1;
+    return left - right;
+  }
+
+  const byUnit = (a.household?.unit ?? "").localeCompare(
+    b.household?.unit ?? "",
+    "en-CA",
+    {
+      numeric: true,
+    },
+  );
+  if (byUnit !== 0) return byUnit;
+
+  return (
+    a.lastName.localeCompare(b.lastName, "en-CA") ||
+    a.firstName.localeCompare(b.firstName, "en-CA")
+  );
 }
