@@ -40,7 +40,13 @@ const USER_AGENT = "ElectionManager/1.0 (+https://electionmgr.ca)";
 const MAX_BATCH: Record<Provider, number> = { google: 50, nominatim: 10 };
 
 export type GeocodeOutcome =
-  | { ok: true; latitude: number; longitude: number; precision: string; formatted: string }
+  | {
+      ok: true;
+      latitude: number;
+      longitude: number;
+      precision: string;
+      formatted: string;
+    }
   | { ok: false; reason: string };
 
 function provider(): Provider {
@@ -94,7 +100,9 @@ type GoogleResponse = {
  * West Grey, Hanover, Grey Highlands. Locality stands in when Google gives no
  * admin level, which happens on the vaguest answers of all.
  */
-function googleMunicipality(components: { long_name?: string; types?: string[] }[]): string {
+function googleMunicipality(
+  components: { long_name?: string; types?: string[] }[],
+): string {
   const at = (type: string) =>
     components.find((c) => c.types?.includes(type))?.long_name ?? "";
   return at("administrative_area_level_3") || at("locality");
@@ -105,12 +113,18 @@ function sameMunicipality(a: string, b: string): boolean {
   const bare = (s: string) =>
     s
       .toLowerCase()
-      .replace(/\b(the\s+)?(municipality|township|town|village|city|county)\s+of\s+/g, "")
+      .replace(
+        /\b(the\s+)?(municipality|township|town|village|city|county)\s+of\s+/g,
+        "",
+      )
       .replace(/[^a-z]/g, "");
   return bare(a) === bare(b);
 }
 
-async function geocodeWithGoogle(address: string, municipality: string): Promise<GeocodeOutcome> {
+async function geocodeWithGoogle(
+  address: string,
+  municipality: string,
+): Promise<GeocodeOutcome> {
   const key = process.env.GOOGLE_GEOCODING_API_KEY;
   if (!key) return { ok: false, reason: "GOOGLE_GEOCODING_API_KEY is not set" };
 
@@ -127,7 +141,10 @@ async function geocodeWithGoogle(address: string, municipality: string): Promise
   try {
     response = await fetch(url, { cache: "no-store" });
   } catch (error) {
-    return { ok: false, reason: error instanceof Error ? error.message : "Network error" };
+    return {
+      ok: false,
+      reason: error instanceof Error ? error.message : "Network error",
+    };
   }
 
   if (!response.ok) {
@@ -156,7 +173,11 @@ async function geocodeWithGoogle(address: string, municipality: string): Promise
   // names the municipality it actually landed in, so ask it, and refuse an
   // answer that belongs to somewhere else. No pin beats a confident wrong one.
   const landedIn = googleMunicipality(best?.address_components ?? []);
-  if (municipality !== "" && landedIn !== "" && !sameMunicipality(landedIn, municipality)) {
+  if (
+    municipality !== "" &&
+    landedIn !== "" &&
+    !sameMunicipality(landedIn, municipality)
+  ) {
     return { ok: false, reason: `Landed in ${landedIn}, not ${municipality}` };
   }
 
@@ -241,11 +262,15 @@ async function nominatimSearch(
  * without it, or with a different one, we have been given the street rather
  * than the house and should say so.
  */
-function nominatimPrecision(hit: NominatimResult, expectedNumber?: string): string {
+function nominatimPrecision(
+  hit: NominatimResult,
+  expectedNumber?: string,
+): string {
   // Address interpolation: a guess along a range, not a surveyed point.
   // ("houses", plural — a real address point comes back as "house".)
   const category = hit.category ?? hit.class;
-  if (category === "place" && hit.type === "houses") return "RANGE_INTERPOLATED";
+  if (category === "place" && hit.type === "houses")
+    return "RANGE_INTERPOLATED";
 
   const rank = hit.place_rank ?? 0;
   const gotNumber = (hit.address?.house_number ?? "").trim();
@@ -280,7 +305,9 @@ async function municipalityViewbox(name: string): Promise<string | undefined> {
     // lon,lat,lon,lat.
     municipalityBoxes.set(
       key,
-      box && box.length === 4 ? `${box[2]},${box[0]},${box[3]},${box[1]}` : null,
+      box && box.length === 4
+        ? `${box[2]},${box[0]},${box[3]},${box[1]}`
+        : null,
     );
   }
 
@@ -297,7 +324,10 @@ async function geocodeWithNominatim(
   freeform: string,
 ): Promise<GeocodeOutcome> {
   const viewbox = await municipalityViewbox(parts.municipality);
-  const street = [parts.streetNumber, parts.streetName].filter(Boolean).join(" ").trim();
+  const street = [parts.streetNumber, parts.streetName]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
 
   const cached = cachedRoad(parts);
   if (cached) return cached;
@@ -360,7 +390,12 @@ async function geocodeWithNominatim(
  * size, and it loses nothing — a road-centre pin was all the next thousand
  * lookups were ever going to return.
  */
-type Road = { latitude: number; longitude: number; formatted: string; misses: number };
+type Road = {
+  latitude: number;
+  longitude: number;
+  formatted: string;
+  misses: number;
+};
 
 const roads = new Map<string, Road>();
 
@@ -391,7 +426,10 @@ function rememberRoad(parts: AddressParts, outcome: GeocodeOutcome): void {
 
   // A real house number on this road means the road is mapped after all, so
   // forget any earlier run of misses and keep asking.
-  if (outcome.precision === "ROOFTOP" || outcome.precision === "RANGE_INTERPOLATED") {
+  if (
+    outcome.precision === "ROOFTOP" ||
+    outcome.precision === "RANGE_INTERPOLATED"
+  ) {
     roads.delete(key);
     return;
   }
@@ -464,9 +502,12 @@ export function householdAddress(household: {
 }): string {
   // The unit is deliberately left out: apartment numbers confuse the geocoder
   // and every unit in a building shares the same point anyway.
-  const street = [household.streetNumber, household.streetName].filter(Boolean).join(" ");
+  const street = [household.streetNumber, household.streetName]
+    .filter(Boolean)
+    .join(" ");
   const municipality =
-    household.municipality && household.municipality.trim() !== household.city.trim()
+    household.municipality &&
+    household.municipality.trim() !== household.city.trim()
       ? household.municipality
       : "";
 
@@ -490,9 +531,21 @@ export type GeocodeRunResult = {
  * resumed — 2,000 rural addresses is a long job and nobody should have to hold
  * a browser tab open for all of it in one go.
  */
-export async function geocodeHouseholdBatch(limit = 50): Promise<GeocodeRunResult> {
+export async function geocodeHouseholdBatch(
+  limit = 50,
+  municipalityId?: string,
+): Promise<GeocodeRunResult> {
+  // Scoped to one municipality: a Brockton manager should neither see nor pay
+  // for West Grey's queue, and the two are separate lists of doors that happen
+  // to share an install.
+  const scope = {
+    geocodeStatus: "PENDING",
+    NOT: { streetName: "" },
+    municipalityId,
+  };
+
   const pending = await db.household.findMany({
-    where: { geocodeStatus: "PENDING", NOT: { streetName: "" } },
+    where: scope,
     take: Math.min(limit, MAX_BATCH[provider()]),
     orderBy: { streetName: "asc" },
     include: { municipality: { select: { name: true } } },
@@ -542,17 +595,24 @@ export async function geocodeHouseholdBatch(limit = 50): Promise<GeocodeRunResul
     }
   }
 
-  result.remaining = await db.household.count({
-    where: { geocodeStatus: "PENDING", NOT: { streetName: "" } },
-  });
+  result.remaining = await db.household.count({ where: scope });
 
   return result;
 }
 
 /** The same, for sign requests, whose addresses are typed free-form. */
-export async function geocodeSignBatch(limit = 50): Promise<GeocodeRunResult> {
+export async function geocodeSignBatch(
+  limit = 50,
+  campaignId?: string,
+): Promise<GeocodeRunResult> {
+  const scope = {
+    geocodeStatus: "PENDING",
+    NOT: { addressLine: "" },
+    campaignId,
+  };
+
   const pending = await db.signRequest.findMany({
-    where: { geocodeStatus: "PENDING", NOT: { addressLine: "" } },
+    where: scope,
     take: Math.min(limit, MAX_BATCH[provider()]),
     include: {
       campaign: { select: { municipality: { select: { name: true } } } },
@@ -610,13 +670,12 @@ export async function geocodeSignBatch(limit = 50): Promise<GeocodeRunResult> {
         data: { geocodeStatus: "FAILED", geocodedAt: new Date() },
       });
       result.failed++;
-      if (result.errors.length < 10) result.errors.push(`${address} — ${outcome.reason}`);
+      if (result.errors.length < 10)
+        result.errors.push(`${address} — ${outcome.reason}`);
     }
   }
 
-  result.remaining = await db.signRequest.count({
-    where: { geocodeStatus: "PENDING", NOT: { addressLine: "" } },
-  });
+  result.remaining = await db.signRequest.count({ where: scope });
 
   return result;
 }

@@ -14,22 +14,42 @@ import { titleCase } from "@/components/voter";
 export const dynamic = "force-dynamic";
 
 export default async function MapPage() {
-  const [payload, campaign, pendingHouseholds, pendingSigns, failedHouseholds, failedSigns, turfs] =
-    await Promise.all([
-      getMapPayload(),
-      getActiveCampaign(),
-      db.household.count({ where: { geocodeStatus: "PENDING", NOT: { streetName: "" } } }),
-      db.signRequest.count({ where: { geocodeStatus: "PENDING", NOT: { addressLine: "" } } }),
-      db.household.count({ where: { geocodeStatus: "FAILED" } }),
-      db.signRequest.count({ where: { geocodeStatus: "FAILED" } }),
-      db.turf.findMany({
-        where: { status: { not: "COMPLETE" } },
-        include: { _count: { select: { households: true } } },
-        orderBy: [{ plannedFor: "asc" }, { name: "asc" }],
-      }),
-    ]);
-
+  const campaign = await getActiveCampaign();
   if (!campaign) redirect("/campaigns");
+
+  // Every count here is this campaign's own. Municipalities share an install,
+  // and a Brockton manager was being shown West Grey's 611 unplaced addresses
+  // alongside their own 55, with a button offering to re-run the lot.
+  const inTown = { municipalityId: campaign.municipalityId };
+  const [
+    payload,
+    pendingHouseholds,
+    pendingSigns,
+    failedHouseholds,
+    failedSigns,
+    turfs,
+  ] = await Promise.all([
+    getMapPayload(),
+    db.household.count({
+      where: { ...inTown, geocodeStatus: "PENDING", NOT: { streetName: "" } },
+    }),
+    db.signRequest.count({
+      where: {
+        campaignId: campaign.id,
+        geocodeStatus: "PENDING",
+        NOT: { addressLine: "" },
+      },
+    }),
+    db.household.count({ where: { ...inTown, geocodeStatus: "FAILED" } }),
+    db.signRequest.count({
+      where: { campaignId: campaign.id, geocodeStatus: "FAILED" },
+    }),
+    db.turf.findMany({
+      where: { status: { not: "COMPLETE" } },
+      include: { _count: { select: { households: true } } },
+      orderBy: [{ plannedFor: "asc" }, { name: "asc" }],
+    }),
+  ]);
 
   const knocked = payload.doors.filter((d) => d.visited).length;
   const imprecise = payload.doors.filter((d) => d.imprecise).length;
@@ -55,7 +75,10 @@ export default async function MapPage() {
       />
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-        <StatTile label="Doors on the map" value={payload.doors.length.toLocaleString("en-CA")} />
+        <StatTile
+          label="Doors on the map"
+          value={payload.doors.length.toLocaleString("en-CA")}
+        />
         <StatTile
           label="Doors knocked"
           value={knocked.toLocaleString("en-CA")}
@@ -90,7 +113,10 @@ export default async function MapPage() {
             />
           </Card>
 
-          <Card title="Upcoming routes" description="Turf with a date is drawn as a route.">
+          <Card
+            title="Upcoming routes"
+            description="Turf with a date is drawn as a route."
+          >
             {turfs.length === 0 ? (
               <EmptyState
                 title="No open turf"
@@ -139,11 +165,11 @@ export default async function MapPage() {
           {imprecise > 0 ? (
             <Card title="Check these by eye">
               <Note tone="warn">
-                {imprecise} address{imprecise === 1 ? "" : "es"} could only be placed
-                on the road rather than the driveway — common on rural routes and
-                concession roads. Turn on &ldquo;Only rough locations&rdquo; above to
-                see them, then correct any that are badly wrong from the
-                household&apos;s page.
+                {imprecise} address{imprecise === 1 ? "" : "es"} could only be
+                placed on the road rather than the driveway — common on rural
+                routes and concession roads. Turn on &ldquo;Only rough
+                locations&rdquo; above to see them, then correct any that are
+                badly wrong from the household&apos;s page.
               </Note>
               <ul className="mt-3 space-y-1 text-xs text-muted">
                 {payload.doors

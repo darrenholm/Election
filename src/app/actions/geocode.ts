@@ -2,8 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { db } from "@/lib/db";
-import { geocodeHouseholdBatch, geocodeSignBatch, type GeocodeRunResult } from "@/lib/geocode";
+import {
+  geocodeHouseholdBatch,
+  geocodeSignBatch,
+  type GeocodeRunResult,
+} from "@/lib/geocode";
 import { floatOrNull, str } from "@/lib/form";
+import { getActiveCampaign } from "@/lib/campaign";
 import {
   hasAnyCampaign,
   requireHouseholdMunicipality,
@@ -15,24 +20,62 @@ import {
  * long run shows progress and can be stopped at any point — every batch is
  * committed before the next starts, so nothing is lost by walking away.
  */
-export async function runHouseholdGeocode(limit = 50): Promise<GeocodeRunResult> {
-  // Batches run across every municipality in the install and are billed to the
-  // Google key, so this is not something any signed-in account should start.
+export async function runHouseholdGeocode(
+  limit = 50,
+): Promise<GeocodeRunResult> {
+  // Every lookup is billed to the Google key, so this is not something any
+  // signed-in account should start.
   if (!(await hasAnyCampaign("MANAGER"))) {
-    return { attempted: 0, located: 0, failed: 0, remaining: 0, errors: ["Manager access required"] };
+    return {
+      attempted: 0,
+      located: 0,
+      failed: 0,
+      remaining: 0,
+      errors: ["Manager access required"],
+    };
   }
 
-  const result = await geocodeHouseholdBatch(limit);
+  // Only this campaign's town. Several municipalities share one install, and a
+  // Brockton manager should not be spending lookups on West Grey's doors.
+  const campaign = await getActiveCampaign();
+  if (!campaign) {
+    return {
+      attempted: 0,
+      located: 0,
+      failed: 0,
+      remaining: 0,
+      errors: ["No campaign selected"],
+    };
+  }
+
+  const result = await geocodeHouseholdBatch(limit, campaign.municipalityId);
   revalidatePath("/map");
   return result;
 }
 
 export async function runSignGeocode(limit = 50): Promise<GeocodeRunResult> {
   if (!(await hasAnyCampaign("MANAGER"))) {
-    return { attempted: 0, located: 0, failed: 0, remaining: 0, errors: ["Manager access required"] };
+    return {
+      attempted: 0,
+      located: 0,
+      failed: 0,
+      remaining: 0,
+      errors: ["Manager access required"],
+    };
   }
 
-  const result = await geocodeSignBatch(limit);
+  const campaign = await getActiveCampaign();
+  if (!campaign) {
+    return {
+      attempted: 0,
+      located: 0,
+      failed: 0,
+      remaining: 0,
+      errors: ["No campaign selected"],
+    };
+  }
+
+  const result = await geocodeSignBatch(limit, campaign.id);
   revalidatePath("/map");
   revalidatePath("/signs");
   return result;
@@ -46,12 +89,15 @@ export async function runSignGeocode(limit = 50): Promise<GeocodeRunResult> {
 export async function retryFailedGeocodes() {
   if (!(await hasAnyCampaign("MANAGER"))) return;
 
+  const campaign = await getActiveCampaign();
+  if (!campaign) return;
+
   await db.household.updateMany({
-    where: { geocodeStatus: "FAILED" },
+    where: { geocodeStatus: "FAILED", municipalityId: campaign.municipalityId },
     data: { geocodeStatus: "PENDING" },
   });
   await db.signRequest.updateMany({
-    where: { geocodeStatus: "FAILED" },
+    where: { geocodeStatus: "FAILED", campaignId: campaign.id },
     data: { geocodeStatus: "PENDING" },
   });
   revalidatePath("/map");
@@ -61,14 +107,18 @@ export async function retryFailedGeocodes() {
  * Place a household by hand. Marked MANUAL so a later geocoding run will not
  * replace a pin someone dropped from local knowledge with a worse guess.
  */
-export async function setHouseholdLocation(householdId: string, formData: FormData) {
+export async function setHouseholdLocation(
+  householdId: string,
+  formData: FormData,
+) {
   if (!(await requireHouseholdMunicipality(householdId))) return;
 
   const latitude = floatOrNull(formData, "latitude");
   const longitude = floatOrNull(formData, "longitude");
 
   if (latitude === null || longitude === null) return;
-  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return;
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
+    return;
 
   await db.household.update({
     where: { id: householdId },
@@ -91,7 +141,8 @@ export async function setSignLocation(signId: string, formData: FormData) {
   const longitude = floatOrNull(formData, "longitude");
 
   if (latitude === null || longitude === null) return;
-  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return;
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180)
+    return;
 
   await db.signRequest.update({
     where: { id: signId },
