@@ -12,12 +12,12 @@ import type { GeocodeRunResult } from "@/lib/geocode";
  * the next begins. Closing the tab loses nothing but the current batch.
  */
 export function GeocodePanel({
-  configured,
+  geocoder,
   pendingHouseholds,
   pendingSigns,
   failed,
 }: {
-  configured: boolean;
+  geocoder: "Google" | "OpenStreetMap";
   pendingHouseholds: number;
   pendingSigns: number;
   failed: number;
@@ -76,23 +76,6 @@ export function GeocodePanel({
       window.removeEventListener("geocode:stop", onStop);
       setRunning(false);
     }
-  }
-
-  if (!configured) {
-    return (
-      <div className="rounded-lg border border-accent/40 bg-accent-soft px-3 py-2 text-xs leading-relaxed text-accent-ink">
-        <strong>Geocoding is not configured.</strong> Most civic address files
-        already carry coordinates, so doors imported from one appear on the map
-        without this. It is only needed for addresses that arrive without a
-        position — typed in by hand, or from a voters&apos; list that could not
-        be matched to a known door.{" "}
-        <span className="block pt-1">
-          To enable it, set <code>GOOGLE_GEOCODING_API_KEY</code> — in your
-          host&apos;s environment variables when deployed, or in{" "}
-          <code>.env</code> when running locally.
-        </span>
-      </div>
-    );
   }
 
   const total = pendingHouseholds + pendingSigns;
@@ -166,11 +149,21 @@ export function GeocodePanel({
         </details>
       ) : null}
 
-      <p className="text-xs text-muted">
-        Google charges per lookup after the monthly free credit. Each address is
-        looked up once and the result stored, so a re-run only costs for
-        addresses added since.
-      </p>
+      {geocoder === "Google" ? (
+        <p className="text-xs text-muted">
+          Google charges per lookup after the monthly free credit. Each address
+          is looked up once and the result stored, so a re-run only costs for
+          addresses added since.
+        </p>
+      ) : (
+        <p className="text-xs text-muted">
+          Using the free OpenStreetMap lookup, which allows one address a
+          second — so a few thousand doors is the better part of an hour. Leave
+          it running, or stop and pick up where it left off. Rural addresses it
+          cannot place exactly are marked as rough locations for someone to pin
+          by hand. Setting a Google key makes it faster and more accurate.
+        </p>
+      )}
     </div>
   );
 }

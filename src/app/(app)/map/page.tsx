@@ -2,7 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getMapPayload } from "@/lib/map-data";
-import { geocodingConfigured } from "@/lib/geocode";
+import { geocoderName } from "@/lib/geocode";
 import { getActiveCampaign } from "@/lib/campaign";
 import { formatDate, toDateInput } from "@/lib/dates";
 import { setTurfPlannedDate } from "@/app/actions/geocode";
@@ -83,7 +83,7 @@ export default async function MapPage() {
         <div className="space-y-6">
           <Card title="Geocoding" description="Turning addresses into map pins">
             <GeocodePanel
-              configured={geocodingConfigured()}
+              geocoder={geocoderName()}
               pendingHouseholds={pendingHouseholds}
               pendingSigns={pendingSigns}
               failed={failedHouseholds + failedSigns}
