@@ -32,6 +32,13 @@ const db = new PrismaClient();
 
 const argv = process.argv.slice(2);
 const apply = argv.includes("--apply");
+/**
+ * Once the geocoder itself refuses a wrong-municipality answer, the vague
+ * results left behind are honestly vague — a real road in the right township,
+ * flagged for someone to pin by hand. Re-running those buys the same answer
+ * twice. --strays-only takes just the pins sitting outside the municipality.
+ */
+const straysOnly = argv.includes("--strays-only");
 const wanted: string[] = [];
 for (let i = 0; i < argv.length; i++) {
   if (argv[i] === "--municipality" && argv[i + 1]) wanted.push(argv[++i]);
@@ -111,21 +118,28 @@ async function main() {
       geocodePrecision: { in: ROUGH },
     };
 
-    const byPrecision = await db.household.groupBy({
-      by: ["geocodePrecision"],
-      where,
-      _count: { _all: true },
-    });
+    const byPrecision = straysOnly
+      ? []
+      : await db.household.groupBy({
+          by: ["geocodePrecision"],
+          where,
+          _count: { _all: true },
+        });
 
     const rough = byPrecision.reduce((sum, row) => sum + row._count._all, 0);
     const placed = await db.household.count({
       where: { municipalityId: municipality.id, geocodeStatus: "OK" },
     });
 
-    console.log(`\n${municipality.name}: ${placed.toLocaleString("en-CA")} placed`);
+    console.log(
+      `\n${municipality.name}: ${placed.toLocaleString("en-CA")} placed`,
+    );
     for (const row of byPrecision) {
-      const label = row.geocodePrecision === "" ? "(none recorded)" : row.geocodePrecision;
-      console.log(`  ${label.padEnd(18)} ${row._count._all.toLocaleString("en-CA")}`);
+      const label =
+        row.geocodePrecision === "" ? "(none recorded)" : row.geocodePrecision;
+      console.log(
+        `  ${label.padEnd(18)} ${row._count._all.toLocaleString("en-CA")}`,
+      );
     }
 
     // Anything placed outside the municipality, however confidently.
@@ -133,7 +147,9 @@ async function main() {
     let strays: string[] = [];
 
     if (box === null) {
-      console.log("  (too few exact addresses to judge a boundary — skipping the distance check)");
+      console.log(
+        "  (too few exact addresses to judge a boundary — skipping the distance check)",
+      );
     } else {
       const outside = await db.household.findMany({
         where: {
@@ -151,9 +167,16 @@ async function main() {
       });
 
       strays = outside.map((h) => h.id);
-      console.log(`  outside the municipality  ${outside.length.toLocaleString("en-CA")}`);
+      console.log(
+        `  outside the municipality  ${outside.length.toLocaleString("en-CA")}`,
+      );
       for (const h of outside.slice(0, 5)) {
-        console.log(`    e.g. ${h.streetNumber} ${h.streetName}, ${h.city}`.replace(/\s+/g, " "));
+        console.log(
+          `    e.g. ${h.streetNumber} ${h.streetName}, ${h.city}`.replace(
+            /\s+/g,
+            " ",
+          ),
+        );
       }
     }
 
@@ -171,11 +194,16 @@ async function main() {
         latitude: null,
         longitude: null,
       };
-      await db.household.updateMany({ where, data: cleared });
+      if (!straysOnly) await db.household.updateMany({ where, data: cleared });
       if (strays.length > 0) {
-        await db.household.updateMany({ where: { id: { in: strays } }, data: cleared });
+        await db.household.updateMany({
+          where: { id: { in: strays } },
+          data: cleared,
+        });
       }
-      console.log(`  requeued ${(rough + strays.length).toLocaleString("en-CA")}`);
+      console.log(
+        `  requeued ${(rough + strays.length).toLocaleString("en-CA")}`,
+      );
     }
   }
 
@@ -184,7 +212,9 @@ async function main() {
       ? `\nDone. ${total.toLocaleString("en-CA")} back in the queue — run the geocoder again.`
       : `\nDry run. ${total.toLocaleString("en-CA")} would be requeued. Add --apply to do it.`,
   );
-  console.log("Each one costs a Google lookup; the first 10,000 a month are free.");
+  console.log(
+    "Each one costs a Google lookup; the first 10,000 a month are free.",
+  );
 }
 
 main()
