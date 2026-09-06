@@ -95,7 +95,7 @@ async function geocodeWithGoogle(address: string): Promise<GeocodeOutcome> {
   url.searchParams.set("key", key);
   // Bias results to Canada so "Main St" does not land in Ohio.
   url.searchParams.set("region", "ca");
-  url.searchParams.set("components", "country:CA");
+  url.searchParams.set("components", "country:CA|administrative_area:ON");
 
   await throttle();
 
@@ -409,18 +409,34 @@ export async function geocodeAddress(
     : geocodeWithNominatim(parts, address);
 }
 
-/** Build the one-line address string for a household. */
+/**
+ * Build the one-line address string for a household.
+ *
+ * The municipality goes in after the town, and it is what keeps the answer in
+ * the right township. The town on a voters' list is a postal delivery town,
+ * not a municipality: rural West Grey collects its mail in Hanover, Elmwood,
+ * Chesley, and one elector's row reads Waterloo. Left to itself, "115 George
+ * Street, Durham" is placed in Durham Region three hours away, and the
+ * Waterloo row lands in the city of Waterloo. Naming West Grey as well fixes
+ * both, and does no harm where the town was right all along.
+ */
 export function householdAddress(household: {
   streetNumber: string;
   streetName: string;
   city: string;
   postalCode: string;
+  municipality?: string;
 }): string {
   // The unit is deliberately left out: apartment numbers confuse the geocoder
   // and every unit in a building shares the same point anyway.
   const street = [household.streetNumber, household.streetName].filter(Boolean).join(" ");
-  return [street, household.city, "Ontario", household.postalCode]
-    .map((part) => part.trim())
+  const municipality =
+    household.municipality && household.municipality.trim() !== household.city.trim()
+      ? household.municipality
+      : "";
+
+  return [street, household.city, municipality, "Ontario", household.postalCode]
+    .map((part) => (part ?? "").trim())
     .filter(Boolean)
     .join(", ");
 }
@@ -457,13 +473,15 @@ export async function geocodeHouseholdBatch(limit = 50): Promise<GeocodeRunResul
 
   for (const household of pending) {
     result.attempted++;
-    const outcome = await geocodeAddress(householdAddress(household), {
+    const parts = {
       streetNumber: household.streetNumber,
       streetName: household.streetName,
       city: household.city,
       postalCode: household.postalCode,
       municipality: household.municipality.name,
-    });
+    };
+    const address = householdAddress(parts);
+    const outcome = await geocodeAddress(address, parts);
 
     if (outcome.ok) {
       await db.household.update({
@@ -484,7 +502,7 @@ export async function geocodeHouseholdBatch(limit = 50): Promise<GeocodeRunResul
       });
       result.failed++;
       if (result.errors.length < 10) {
-        result.errors.push(`${householdAddress(household)} — ${outcome.reason}`);
+        result.errors.push(`${address} — ${outcome.reason}`);
       }
     }
   }
@@ -516,7 +534,14 @@ export async function geocodeSignBatch(limit = 50): Promise<GeocodeRunResult> {
 
   for (const sign of pending) {
     result.attempted++;
-    const address = [sign.addressLine, sign.city, "Ontario", sign.postalCode]
+    const municipality = sign.campaign.municipality.name;
+    const address = [
+      sign.addressLine,
+      sign.city,
+      municipality.trim() === sign.city.trim() ? "" : municipality,
+      "Ontario",
+      sign.postalCode,
+    ]
       .map((p) => p.trim())
       .filter(Boolean)
       .join(", ");
