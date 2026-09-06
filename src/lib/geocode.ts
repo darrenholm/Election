@@ -79,6 +79,7 @@ type GoogleResponse = {
   error_message?: string;
   results?: {
     formatted_address?: string;
+    address_components?: { long_name?: string; types?: string[] }[];
     geometry?: {
       location?: { lat?: number; lng?: number };
       location_type?: string;
@@ -86,7 +87,30 @@ type GoogleResponse = {
   }[];
 };
 
-async function geocodeWithGoogle(address: string): Promise<GeocodeOutcome> {
+/**
+ * Which municipality Google says the answer is actually in.
+ *
+ * `administrative_area_level_3` is the lower-tier municipality in Ontario —
+ * West Grey, Hanover, Grey Highlands. Locality stands in when Google gives no
+ * admin level, which happens on the vaguest answers of all.
+ */
+function googleMunicipality(components: { long_name?: string; types?: string[] }[]): string {
+  const at = (type: string) =>
+    components.find((c) => c.types?.includes(type))?.long_name ?? "";
+  return at("administrative_area_level_3") || at("locality");
+}
+
+/** "Municipality of West Grey" and "West Grey" are the same place. */
+function sameMunicipality(a: string, b: string): boolean {
+  const bare = (s: string) =>
+    s
+      .toLowerCase()
+      .replace(/\b(the\s+)?(municipality|township|town|village|city|county)\s+of\s+/g, "")
+      .replace(/[^a-z]/g, "");
+  return bare(a) === bare(b);
+}
+
+async function geocodeWithGoogle(address: string, municipality: string): Promise<GeocodeOutcome> {
   const key = process.env.GOOGLE_GEOCODING_API_KEY;
   if (!key) return { ok: false, reason: "GOOGLE_GEOCODING_API_KEY is not set" };
 
@@ -123,6 +147,17 @@ async function geocodeWithGoogle(address: string): Promise<GeocodeOutcome> {
   const lng = best?.geometry?.location?.lng;
   if (typeof lat !== "number" || typeof lng !== "number") {
     return { ok: false, reason: "Response had no coordinates" };
+  }
+
+  // When Google cannot find the street it does not say so — it answers with
+  // the middle of the town on the envelope, at full confidence. That is how a
+  // West Grey voters' list ended up with pins in Owen Sound, Kincardine and
+  // Southampton, forty to eighty kilometres outside the municipality. Google
+  // names the municipality it actually landed in, so ask it, and refuse an
+  // answer that belongs to somewhere else. No pin beats a confident wrong one.
+  const landedIn = googleMunicipality(best?.address_components ?? []);
+  if (municipality !== "" && landedIn !== "" && !sameMunicipality(landedIn, municipality)) {
+    return { ok: false, reason: `Landed in ${landedIn}, not ${municipality}` };
   }
 
   return {
@@ -405,7 +440,7 @@ export async function geocodeAddress(
   if (address.trim() === "") return { ok: false, reason: "Empty address" };
 
   return provider() === "google"
-    ? geocodeWithGoogle(address)
+    ? geocodeWithGoogle(address, parts.municipality)
     : geocodeWithNominatim(parts, address);
 }
 
