@@ -21,6 +21,10 @@
  * The temporary password is printed once, on success. It is not recoverable
  * afterwards — passwords are hashed — so if it is lost, issue a new one from
  * the Team page rather than running this again.
+ *
+ * --reset-existing takes over an account that already exists: it corrects the
+ * name, issues a fresh password and grants the new campaign. Meant for an
+ * account created ahead of time and never signed into.
  */
 import { PrismaClient } from "@prisma/client";
 import { hashPassword, temporaryPassword } from "../src/lib/password";
@@ -39,7 +43,9 @@ const ROLES = ["OWNER", "MANAGER", "CANVASSER", "VIEWER"] as const;
 const argv = process.argv.slice(2);
 function opt(flag: string): string | null {
   const i = argv.indexOf(flag);
-  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith("--") ? argv[i + 1] : null;
+  return i >= 0 && argv[i + 1] && !argv[i + 1].startsWith("--")
+    ? argv[i + 1]
+    : null;
 }
 const flag = (name: string) => argv.includes(name);
 
@@ -55,13 +61,17 @@ const apply = flag("--apply");
 // Creating a municipality is the one step that cannot be undone from the UI,
 // so it is opt-in rather than a side effect of a typo.
 const createMunicipality = flag("--create-municipality");
+// Resetting the password on an account that already exists is not something a
+// mistyped email should be able to do, so it is asked for by name.
+const resetExisting = flag("--reset-existing");
 
 function fail(message: string): never {
   console.error(message);
   process.exit(1);
 }
 
-if (!email.includes("@")) fail("--email is required and must be an email address.");
+if (!email.includes("@"))
+  fail("--email is required and must be an email address.");
 if (name === "") fail("--name is required.");
 if (municipalityName === "") fail("--municipality is required.");
 if (!OFFICES.includes(office as (typeof OFFICES)[number]))
@@ -99,17 +109,37 @@ function slugify(value: string): string {
 }
 
 async function main() {
-  console.log(apply ? "APPLYING\n" : "DRY RUN — nothing will be written. Add --apply.\n");
+  console.log(
+    apply ? "APPLYING\n" : "DRY RUN — nothing will be written. Add --apply.\n",
+  );
 
-  if (await db.user.findUnique({ where: { email } }))
+  // An account can exist without being usable — created ahead of time, never
+  // signed into, reaching no campaign. Rather than delete and recreate it,
+  // which loses whatever else points at it, take it over: correct the name,
+  // issue a fresh password, and grant it the campaign being made here.
+  const existing = await db.user.findUnique({
+    where: { email },
+    include: { access: true },
+  });
+
+  if (existing && !resetExisting)
     fail(
-      `An account already exists for ${email}. Issue a fresh temporary password from the Team page instead.`,
+      `An account already exists for ${email} (${existing.name || "no name"}, ` +
+        `${existing.lastSignInAt ? `last signed in ${existing.lastSignInAt.toDateString()}` : "never signed in"}, ` +
+        `${existing.access.length} campaign${existing.access.length === 1 ? "" : "s"}).
+` +
+        "Pass --reset-existing to correct the name and issue a new temporary password, " +
+        "or reset it from the Team page instead.",
     );
 
   // Prisma has no case-insensitive unique lookup, so compare in memory. The
   // table holds one row per municipality in the operation — a handful.
-  const all = await db.municipality.findMany({ select: { id: true, name: true } });
-  const match = all.find((m) => m.name.toLowerCase() === municipalityName.toLowerCase());
+  const all = await db.municipality.findMany({
+    select: { id: true, name: true },
+  });
+  const match = all.find(
+    (m) => m.name.toLowerCase() === municipalityName.toLowerCase(),
+  );
 
   if (!match && !createMunicipality)
     fail(
@@ -126,13 +156,22 @@ async function main() {
   const votingDay = nextOntarioVotingDay();
   const base = slugify(`${candidateName}-${office}`) || "campaign";
   let slug = base;
-  for (let n = 2; await db.campaign.findUnique({ where: { slug } }); n++) slug = `${base}-${n}`;
+  for (let n = 2; await db.campaign.findUnique({ where: { slug } }); n++)
+    slug = `${base}-${n}`;
 
   const password = temporaryPassword();
 
-  console.log(`Campaign:     ${candidateName} — ${office}${ward ? ` (ward ${ward})` : ""} [${slug}]`);
+  console.log(
+    `Campaign:     ${candidateName} — ${office}${ward ? ` (ward ${ward})` : ""} [${slug}]`,
+  );
   console.log(`Voting day:   ${votingDay.toDateString()}`);
-  console.log(`Account:      ${name} <${email}>, role ${role}, must change password at first sign-in`);
+  console.log(
+    existing
+      ? `Account:      ${name} <${email}> — EXISTING${
+          existing.name === name ? "" : `, renamed from "${existing.name}"`
+        }, new temporary password, role ${role}`
+      : `Account:      ${name} <${email}>, role ${role}, must change password at first sign-in`,
+  );
 
   if (!apply) {
     console.log("\nNothing written. Re-run with --apply.");
@@ -141,7 +180,11 @@ async function main() {
 
   const municipalityId =
     match?.id ??
-    (await db.municipality.create({ data: { name: municipalityName, usesWards: ward !== "" } })).id;
+    (
+      await db.municipality.create({
+        data: { name: municipalityName, usesWards: ward !== "" },
+      })
+    ).id;
 
   const campaign = await db.campaign.create({
     data: {
@@ -157,22 +200,29 @@ async function main() {
     },
   });
 
-  const user = await db.user.create({
-    data: {
-      email,
-      name,
-      passwordHash: await hashPassword(password),
-      mustChangePassword: true,
-    },
+  const passwordHash = await hashPassword(password);
+  const user = existing
+    ? await db.user.update({
+        where: { id: existing.id },
+        data: { name, passwordHash, mustChangePassword: true },
+      })
+    : await db.user.create({
+        data: { email, name, passwordHash, mustChangePassword: true },
+      });
+
+  await db.campaignAccess.create({
+    data: { userId: user.id, campaignId: campaign.id, role },
   });
 
-  await db.campaignAccess.create({ data: { userId: user.id, campaignId: campaign.id, role } });
-
   console.log("\nDone. Send these, then destroy your copy:");
-  console.log(`  Sign in:            ${process.env.APP_URL ?? "https://electionmgr.ca"}`);
+  console.log(
+    `  Sign in:            ${process.env.APP_URL ?? "https://electionmgr.ca"}`,
+  );
   console.log(`  Email:              ${email}`);
   console.log(`  Temporary password: ${password}`);
-  console.log("\nShown once. It cannot be read back — reset it from the Team page if it is lost.");
+  console.log(
+    "\nShown once. It cannot be read back — reset it from the Team page if it is lost.",
+  );
 }
 
 main()
