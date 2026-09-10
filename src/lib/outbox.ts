@@ -72,6 +72,11 @@ export function outboxCount(): number {
   return read().length;
 }
 
+/** Everything still held on this phone. Read-only; the queue owns the writes. */
+export function outboxItems(): QueuedContact[] {
+  return read();
+}
+
 export function enqueue(item: QueuedContact): void {
   const items = read();
   // Same clientId twice means a double tap, not two doors.

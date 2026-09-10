@@ -94,9 +94,16 @@ limit formula, the self-funding ceiling and the Form 4 expense taxonomy.
   dead zone the canvasser is told it is held, not lost; it uploads on its own
   when coverage returns. Each entry carries an id generated on the device, so
   retries can never record the same door twice.
-- Walk lists are deliberately *not* cached offline. A cached list is stale data,
-  and a canvasser knocking from yesterday's support levels does real damage —
-  so what survives a dead zone is the outbox, not the list.
+- Walk lists are never cached behind the canvasser's back. A cached list is
+  stale data, and a canvasser knocking from yesterday's support levels does real
+  damage — so nothing is kept unless it was asked for by name.
+- **A turf can be taken with you.** No coverage at all is a real place, so a turf
+  can be downloaded to the phone before setting off: the doors, the people and
+  their support levels, plus the page that displays them. It states on screen the
+  moment it was frozen and never pretends otherwise, shows how many doors have
+  been done since, and every knock logged against it goes through the same outbox
+  and uploads the moment the signal returns. One tap refreshes it from the server
+  when back in coverage.
 
 ### Text messages
 - Consent is captured at the door with the exact wording read to the voter, and
@@ -629,6 +636,8 @@ src/
     geocode.ts         Google geocoding with precision tracking
     map-data.ts        Every point the map draws
     outbox.ts          The canvasser's offline queue
+    offline-turf.ts    Turfs saved to a phone on purpose, and the page that shows them
+    turf-snapshot.ts   The shape of a frozen turf, shared by the server and the device
     address.ts         Address and street-name normalisation for cross-source matching
     finance.ts         Aggregations shared by the finance pages and Form 4
     enums.ts           Value sets for every String-backed column, plus labels
