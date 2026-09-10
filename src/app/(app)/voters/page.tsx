@@ -14,12 +14,8 @@ import {
   Td,
   Th,
 } from "@/components/ui";
-import {
-  SupportBadge,
-  VoterLink,
-  addressLine,
-  titleCase,
-} from "@/components/voter";
+import { VoterLink, addressLine, titleCase } from "@/components/voter";
+import { SupportPicker } from "@/components/support-picker";
 import { normaliseStreet } from "@/lib/address";
 import { getActiveCampaign } from "@/lib/campaign";
 
@@ -343,7 +339,10 @@ export default async function VotersPage({
                         ) : null}
                       </Td>
                       <Td>
-                        <SupportBadge level={state.supportLevel} />
+                        <SupportPicker
+                          voterId={voter.id}
+                          level={state.supportLevel}
+                        />
                       </Td>
                       <Td className="text-muted">
                         {voter.phone ? (

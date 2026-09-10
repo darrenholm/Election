@@ -204,6 +204,24 @@ export async function deleteVoter(voterId: string) {
   redirect("/voters");
 }
 
+/**
+ * Set one voter's support level straight from a list, without opening the form.
+ *
+ * Identifying a voter is the single most common edit in the whole app, and it
+ * is usually a one-digit answer already in hand — so the list offers it as a
+ * dropdown rather than a round trip through the detail page. It records the
+ * campaign's view only; use the contact form when there is a conversation worth
+ * logging alongside it.
+ */
+export async function setSupportLevel(voterId: string, level: number | null) {
+  const campaignId = await requireCampaignId();
+  if (!(await requireVoterMunicipality(voterId))) return;
+
+  await upsertVoterState(campaignId, voterId, { supportLevel: clampSupport(level) });
+  revalidatePath("/voters");
+  revalidatePath(`/voters/${voterId}`);
+}
+
 /** Marks a voter as having voted, as observed by this campaign's scrutineers. */
 export async function toggleVoted(voterId: string, voted: boolean) {
   const campaignId = await requireCampaignId();
