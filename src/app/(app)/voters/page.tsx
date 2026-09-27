@@ -16,7 +16,7 @@ import {
 } from "@/components/ui";
 import { VoterLink, addressLine, titleCase } from "@/components/voter";
 import { SupportPicker } from "@/components/support-picker";
-import { normaliseStreet } from "@/lib/address";
+import { canonicalStreet, normaliseStreet } from "@/lib/address";
 import { getActiveCampaign } from "@/lib/campaign";
 
 export const dynamic = "force-dynamic";
@@ -29,8 +29,11 @@ type Search = {
   ward?: string;
   street?: string;
   flag?: string;
+  sort?: string;
   page?: string;
 };
+
+type Sort = "name" | "address";
 
 /** Named slices of the file that a campaign asks for over and over. */
 /**
@@ -122,13 +125,8 @@ export default async function VotersPage({
         { lastName: { contains: q, mode: "insensitive" } },
         { phone: { contains: q } },
         { email: { contains: q, mode: "insensitive" } },
-        {
-          household: {
-            is: {
-              streetName: { contains: normaliseStreet(q), mode: "insensitive" },
-            },
-          },
-        },
+        { household: { is: streetWhere(q) } },
+        ...addressWhere(q),
       ],
     });
   }
@@ -145,39 +143,62 @@ export default async function VotersPage({
   const flagFilter = flag ? flagWhere(flag, campaignId) : null;
   if (flagFilter) and.push(flagFilter);
 
-  // Looking at one street is walking it, so order by house number rather than
-  // surname. It cannot be done in the query: streetNumber is text, because a
-  // civic address is "12A" and "242-244" as often as it is a plain number, and
-  // the database would sort 10 before 9. One street is small enough to read in
-  // full and order here instead.
-  const byHouseNumber = street !== "";
+  // Looking at one street is walking it, so it orders by address unless asked
+  // otherwise. Address order cannot be done in the query: streetNumber is text,
+  // because a civic address is "12A" and "242-244" as often as it is a plain
+  // number, and the database would sort 10 before 9. So read just enough of
+  // every match to order it here, then load the full rows for one page.
+  const sort: Sort =
+    params.sort === "address" || params.sort === "name"
+      ? params.sort
+      : street
+        ? "address"
+        : "name";
+
+  const include = {
+    household: true,
+    campaignStates: { where: { campaignId } },
+    contacts: {
+      where: { campaignId },
+      orderBy: { occurredAt: "desc" as const },
+      take: 1,
+    },
+  };
 
   const [total, voters, wards] = await Promise.all([
     db.voter.count({ where }),
-    db.voter
-      .findMany({
-        where,
-        include: {
-          household: true,
-          campaignStates: { where: { campaignId } },
-          contacts: {
-            where: { campaignId },
-            orderBy: { occurredAt: "desc" },
-            take: 1,
-          },
-        },
-        orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
-        ...(byHouseNumber
-          ? {}
-          : { skip: (page - 1) * PAGE_SIZE, take: PAGE_SIZE }),
-      })
-      .then((rows) =>
-        byHouseNumber
-          ? rows
-              .sort(compareByHouseNumber)
+    sort === "name"
+      ? db.voter.findMany({
+          where,
+          include,
+          orderBy: [{ lastName: "asc" }, { firstName: "asc" }],
+          skip: (page - 1) * PAGE_SIZE,
+          take: PAGE_SIZE,
+        })
+      : db.voter
+          .findMany({
+            where,
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              household: {
+                select: { streetName: true, streetNumber: true, unit: true },
+              },
+            },
+          })
+          .then(async (rows) => {
+            const ids = rows
+              .sort(compareByAddress)
               .slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
-          : rows,
-      ),
+              .map((r) => r.id);
+            const full = await db.voter.findMany({
+              where: { id: { in: ids } },
+              include,
+            });
+            const byId = new Map(full.map((v) => [v.id, v]));
+            return ids.flatMap((id) => byId.get(id) ?? []);
+          }),
     db.household.findMany({
       where: { municipalityId: campaign.municipalityId, NOT: { ward: "" } },
       distinct: ["ward"],
@@ -207,12 +228,15 @@ export default async function VotersPage({
 
       <Card className="mb-6">
         <form className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {params.sort ? (
+            <input type="hidden" name="sort" value={sort} />
+          ) : null}
           <label className="lg:col-span-2">
             <span className="field-label">Search</span>
             <input
               name="q"
               defaultValue={q}
-              placeholder="Name, phone, email or street"
+              placeholder="Name, phone, email or address"
               className="field"
             />
           </label>
@@ -293,8 +317,22 @@ export default async function VotersPage({
             <Table>
               <thead>
                 <tr>
-                  <Th>Name</Th>
-                  <Th>Address</Th>
+                  <Th>
+                    <SortLink
+                      params={params}
+                      sort="name"
+                      active={sort === "name"}
+                      label="Name"
+                    />
+                  </Th>
+                  <Th>
+                    <SortLink
+                      params={params}
+                      sort="address"
+                      active={sort === "address"}
+                      label="Address"
+                    />
+                  </Th>
                   <Th>Support</Th>
                   <Th>Contact info</Th>
                   <Th>Last contacted</Th>
@@ -428,9 +466,100 @@ function PageLink({
   );
 }
 
+/**
+ * A street name as typed, matched against both the name as imported and its
+ * canonical key, so "Main Street" finds "MAIN ST" and the other way round.
+ */
+function streetWhere(value: string): Prisma.HouseholdWhereInput {
+  const key = canonicalStreet(value);
+  return {
+    OR: [
+      { streetName: { contains: normaliseStreet(value), mode: "insensitive" } },
+      ...(key ? [{ streetKey: { contains: key } }] : []),
+    ],
+  };
+}
+
+/**
+ * A search that starts with a house number — "12 Main St", "12A Main",
+ * "242-244 Durham St" — is an address: the number has to match the door and
+ * the rest has to match the street. A bare number ("12") matches the door on
+ * any street. Anything else is not an address and adds nothing.
+ */
+function addressWhere(q: string): Prisma.VoterWhereInput[] {
+  const match = /^\s*(\d+[A-Za-z]?(?:\s*-\s*\d+[A-Za-z]?)?)\s*,?\s*(.*)$/.exec(
+    q,
+  );
+  if (!match) return [];
+  const number = match[1].replace(/\s+/g, "");
+  const rest = match[2].trim();
+  const door: Prisma.HouseholdWhereInput = {
+    streetNumber: { equals: number, mode: "insensitive" },
+  };
+  return [
+    {
+      household: {
+        is: rest ? { AND: [door, streetWhere(rest)] } : door,
+      },
+    },
+  ];
+}
+
+/** A column heading that re-orders the list by that column, from page 1. */
+function SortLink({
+  params,
+  sort,
+  active,
+  label,
+}: {
+  params: Search;
+  sort: Sort;
+  active: boolean;
+  label: string;
+}) {
+  const query = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (key === "page" || key === "sort" || value === undefined) continue;
+    for (const v of toArray(value)) query.append(key, v);
+  }
+  query.set("sort", sort);
+  return (
+    <Link
+      href={`/voters?${query.toString()}`}
+      className={active ? "text-ink underline" : "hover:underline"}
+      aria-current={active ? "true" : undefined}
+    >
+      {label}
+      {active ? " ↓" : ""}
+    </Link>
+  );
+}
+
 function toArray(value: string | string[] | undefined): string[] {
   if (value === undefined) return [];
   return Array.isArray(value) ? value : [value];
+}
+
+/** Order two people by street, then by door along it. */
+function compareByAddress(
+  a: Parameters<typeof compareByHouseNumber>[0] & {
+    household: { streetName: string } | null;
+  },
+  b: Parameters<typeof compareByHouseNumber>[1] & {
+    household: { streetName: string } | null;
+  },
+): number {
+  // No address at all goes to the end.
+  if (!a.household || !b.household) {
+    if (a.household) return -1;
+    if (b.household) return 1;
+  }
+  const byStreet = (a.household?.streetName ?? "").localeCompare(
+    b.household?.streetName ?? "",
+    "en-CA",
+    { sensitivity: "base", numeric: true },
+  );
+  return byStreet || compareByHouseNumber(a, b);
 }
 
 /**
