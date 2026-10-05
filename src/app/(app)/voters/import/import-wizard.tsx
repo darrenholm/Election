@@ -3,6 +3,7 @@
 import Papa from "papaparse";
 import Link from "next/link";
 import { useMemo, useState, useTransition } from "react";
+import { splitPersonName, splitStreetAddress } from "@/lib/voter-columns";
 import {
   importVoters,
   planVoterImport,
@@ -14,10 +15,20 @@ import {
 
 /** The voter fields an import can populate, in the order they are mapped. */
 const TARGETS = [
+  {
+    key: "fullName",
+    label: "Name (surname first)",
+    hints: ["name", "electorname", "votername", "fullname"],
+  },
   { key: "lastName", label: "Last name", hints: ["lastname", "last", "surname", "family"] },
   { key: "firstName", label: "First name", hints: ["firstname", "first", "given", "givenname"] },
   { key: "middleName", label: "Middle name", hints: ["middlename", "middle", "middleinitial", "initial"] },
   { key: "externalId", label: "List ID", hints: ["voterid", "electorid", "listid", "sequence", "id"] },
+  {
+    key: "streetAddress",
+    label: "Street address (number and street)",
+    hints: ["addressline", "streetaddress", "civicaddress"],
+  },
   { key: "streetNumber", label: "Street number", hints: ["streetnumber", "streetno", "housenumber", "houseno", "civicnumber", "civicno", "civic", "number", "stno", "no"] },
   { key: "streetName", label: "Street name", hints: ["street", "streetname", "road", "address"] },
   { key: "unit", label: "Unit / apt", hints: ["unit", "apt", "apartment", "suite"] },
@@ -31,6 +42,58 @@ const TARGETS = [
 
 type TargetKey = (typeof TARGETS)[number]["key"];
 type Mapping = Partial<Record<TargetKey, string>>;
+
+/**
+ * Targets that are not stored as they stand but split into other fields.
+ *
+ * Mapping one of these supersedes the fields it feeds: a list with a single
+ * `name` column has nothing left to put in Last name, and offering both only
+ * invites somebody to fill in two answers that disagree.
+ */
+const DERIVED: Record<string, readonly PlainKey[]> = {
+  fullName: ["lastName", "firstName", "middleName"],
+  streetAddress: ["streetNumber", "streetName"],
+};
+type DerivedKey = keyof typeof DERIVED;
+type PlainKey = Exclude<TargetKey, "fullName" | "streetAddress">;
+
+function isDerived(key: TargetKey): key is DerivedKey & TargetKey {
+  return key in DERIVED;
+}
+
+/**
+ * Turn one CSV row into the fields the server stores.
+ *
+ * Splitting happens here rather than on the server so the preview can show
+ * exactly what will be sent — somebody mapping a combined column should see
+ * "GIBSON  CHERYL LYNN" become a surname and a given name before they commit
+ * to it, not afterwards.
+ */
+function prepareRow(row: Record<string, string>, mapping: Mapping): ImportRow {
+  const read = (key: TargetKey) => {
+    const source = mapping[key];
+    return source ? (row[source] ?? "").trim() : "";
+  };
+
+  const out: ImportRow = {};
+  for (const target of TARGETS) {
+    if (isDerived(target.key)) continue;
+    if (mapping[target.key]) out[target.key as PlainKey] = read(target.key);
+  }
+
+  if (mapping.fullName) {
+    const name = splitPersonName(read("fullName"));
+    out.lastName = name.lastName;
+    out.firstName = name.firstName;
+    out.middleName = name.middleName;
+  }
+  if (mapping.streetAddress) {
+    const street = splitStreetAddress(read("streetAddress"));
+    out.streetNumber = street.streetNumber;
+    out.streetName = street.streetName;
+  }
+  return out;
+}
 
 /** Rows per server action call — keeps each request comfortably small. */
 const CHUNK_SIZE = 250;
@@ -113,14 +176,7 @@ export function ImportWizard({ showWards = false }: { showWards?: boolean }) {
    * tracked out here rather than in the action.
    */
   function runPlan() {
-    const prepared: ImportRow[] = rows.map((row) => {
-      const out: ImportRow = {};
-      for (const target of targets) {
-        const source = mapping[target.key];
-        if (source) out[target.key] = (row[source] ?? "").trim();
-      }
-      return out;
-    });
+    const prepared: ImportRow[] = rows.map((row) => prepareRow(row, mapping));
 
     setPlanError(null);
     startTransition(async () => {
@@ -193,7 +249,37 @@ export function ImportWizard({ showWards = false }: { showWards?: boolean }) {
     });
   }
 
-  const namesMapped = Boolean(mapping.firstName || mapping.lastName);
+  const namesMapped = Boolean(mapping.firstName || mapping.lastName || mapping.fullName);
+
+  // A field fed by a mapped combined column has nothing of its own to map, so
+  // it comes off the form rather than sitting there empty inviting an answer
+  // that would contradict the split.
+  const supersededKeys = new Set<PlainKey>();
+  for (const target of targets) {
+    if (isDerived(target.key) && mapping[target.key]) {
+      for (const key of DERIVED[target.key]) supersededKeys.add(key);
+    }
+  }
+  const visibleTargets = targets.filter(
+    (t) => isDerived(t.key) || !supersededKeys.has(t.key as PlainKey),
+  );
+
+  // The preview shows what gets stored, so its columns are the plain fields —
+  // those mapped directly, plus those a combined column is split into.
+  const previewColumns = (() => {
+    const filled = new Set<PlainKey>();
+    for (const target of targets) {
+      if (isDerived(target.key)) {
+        if (mapping[target.key]) for (const key of DERIVED[target.key]) filled.add(key);
+      } else if (mapping[target.key]) {
+        filled.add(target.key as PlainKey);
+      }
+    }
+    return TARGETS.filter(
+      (t): t is (typeof TARGETS)[number] & { key: PlainKey } =>
+        !isDerived(t.key) && filled.has(t.key as PlainKey),
+    );
+  })();
 
   // A list ID has digits in it. If the column mapped to List ID is all letters
   // it is almost certainly a name column, and importing it that way is quietly
@@ -266,7 +352,7 @@ export function ImportWizard({ showWards = false }: { showWards?: boolean }) {
               minimum.
             </p>
             <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {targets.map((target) => (
+              {visibleTargets.map((target) => (
                 <label key={target.key} className="block">
                   <span className="field-label">{target.label}</span>
                   <select
@@ -291,11 +377,14 @@ export function ImportWizard({ showWards = false }: { showWards?: boolean }) {
           {rows.length > 0 ? (
             <div>
               <h3 className="text-sm font-semibold">Preview</h3>
+              <p className="mt-0.5 text-xs text-muted">
+                What would be stored, after any combined column is split.
+              </p>
               <div className="table-scroll mt-2 rounded-lg border border-line">
                 <table className="w-full min-w-[36rem] text-sm">
                   <thead>
                     <tr className="bg-raise">
-                      {targets.filter((t) => mapping[t.key]).map((t) => (
+                      {previewColumns.map((t) => (
                         <th
                           key={t.key}
                           className="px-3 py-2 text-left text-xs font-semibold uppercase tracking-wide text-muted"
@@ -306,15 +395,18 @@ export function ImportWizard({ showWards = false }: { showWards?: boolean }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.slice(0, 5).map((row, i) => (
-                      <tr key={i} className="border-t border-line">
-                        {targets.filter((t) => mapping[t.key]).map((t) => (
-                          <td key={t.key} className="px-3 py-1.5">
-                            {row[mapping[t.key] as string] ?? ""}
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
+                    {rows.slice(0, 5).map((row, i) => {
+                      const prepared = prepareRow(row, mapping);
+                      return (
+                        <tr key={i} className="border-t border-line">
+                          {previewColumns.map((t) => (
+                            <td key={t.key} className="px-3 py-1.5">
+                              {prepared[t.key] ?? ""}
+                            </td>
+                          ))}
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -708,5 +800,14 @@ function guessMapping(
       taken.add(match);
     }
   }
+
+  // A combined column supersedes the fields it feeds. Without this a list whose
+  // only real street is "Address Line 1" also gets "Property Address" guessed
+  // into Street name — and that column holds a lot description, not an address.
+  for (const [derived, fed] of Object.entries(DERIVED)) {
+    if (!mapping[derived as TargetKey]) continue;
+    for (const key of fed) delete mapping[key];
+  }
+
   return mapping;
 }

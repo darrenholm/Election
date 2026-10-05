@@ -51,7 +51,15 @@ export default async function ImportPage() {
           </Definition>
           <Definition term="Street number and street">
             Kept separate so walk lists can sort down a street in door order
-            rather than alphabetically.
+            rather than alphabetically. A list that writes them together — &ldquo;58
+            Concession 4 E&rdquo; — maps to <strong>Street address</strong> instead and is
+            split on the way in.
+          </Definition>
+          <Definition term="Name (surname first)">
+            For a list with one name column reading &ldquo;GIBSON  CHERYL LYNN&rdquo; or
+            &ldquo;GIBSON, CHERYL LYNN&rdquo;. Map it here and the surname and given names
+            are separated for you; the preview shows the result before anything
+            is sent.
           </Definition>
           <Definition term="Unit">
             Apartment or suite. Two voters at the same street address with

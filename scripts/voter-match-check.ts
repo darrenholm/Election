@@ -20,6 +20,7 @@ import {
   type MatchCandidate,
   type MatchOutcome,
 } from "../src/lib/voter-match";
+import { splitPersonName, splitStreetAddress } from "../src/lib/voter-columns";
 
 function voter(
   id: string,
@@ -244,8 +245,83 @@ if (nameKey("O'Brien-Smith") !== nameKey("obrien smith")) {
   problems.push("punctuation and spacing still change a name key");
 }
 
+/* Some lists put the whole name in one column and the whole street in another.
+   Brockton's assessment roll does both, and importing those as they stand gives
+   a surname of "GIBSON  CHERYL LYNN" that matches nobody. */
+const NAME_SPLITS: [string, string, string, string][] = [
+  // input, last, first, middle
+  ["GIBSON  CHERYL LYNN", "GIBSON", "CHERYL", "LYNN"],
+  ["GIBSON, CHERYL LYNN", "GIBSON", "CHERYL", "LYNN"],
+  ["GIBSON CHERYL LYNN", "GIBSON", "CHERYL", "LYNN"],
+  // A surname with a space survives the comma and the double space, which is
+  // the reason both are preferred over splitting at the first space.
+  ["VAN DER BERG  ANNA", "VAN DER BERG", "ANNA", ""],
+  ["VAN DER BERG, ANNA MARIE", "VAN DER BERG", "ANNA", "MARIE"],
+  // Stray whitespace from a fixed-width dump must not become part of a name.
+  ["  GIBSON  CHERYL  ", "GIBSON", "CHERYL", ""],
+  ["GIBSON", "GIBSON", "", ""],
+  ["", "", "", ""],
+];
+for (const [input, last, first, middle] of NAME_SPLITS) {
+  const got = splitPersonName(input);
+  if (got.lastName !== last || got.firstName !== first || got.middleName !== middle) {
+    problems.push(
+      `splitting the name "${input}"\n    expected ${last} / ${first} / ${middle || "-"}, got ${got.lastName} / ${got.firstName} / ${got.middleName || "-"}`,
+    );
+  }
+}
+
+const STREET_SPLITS: [string, string, string][] = [
+  ["58 CONCESSION 4 E", "58", "CONCESSION 4 E"],
+  ["5421 SECOND LINE ERIN", "5421", "SECOND LINE ERIN"],
+  ["12A Main St", "12A", "Main St"],
+  ["58-60 Main St", "58-60", "Main St"],
+  // A rural road with no civic number keeps its name rather than inventing one.
+  ["CONCESSION 4 E", "", "CONCESSION 4 E"],
+  ["", "", ""],
+];
+for (const [input, number, street] of STREET_SPLITS) {
+  const got = splitStreetAddress(input);
+  if (got.streetNumber !== number || got.streetName !== street) {
+    problems.push(
+      `splitting the address "${input}"\n    expected ${number || "(none)"} / ${street}, got ${got.streetNumber || "(none)"} / ${got.streetName}`,
+    );
+  }
+}
+
+/* And the point of all that: a row from a one-column list has to find the
+   person the earlier list already put on file. */
+const combined = splitPersonName("GIBSON  CHERYL LYNN");
+const combinedStreet = splitStreetAddress("58 CONCESSION 4 E");
+const onFile = indexCandidates([], [
+  voter("v-cheryl", null, "Cheryl", "Gibson", ["58", "Concession 4 E", "", "Mildmay"], {
+    middleName: "Lynn",
+  }),
+]);
+const reunited = matchVoter(
+  {
+    firstName: combined.firstName,
+    lastName: combined.lastName,
+    streetNumber: combinedStreet.streetNumber,
+    streetName: combinedStreet.streetName,
+    city: "MILDMAY",
+  },
+  onFile,
+);
+if (reunited.kind !== "match" || reunited.voter.id !== "v-cheryl") {
+  problems.push(
+    "a split one-column row no longer finds the person already on file\n    expected v-cheryl, got " +
+      (reunited.kind === "match" ? reunited.voter.id : "no match"),
+  );
+}
+
+const checked = CASES.length + NAME_SPLITS.length + STREET_SPLITS.length;
+
 if (problems.length === 0) {
-  console.log(`The voters' list matcher handles all ${CASES.length} cases.`);
+  console.log(
+    `The voters' list importer handles all ${checked} cases: ${CASES.length} matches, ` +
+      `${NAME_SPLITS.length} name splits, ${STREET_SPLITS.length} address splits.`,
+  );
   process.exit(0);
 }
 
