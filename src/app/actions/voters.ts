@@ -6,6 +6,14 @@ import { db } from "@/lib/db";
 import { CONTACT_METHODS, CONTACT_RESULTS, joinList } from "@/lib/enums";
 import { bool, date, intOrNull, list, oneOf, str, strOrNull } from "@/lib/form";
 import { canonicalStreet, normalisePostal, normaliseStreet } from "@/lib/address";
+import {
+  diffVoter,
+  formatAddress,
+  formatName,
+  indexCandidates,
+  matchVoter,
+  type ImportChange,
+} from "@/lib/voter-match";
 import { getActiveCampaign, requireCampaignId } from "@/lib/campaign";
 import { requireCampaign, requireOwned, requireVoterMunicipality } from "@/lib/guard";
 import { createSignRequestForVoter } from "@/lib/sign-requests";
@@ -403,15 +411,167 @@ export type ImportResult = {
   errors: string[];
 };
 
+/** How a single CSV row matched — or failed to match — a voter on file. */
+export type ImportPlanRow = {
+  /** Row number as it appears in the CSV, counting the header as row 1. */
+  row: number;
+  action: "create" | "update";
+  /** The voter this row would update, when there is one. */
+  voterId: string | null;
+  /** What found the match, for explaining the decision to whoever confirms it. */
+  matchedBy: "listId" | "nameAndAddress" | "name" | null;
+  /** The matched voter as they stand today: "Mary O'Brien — 12 Main St". */
+  existingName: string;
+  existingAddress: string;
+  changes: ImportChange[];
+  /**
+   * How many voters matched this row's name when the match was not unique.
+   * Non-zero means the row is left as an addition and wants a human eye.
+   */
+  rivals: number;
+};
+
+export type ImportPlan = {
+  rows: ImportPlanRow[];
+  errors: string[];
+};
+
+/**
+ * Work out what a voters' list import would do, without doing any of it.
+ *
+ * The clerk reissues the list through a campaign and each issue is the same
+ * people over again, so the question that matters before importing is which
+ * rows are new and which are people already on file. Answering it in a
+ * separate pass lets the import wizard show the changes and have someone
+ * confirm them, rather than finding out afterwards that the voter file has
+ * doubled.
+ *
+ * Rows are planned in chunks, so this sees only part of the file at a time.
+ * Two rows in different chunks that match the same voter cannot be spotted
+ * here; the wizard stitches the chunks together and catches that.
+ */
+export async function planVoterImport(
+  rows: ImportRow[],
+  firstRowNumber: number,
+): Promise<ImportPlan> {
+  const campaign = await getActiveCampaign();
+  if (!campaign) return { rows: [], errors: ["No campaign selected"] };
+  if (!(await requireCampaign(campaign.id, "MANAGER"))) {
+    return { rows: [], errors: ["Manager access required"] };
+  }
+  const municipalityId = campaign.municipalityId;
+
+  // Pull every voter who could possibly match something in this chunk — those
+  // carrying one of its list ids, and those sharing a surname with one of its
+  // rows — in two queries rather than two per row.
+  const externalIds = [
+    ...new Set(rows.map((r) => (r.externalId ?? "").trim()).filter(Boolean)),
+  ];
+  const lastNames = [
+    ...new Set(rows.map((r) => (r.lastName ?? "").trim()).filter(Boolean)),
+  ];
+
+  const select = {
+    id: true,
+    externalId: true,
+    firstName: true,
+    middleName: true,
+    lastName: true,
+    email: true,
+    phone: true,
+    household: {
+      select: { streetNumber: true, streetName: true, unit: true, city: true },
+    },
+  } as const;
+
+  const [withListId, withSurname] = await Promise.all([
+    externalIds.length > 0
+      ? db.voter.findMany({ where: { municipalityId, externalId: { in: externalIds } }, select })
+      : Promise.resolve([]),
+    lastNames.length > 0
+      ? db.voter.findMany({
+          where: { municipalityId, lastName: { in: lastNames, mode: "insensitive" } },
+          select,
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const index = indexCandidates(withListId, withSurname);
+  const planned: ImportPlanRow[] = [];
+
+  for (const [offset, row] of rows.entries()) {
+    const outcome = matchVoter(row, index);
+    const rowNumber = firstRowNumber + offset;
+
+    if (outcome.kind === "none") {
+      planned.push({
+        row: rowNumber,
+        action: "create",
+        voterId: null,
+        matchedBy: null,
+        existingName: "",
+        existingAddress: "",
+        changes: [],
+        rivals: outcome.rivals,
+      });
+      continue;
+    }
+
+    const { voter } = outcome;
+    const existingAddress = formatAddress(voter.household ?? {});
+    planned.push({
+      row: rowNumber,
+      action: "update",
+      voterId: voter.id,
+      matchedBy: outcome.matchedBy,
+      existingName: formatName(voter),
+      existingAddress,
+      changes: diffVoter(
+        {
+          firstName: voter.firstName,
+          middleName: voter.middleName,
+          lastName: voter.lastName,
+          email: voter.email,
+          phone: voter.phone,
+          address: existingAddress,
+        },
+        {
+          firstName: (row.firstName ?? "").trim(),
+          middleName: (row.middleName ?? "").trim(),
+          lastName: (row.lastName ?? "").trim(),
+          email: (row.email ?? "").trim(),
+          phone: (row.phone ?? "").trim(),
+          address: formatAddress(row),
+        },
+      ),
+      rivals: 0,
+    });
+  }
+
+  return { rows: planned, errors: [] };
+}
+
+/** What the wizard decided to do with one row, once a human has seen it. */
+export type ImportDecision = {
+  action: "create" | "update" | "skip";
+  voterId?: string;
+};
+
 /**
  * Bulk-load a voters' list into the active campaign's municipality.
  *
  * Voters are shared by every campaign in the town, so a re-import updates the
  * shared record and leaves each campaign's own support levels and consent
- * untouched. Rows carrying an external id update in place rather than
- * duplicating.
+ * untouched.
+ *
+ * `decisions` runs parallel to `rows` and carries what planVoterImport worked
+ * out and whoever ran the wizard then confirmed. Without it the import can only
+ * match on list ID, which is all it could do before the review step existed.
  */
-export async function importVoters(rows: ImportRow[]): Promise<ImportResult> {
+export async function importVoters(
+  rows: ImportRow[],
+  decisions?: ImportDecision[],
+): Promise<ImportResult> {
   const campaign = await getActiveCampaign();
   if (!campaign) {
     return { created: 0, updated: 0, skipped: rows.length, households: 0, errors: ["No campaign selected"] };
@@ -429,6 +589,12 @@ export async function importVoters(rows: ImportRow[]): Promise<ImportResult> {
   const householdCache = new Map<string, string | null>();
 
   for (const [index, row] of rows.entries()) {
+    const decision = decisions?.[index];
+    if (decision?.action === "skip") {
+      result.skipped++;
+      continue;
+    }
+
     const firstName = (row.firstName ?? "").trim();
     const lastName = (row.lastName ?? "").trim();
     if (firstName === "" && lastName === "") {
@@ -461,38 +627,75 @@ export async function importVoters(rows: ImportRow[]): Promise<ImportResult> {
         if (householdId && householdCache.size > before) result.households++;
       }
 
-      const data = {
+      const incoming = {
         firstName,
         middleName: (row.middleName ?? "").trim(),
         lastName,
         email: (row.email ?? "").trim(),
         phone: (row.phone ?? "").trim(),
-        householdId,
-        municipalityId,
       };
-
       const externalId = (row.externalId ?? "").trim();
-      if (externalId) {
+
+      // Which voter this row updates, if any. With a reviewed plan the answer
+      // is already decided; without one, the list ID is the only handle there
+      // is.
+      let targetId: string | null = null;
+      if (decision) {
+        if (decision.action === "update") {
+          // An update with nothing to update is a bug in the caller, and
+          // falling through to a create here would add the very duplicate the
+          // review step exists to prevent. Leave the row alone and say so.
+          if (!decision.voterId) throw new Error("no voter to update");
+          targetId = decision.voterId;
+        }
+      } else if (externalId) {
         const existing = await db.voter.findUnique({
           where: { municipalityId_externalId: { municipalityId, externalId } },
+          select: { id: true },
         });
-        if (existing) {
-          await db.voter.update({ where: { id: existing.id }, data });
-          result.updated++;
-        } else {
-          await db.voter.create({ data: { ...data, externalId } });
-          result.created++;
+        targetId = existing?.id ?? null;
+      }
+
+      if (targetId) {
+        // An update fills gaps and corrects what this list actually carries,
+        // and is silent about the rest. A clerk's list with no phone column
+        // must not wipe the numbers the campaign has collected by hand, and one
+        // with no address columns must not cut the voter loose from their door.
+        const data: {
+          firstName?: string;
+          middleName?: string;
+          lastName?: string;
+          email?: string;
+          phone?: string;
+          householdId?: string;
+          externalId?: string;
+        } = {};
+        for (const [field, value] of Object.entries(incoming)) {
+          if (value !== "") data[field as keyof typeof incoming] = value;
         }
+        if (householdId) data.householdId = householdId;
+        // A list that has been renumbered since the last issue hands the voter
+        // a new id; recording it means the next import matches on the id again
+        // instead of falling back to the name.
+        if (externalId) data.externalId = externalId;
+
+        await db.voter.update({ where: { id: targetId }, data });
+        result.updated++;
       } else {
-        await db.voter.create({ data });
+        await db.voter.create({
+          data: {
+            ...incoming,
+            householdId,
+            municipalityId,
+            ...(externalId ? { externalId } : {}),
+          },
+        });
         result.created++;
       }
     } catch (error) {
       result.skipped++;
       if (result.errors.length < 20) {
-        result.errors.push(
-          `Row ${index + 2}: ${error instanceof Error ? error.message : "could not import"}`,
-        );
+        result.errors.push(`Row ${index + 2}: ${describeImportError(error, row)}`);
       }
     }
   }
@@ -500,6 +703,24 @@ export async function importVoters(rows: ImportRow[]): Promise<ImportResult> {
   revalidatePath("/voters");
   revalidatePath("/canvass");
   return result;
+}
+
+/**
+ * Say what went wrong in words the campaign office can act on.
+ *
+ * The one failure worth naming is a list ID already held by somebody else:
+ * Prisma reports it as P2002 on a unique constraint, which tells a reader
+ * nothing about which row to go and look at.
+ */
+function describeImportError(error: unknown, row: ImportRow): string {
+  const code = (error as { code?: string })?.code;
+  if (code === "P2002") {
+    const externalId = (row.externalId ?? "").trim();
+    return externalId
+      ? `another voter already has list ID ${externalId}`
+      : "a voter with these details is already on file";
+  }
+  return error instanceof Error ? error.message : "could not import";
 }
 
 /* --------------------------------------------------------- address import */
