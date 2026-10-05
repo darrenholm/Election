@@ -20,11 +20,18 @@
  * Two kinds of duplicate are reported separately, because they deserve
  * different levels of trust:
  *
- *   CERTAIN  the same name, normalised. "DUBÉ, Marie" and "Dube, Marie".
- *   LIKELY   the same surname and first initial at the same door, spelled
- *            differently — "Robert" and "Rob" Schmidt at 44 Yonge St S. This
- *            is what a list that changed its name format leaves behind, and it
- *            is the one a name-only search misses.
+ *   CERTAIN  the same name, normalised, at the same door. "DUBÉ, Marie" and
+ *            "Dube, Marie" both at 12 Main St.
+ *   LIKELY   needs a person to look. Either the same surname and first initial
+ *            at one door spelled differently — "Robert" and "Rob" Schmidt at
+ *            44 Yonge St S, which is what a list that changed its name format
+ *            leaves behind — or the same name at different doors, which is one
+ *            person who moved between issues of the list, or two people who
+ *            happen to share a name.
+ *
+ * A shared name alone is never enough. A town of twenty-odd thousand electors
+ * has two John Smiths living apart, and merging them would destroy a real
+ * person'"'"'s record; so the door has to agree before anything is called certain.
  *
  * A LIKELY group only counts when its members arrived on different days, since
  * a duplicate is the same person coming back in a later import. That keeps a
@@ -34,7 +41,13 @@
  */
 
 import { PrismaClient } from "@prisma/client";
-import { formatAddress, nameKey, voterInitialKey, voterNameKey } from "../src/lib/voter-match";
+import {
+  formatAddress,
+  householdKey,
+  nameKey,
+  voterInitialKey,
+  voterNameKey,
+} from "../src/lib/voter-match";
 import { writeFileSync } from "node:fs";
 
 const db = new PrismaClient();
@@ -172,7 +185,6 @@ async function main() {
     const groups: Group[] = [];
     const spoken = new Set<string>();
 
-    // CERTAIN — the same name, however it is spelled.
     const byName = new Map<string, Row[]>();
     for (const voter of voters) {
       if (nameKey(voter.firstName) === "" && nameKey(voter.lastName) === "") continue;
@@ -181,10 +193,60 @@ async function main() {
       if (bucket) bucket.push(voter);
       else byName.set(key, [voter]);
     }
+
     for (const members of byName.values()) {
       if (members.length < 2) continue;
-      for (const m of members) spoken.add(m.id);
-      groups.push({ confidence: "CERTAIN", label: formatName(members[0]), members });
+
+      // A shared name is not on its own a duplicate. A town of twenty-odd
+      // thousand electors has two John Smiths, and merging them would destroy
+      // a real person's record — so the door has to agree as well.
+      const atDoor = new Map<string, Row[]>();
+      const doorUnknown: Row[] = [];
+      for (const m of members) {
+        const key = m.household ? householdKey(m.household) : "";
+        if (key === "" || key.replace(/\|/g, "") === "") doorUnknown.push(m);
+        else {
+          const bucket = atDoor.get(key);
+          if (bucket) bucket.push(m);
+          else atDoor.set(key, [m]);
+        }
+      }
+
+      // The same name at the same door needs no judgement — unless the middle
+      // names disagree. A father and son at one address, John A and John B
+      // Smith, are two people, and the clerk's list carries the initial that
+      // says so. Where it does, the group drops to LIKELY rather than being
+      // picked apart automatically.
+      const singles: Row[] = [];
+      for (const sharing of atDoor.values()) {
+        if (sharing.length > 1) {
+          const middles = new Set(
+            sharing.map((m) => nameKey(m.middleName)).filter((k) => k !== ""),
+          );
+          for (const m of sharing) spoken.add(m.id);
+          groups.push({
+            confidence: middles.size > 1 ? "LIKELY" : "CERTAIN",
+            label: formatName(sharing[0]),
+            members: sharing,
+          });
+        } else {
+          singles.push(sharing[0]);
+        }
+      }
+      singles.push(...doorUnknown);
+
+      // What is left is the same name at different doors, or with no door on
+      // record. Two of those from one import are two people. Across imports,
+      // one is likely the other coming back with a new address — which is what
+      // happens when somebody moves between issues of the list — so it is
+      // reported, but as a judgement call rather than a certainty.
+      if (singles.length > 1) {
+        const days = new Set(singles.map((m) => m.createdAt.toISOString().slice(0, 10)));
+        if (days.size > 1) {
+          for (const m of singles) spoken.add(m.id);
+          groups.push({ confidence: "LIKELY", label: formatName(singles[0]), members: singles });
+        }
+      }
     }
 
     // LIKELY — the same surname and initial at one door, spelled differently.
