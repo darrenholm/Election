@@ -15,6 +15,7 @@ import { Badge, Card, EmptyState, Field, Note, PageHeader, Select } from "@/comp
 import { SupportBadge, titleCase } from "@/components/voter";
 import { ContactForm } from "@/components/contact-form";
 import { DoorHanger, NobodyHome } from "@/components/door-actions";
+import { TurfOffline } from "@/components/turf-offline";
 
 export const dynamic = "force-dynamic";
 
@@ -131,6 +132,10 @@ export default async function TurfPage({ params }: { params: Promise<{ id: strin
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">Streets</p>
           <p className="mt-1 text-2xl font-bold tabular-nums">{streets.length}</p>
         </div>
+      </div>
+
+      <div className="mb-6">
+        <TurfOffline turfId={turf.id} doors={turf.households.length} />
       </div>
 
       <section id="walk-list" className="space-y-6">

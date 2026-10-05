@@ -28,6 +28,20 @@
         on their own once you are back in coverage. Nothing has been lost.
       </p>
       <button onclick="location.reload()">Try again</button>
+      <p id="saved" hidden style="margin-top: 1.25rem">
+        <a href="/canvass/offline">Open a walk list saved to this phone</a>
+      </p>
+      <script>
+        // Only offer it when there is actually one saved, so the link never
+        // leads to an empty page in the middle of a concession road. The check
+        // reads the little index the app keeps beside the turfs themselves —
+        // opening IndexedDB from here would create an empty database and stop
+        // the app from ever making its own.
+        try {
+          var saved = JSON.parse(localStorage.getItem("campaign:offline-turfs:v1") || "[]");
+          if (saved.length > 0) document.getElementById("saved").hidden = false;
+        } catch (e) {}
+      </script>
     </div>
   </body>
 </html>

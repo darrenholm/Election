@@ -7,6 +7,7 @@ import { formatDateTime } from "@/lib/dates";
 import { createTurf } from "@/app/actions/voters";
 import { Badge, Card, EmptyState, Field, PageHeader, Select, StatTile } from "@/components/ui";
 import { titleCase } from "@/components/voter";
+import { SavedTurfsNote } from "@/components/saved-turfs-note";
 
 export const dynamic = "force-dynamic";
 
@@ -84,6 +85,8 @@ export default async function CanvassPage() {
           </Link>
         }
       />
+
+      <SavedTurfsNote />
 
       <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatTile label="Turfs" value={turfs.length} />
