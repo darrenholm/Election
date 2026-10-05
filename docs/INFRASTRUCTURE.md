@@ -99,11 +99,18 @@ npm run typecheck        TypeScript
 npm run lint             ESLint
 npm run build            the real build
 npm run sinalite:check   catalogue and trade-printer map still agree
+npm run voters:match-check  the voters' list importer still recognises the same people
 ```
 
 `sinalite:check` needs no credentials and no network. Run it after touching the
 catalogue: it catches a product in one file and not the other, a quantity the
 storefront sells that the printer cannot make, an option with no counterpart.
+
+`voters:match-check` needs no database either. Run it after touching
+`src/lib/voter-match.ts`: it feeds the importer a re-issued voters' list and
+checks each row lands on the right person — including the rows where the honest
+answer is "cannot tell", since a wrong match writes one voter's details over
+another's.
 
 ## Running it locally, including in a container
 

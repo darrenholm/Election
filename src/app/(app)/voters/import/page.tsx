@@ -26,8 +26,9 @@ export default async function ImportPage() {
 
       <div className="mb-6 space-y-3">
         <Note>
-          The file is read in your browser — nothing is uploaded until you press
-          Import, and only the columns you map are stored.
+          The file is read in your browser, and only the columns you map ever
+          leave it. Checking it against the voter file saves nothing — you see
+          every change first, and confirm it.
         </Note>
         <Note tone="warn">
           The municipal voters&apos; list may only be used for election
@@ -43,9 +44,10 @@ export default async function ImportPage() {
       <Card title="What the columns mean" className="mt-6">
         <dl className="grid gap-3 text-sm sm:grid-cols-2">
           <Definition term="List ID">
-            The clerk&apos;s unique identifier for the elector. Map it if you have
-            it — re-importing an updated list will then refresh existing records
-            instead of creating duplicates.
+            The clerk&apos;s unique identifier for the elector, and the surest way
+            to recognise someone already on file. Map it if you have it. Without
+            it — or when the clerk renumbers the list between issues — a
+            re-import falls back to matching on name and address.
           </Definition>
           <Definition term="Street number and street">
             Kept separate so walk lists can sort down a street in door order
